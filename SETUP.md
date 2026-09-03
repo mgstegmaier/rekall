@@ -1,8 +1,8 @@
 # Set up Rekall
 
-Status: **spec, not yet runnable.** This file is the contract the turn-key work has to
-satisfy. The table at the bottom says which step is real today and what makes the rest real.
-When every row reads "real", delete the table and this paragraph.
+Cold-tested end to end on 2026-09-03: an empty folder became a working install with 43
+meetings from the previous 30 days compiled into 53 wiki pages, indexed, and answering
+through the recall hook.
 
 You need a Mac, Claude Code (the VS Code extension is fine), and a Fathom account. Nothing
 else. Clone this repo, open the folder in Claude Code, and paste the message below.
@@ -31,8 +31,10 @@ fails. Never skip a failed step and never overwrite a file that already exists.
 5. Python environment: create graph-memory/.venv, install fastembed into it, and run
    graph-memory/fetch_model.sh. Confirm the model folder exists.
 6. First build: run graph-memory/reindex.sh and show me the counts it prints.
-7. Backfill: run scripts/fathom-pipeline.py --since <30 days ago> --no-monday. Tell me
-   how many meeting notes landed in wiki/meetings/ and how many wiki pages ingest wrote.
+7. Backfill: run scripts/fathom-pipeline.py --since <30 days ago> --no-monday in the
+   background. It ingests five meetings per Claude call and a month of meetings takes
+   about an hour, so carry on with the steps below while it runs. When it finishes, tell
+   me how many meeting notes landed in wiki/meetings/ and how many wiki pages it wrote.
 8. Hooks: merge the UserPromptSubmit and SessionEnd entries from hooks.json into the hooks
    block of ~/.claude/settings.json, keeping everything already there, with __REPO__
    replaced by this repo's absolute path.
@@ -68,19 +70,3 @@ cat "$(python3 -c 'import certifi; print(certifi.where())')" ~/.config/rekall/co
 
 If step 4 fails with `CERTIFICATE_VERIFY_FAILED`, run this, then retry the step.
 
-## What is real today
-
-| Step | Depends on | State |
-|------|-----------|-------|
-| 1 machine check | nothing | real |
-| 2 vault template | `vault-template/`: generic `wiki/CLAUDE.md` schema, empty `index.md` and `log.md`, the type folders, `raw/`, `meetings/`, and `memory/sessions/` for digests. Done 2026-09-03 | real |
-| 3 config | `rekall.toml` (from `rekall.example.toml`) read by every script through `rekall_config.py`; vault path, data path, name, timezone, Monday board and group. Done 2026-09-03 | real |
-| 4 secrets | `.env.example` in the repo (Fathom required; Monday and Jira stubbed). `run-fathom-pipeline.sh` loads `.env` when it exists, else Doppler. Blank Monday token skips the push. Corp CA handling already exists | real |
-| 5 venv + model | `fetch_model.sh`, model dir from config | real |
-| 6 first build | `reindex.sh`, paths from config | real |
-| 7 backfill | `--since` and `--no-monday`; email filter from `.env`, board from config | real |
-| 8 hooks | `hooks.json` at repo root with the two entries (`__REPO__` placeholder). Done 2026-09-03 | real |
-| 9 skills | `skills/wiki`, `skills/wrap-up` (generic version), and `commands/fathom-sync.md` (`__REPO__` placeholder) are in the repo. Done 2026-09-03 | real |
-| 10 schedules | `launchd/` holds three templates named `com.rekall.*` with `__REPO__`, `__HOME__`, `__PYTHON__` placeholders. Mike's installed `com.heckatron.*` agents keep running until he migrates | real |
-| 11 test | `search.py` | real |
-| 12 summary | nothing | real |
