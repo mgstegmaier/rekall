@@ -1,0 +1,6 @@
+.venv/
+rag.db
+distilled/
+model/
+digest/pending/
+digest/log/

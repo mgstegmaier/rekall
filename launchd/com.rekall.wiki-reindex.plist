@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Template. Replace __REPO__ (this repo's absolute path) and __HOME__ (your home folder),
+     then copy to ~/Library/LaunchAgents/ and `launchctl load` it. -->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.rekall.wiki-reindex</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>__REPO__/graph-memory/reindex.sh</string>
+    </array>
+    <!-- hourly; build_index.py is incremental (seconds), and promotes the first
+         Sunday run each week to the ~24-min full rebuild on its own -->
+    <key>StartInterval</key>
+    <integer>3600</integer>
+    <key>StandardOutPath</key>
+    <string>__HOME__/.config/rekall/logs/wiki-reindex.log</string>
+    <key>StandardErrorPath</key>
+    <string>__HOME__/.config/rekall/logs/wiki-reindex.log</string>
+</dict>
+</plist>

@@ -1,0 +1,27 @@
+{
+  "_comment": "Merge the two entries below into the hooks block of ~/.claude/settings.json, keeping anything already there. Replace __REPO__ with this repo's absolute path. The recall hook fails open: any error exits silently and never blocks a prompt.",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"__REPO__/graph-memory/.venv/bin/python\" \"__REPO__/graph-memory/recall_hook.py\"",
+            "timeout": 20
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"__REPO__/graph-memory/.venv/bin/python\" \"__REPO__/graph-memory/digest/session_end.py\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

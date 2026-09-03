@@ -1,0 +1,21 @@
+# Rekall settings. Copy to rekall.toml (gitignored) and edit. Secrets go in .env, not here.
+
+[user]
+name = "Your Name"            # how the wiki and digests refer to you
+timezone = "America/Chicago"  # IANA name; meeting notes are dated in this zone
+
+[vault]
+# The folder that holds wiki/ and memory/sessions/. An Obsidian vault if you have one,
+# otherwise any folder; setup copies vault-template/ into it.
+path = "~/rekall-vault"
+
+[data]
+# Index (rag.db), embedding model, distillates, digest staging. Regenerable, kept out of the vault.
+path = "~/rekall-data"
+# Pipeline state, lint state, locks and logs. Default is fine unless you run two installs on one machine.
+# state = "~/.config/rekall"
+
+[monday]
+# Optional. Only used when MONDAY_API_TOKEN is set in .env.
+board = 0
+group = "Auto-Capture"

@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Template. Replace __REPO__ (this repo's absolute path), __HOME__ (your home folder) and
+     __PYTHON__ (the absolute path of a python3 that is 3.11 or newer; launchd's PATH is
+     minimal and Apple's /usr/bin/python3 is too old), then copy to ~/Library/LaunchAgents/
+     and `launchctl load` it. Runs nightly at 21:30. -->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.rekall.wiki-lint</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>__PYTHON__</string>
+        <string>__REPO__/scripts/wiki-lint.py</string>
+    </array>
+    <key>StandardErrorPath</key>
+    <string>__HOME__/.config/rekall/logs/wiki-lint-launchd.log</string>
+    <key>StandardOutPath</key>
+    <string>__HOME__/.config/rekall/logs/wiki-lint-launchd.log</string>
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>21</integer>
+        <key>Minute</key>
+        <integer>30</integer>
+    </dict>
+</dict>
+</plist>

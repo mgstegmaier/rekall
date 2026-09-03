@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Template. Replace __REPO__ (this repo's absolute path) and __HOME__ (your home folder),
+     then copy to ~/Library/LaunchAgents/ and `launchctl load` it. Runs hourly, 7am-7pm. -->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.rekall.fathom-pipeline</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>__REPO__/scripts/run-fathom-pipeline.sh</string>
+    </array>
+    <key>StartCalendarInterval</key>
+    <array>
+        <dict><key>Hour</key><integer>7</integer><key>Minute</key><integer>15</integer></dict>
+        <dict><key>Hour</key><integer>8</integer><key>Minute</key><integer>15</integer></dict>
+        <dict><key>Hour</key><integer>9</integer><key>Minute</key><integer>15</integer></dict>
+        <dict><key>Hour</key><integer>10</integer><key>Minute</key><integer>15</integer></dict>
+        <dict><key>Hour</key><integer>11</integer><key>Minute</key><integer>15</integer></dict>
+        <dict><key>Hour</key><integer>12</integer><key>Minute</key><integer>15</integer></dict>
+        <dict><key>Hour</key><integer>13</integer><key>Minute</key><integer>15</integer></dict>
+        <dict><key>Hour</key><integer>14</integer><key>Minute</key><integer>15</integer></dict>
+        <dict><key>Hour</key><integer>15</integer><key>Minute</key><integer>15</integer></dict>
+        <dict><key>Hour</key><integer>16</integer><key>Minute</key><integer>15</integer></dict>
+        <dict><key>Hour</key><integer>17</integer><key>Minute</key><integer>15</integer></dict>
+        <dict><key>Hour</key><integer>18</integer><key>Minute</key><integer>15</integer></dict>
+        <dict><key>Hour</key><integer>19</integer><key>Minute</key><integer>15</integer></dict>
+    </array>
+    <key>StandardOutPath</key>
+    <string>__HOME__/.config/rekall/logs/launchd.log</string>
+    <key>StandardErrorPath</key>
+    <string>__HOME__/.config/rekall/logs/launchd.log</string>
+</dict>
+</plist>
