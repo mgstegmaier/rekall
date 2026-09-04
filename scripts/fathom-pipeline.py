@@ -37,7 +37,7 @@ from rekall_config import MONDAY_BOARD, MONDAY_GROUP, STATE_DIR, TIMEZONE, VAULT
 MEETINGS = VAULT / "wiki" / "meetings"
 RAW = VAULT / "wiki" / "raw"
 WIKI_LOG = VAULT / "wiki" / "log.md"
-WIKI_TYPED_DIRS = ["people", "projects", "entities", "concepts", "summaries"]
+WIKI_TYPED_DIRS = ["pages"]
 STATE_FILE = STATE_DIR / "fathom-pipeline-state.json"
 LOG_DIR = STATE_DIR / "logs"
 LOCK_FILE = STATE_DIR / "fathom-pipeline.lock"

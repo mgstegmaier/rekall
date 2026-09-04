@@ -16,40 +16,41 @@ wiki/
 ├── index.md          # content catalog; GENERATED from page frontmatter — never hand-edit entries; frontmatter is okf_version ONLY
 ├── log.md            # operations log; headings are bare ISO dates (## YYYY-MM-DD)
 ├── CLAUDE.md         # this file
-├── people/           # person entity pages
-├── projects/         # project entity pages (state, members, decisions, next steps)
-├── entities/         # other entities: servers, tools, orgs, places, products
-├── concepts/         # ideas, patterns, methodologies, fundamentals
-├── summaries/        # per-source summary pages
+├── *.base            # one Obsidian Base per type (people, projects, entities, concepts, summaries, meetings) — the human browsing surface
+├── pages/            # every compiled page, flat; `type` in frontmatter says what it is (person, project, entity, concept, summary)
 ├── meetings/         # meeting notes written by the Fathom pipeline — SOURCE layer, immutable once written
 └── raw/              # user-curated sources — IMMUTABLE to Claude; the wiki owner adds and removes files
 ```
+
+One flat `pages/` folder, not type folders: folders do nothing for retrieval (wikilinks resolve by basename; the index, recall hook, and Bases read frontmatter) and stop being browsable past ~50 files. Humans browse through the Bases and index.md; the LLM finds pages through the index, wikilinks, and grep.
 
 Beside `wiki/`, `memory/sessions/` holds the session digests the SessionEnd hook writes. They are indexed for recall and cited by wiki pages, but they are not wiki pages and never get edited.
 
 ## Placement (mechanical, never a judgment call)
 
-- Person (tagged `people`) → `people/`
-- Project → `projects/`
-- Any other entity → `entities/`
-- `wiki-type: concept` → `concepts/`
-- `wiki-type: summary` → `summaries/` — NON-MEETING sources only (long, raw, or external documents where the compiled summary is the artifact). Never create a per-meeting summary page: a meeting note is already Fathom's summary, so meeting content flows directly into entity/project/concept pages citing the meeting note.
-- One level deep, never deeper. Could go two places → `entities/`.
+`type` in frontmatter is the taxonomy. Every compiled page goes in `pages/`; pick the type and nothing else:
+
+- `type: person` — a human
+- `type: project` — an initiative with state, members, decisions, next steps
+- `type: entity` — anything else that exists: servers, tools, orgs, places, products
+- `type: concept` — ideas, patterns, methodologies, fundamentals
+- `type: summary` — NON-MEETING sources only (long, raw, or external documents where the compiled summary is the artifact). Never create a per-meeting summary page: a meeting note is already Fathom's summary, so meeting content flows directly into entity/project/concept pages citing the meeting note.
+- `type: meeting` → `meetings/`, the one folder split: meetings are the source layer.
+- Could be two types → `type: entity`.
 - Basenames are unique across the whole wiki (wikilinks resolve by basename).
 - Page names: lowercase, hyphen-separated, max 50 chars.
 
 ## Project catalog (curated)
 
-`projects/` holds every initiative the wiki knows about, not only the owner's. Rules for writers:
+Project pages (`type: project`) hold every initiative the wiki knows about, not only the owner's. Rules for writers:
 
-- Match new content to an EXISTING project page first — check the `projects/` listing (and page titles/aliases) before creating anything.
+- Match new content to an EXISTING project page first — check the projects Base or the index's Projects section (and page titles/aliases) before creating anything.
 - When a genuinely new project page is unavoidable, add the tag `needs-review` to its frontmatter so the owner can bless, rename, merge, or retire it later.
 
 ## Page frontmatter
 
 ```yaml
-type: wiki-page          # meetings use: type: meeting
-wiki-type: entity|project|concept|summary
+type: entity|person|project|concept|summary   # meetings: type: meeting; log.md: type: log
 title: "Human Readable Title"
 description: One sentence.
 date: YYYY-MM-DD         # last updated
@@ -58,7 +59,7 @@ sources: [ ... ]         # source filenames feeding this page
 generated: {by: fathom-pipeline, at: ISO-8601}   # pipeline-written pages
 ```
 
-Only `type` is required for OKF conformance; the rest is this wiki's convention.
+Only `type` is required for OKF conformance; the rest is this wiki's convention. `type` is the single taxonomy field so other vault note types (note, decision) can join the wiki under it later.
 
 ## Page body format
 

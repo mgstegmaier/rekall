@@ -44,8 +44,7 @@ Three layers, per the LLM Wiki pattern: `raw/` and `meetings/` are immutable sou
 ## Page frontmatter
 
 ```yaml
-type: wiki-page          # meetings use: type: meeting
-wiki-type: entity|project|concept|summary
+type: entity|person|project|concept|summary   # meetings: type: meeting. The only taxonomy field (wiki-type retired 2026-09-04).
 title: "Human Readable Title"
 description: One sentence. This is the index hook.
 date: YYYY-MM-DD         # last updated

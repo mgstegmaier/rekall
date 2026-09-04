@@ -1,6 +1,5 @@
 ---
-type: wiki-page
-wiki-type: log
+type: log
 date: 2026-09-03
 tags:
   - wiki

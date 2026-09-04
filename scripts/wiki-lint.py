@@ -23,13 +23,20 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from rekall_config import STATE_DIR, VAULT, WIKI  # noqa: E402
 RAW = WIKI / "raw"
-TYPED_DIRS = ["people", "projects", "entities", "concepts", "summaries"]
-REQUIRED_FIELDS = ["type", "wiki-type", "title", "description", "date"]
+TYPED_DIRS = ["pages"]
+REQUIRED_FIELDS = ["type", "title", "description", "date"]
+PAGE_TYPES = {"person", "project", "entity", "concept", "summary"}  # `type` is the taxonomy; pages/ is flat
 STATE_FILE = STATE_DIR / "wiki-lint-state.json"
 PIPELINE_STATE = STATE_DIR / "fathom-pipeline-state.json"
 LOG_DIR = STATE_DIR / "logs"
 LINK_RE = re.compile(r"\[\[([^\]]+)\]\]")
 FRONTMATTER_RE = re.compile(r"\A---\n(.*?)\n---\n", re.S)
+
+
+def page_type(path):
+    m = FRONTMATTER_RE.match(path.read_text(encoding="utf-8", errors="replace"))
+    t = re.search(r"(?m)^type:\s*(\S+)", m.group(1)) if m else None
+    return t.group(1) if t else None
 LIMIT = 10
 
 
@@ -131,19 +138,27 @@ def check_duplicates(r, basenames):
 
 def check_frontmatter(r):
     missing_by_field = {field: [] for field in REQUIRED_FIELDS}
+    type_mismatch = []
     for d in TYPED_DIRS:
         for f in (WIKI / d).glob("*.md"):
             fm = frontmatter_text(f.read_text(encoding="utf-8", errors="replace"))
             for field in REQUIRED_FIELDS:
                 if not re.search(rf"(?m)^{re.escape(field)}:", fm):
                     missing_by_field[field].append(str(f.relative_to(WIKI)))
+            tm = re.search(r"(?m)^type:\s*(\S+)", fm)
+            if tm and tm.group(1) not in PAGE_TYPES:
+                type_mismatch.append(f"{f.relative_to(WIKI)} (type: {tm.group(1)})")
 
-    total = sum(len(v) for v in missing_by_field.values())
+    total = sum(len(v) for v in missing_by_field.values()) + len(type_mismatch)
     r.counts["frontmatter"] = total
-    r.out(f"\n== 3. Frontmatter schema ({total} missing-field instances) ==")
+    r.out(f"\n== 3. Frontmatter schema ({total} missing-field or type/folder mismatches) ==")
     if not total:
         r.out("  none")
         return
+    if type_mismatch:
+        r.out(f"  type outside the wiki page types person/project/entity/concept/summary ({len(type_mismatch)}):")
+        for p in (type_mismatch if r.verbose else type_mismatch[:LIMIT]):
+            r.out(f"    {p}")
     for field, paths in missing_by_field.items():
         r.out(f"  missing `{field}` ({len(paths)}):")
         shown = paths if r.verbose else paths[:LIMIT]
@@ -195,7 +210,7 @@ def check_index_sync(r, basenames):
 def check_project_sections(r):
     required = ["## State", "## Members", "## Next steps"]
     issues = []
-    for f in sorted((WIKI / "projects").glob("*.md")):
+    for f in sorted(f for f in (WIKI / "pages").glob("*.md") if page_type(f) == "project"):
         lines = set(f.read_text(encoding="utf-8", errors="replace").splitlines())
         for heading in required:
             if heading not in lines:
@@ -242,7 +257,7 @@ def check_page_order(r):
         return m.group(1) if m else None
 
     issues = []
-    for d in ("projects", "entities", "concepts", "people"):
+    for d in TYPED_DIRS:
         for f in sorted((WIKI / d).glob("*.md")):
             rel = f.relative_to(WIKI)
             lines = f.read_text(encoding="utf-8", errors="replace").splitlines()

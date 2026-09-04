@@ -8,7 +8,7 @@ for work projects, wiki project pages tagged `upland`, meeting-note titles, and 
     python3 wins-mine.py --since 2025-09-01 > /tmp/wins-evidence.md
 
 Output is evidence, not the page. A Claude session reads it and drafts
-wiki/entities/annual-review-2026-accomplishments.md from it.
+wiki/pages/annual-review-2026-accomplishments.md from it.
 """
 import argparse
 import json
@@ -78,9 +78,11 @@ def frontmatter(text):
 
 def project_pages():
     pages = []
-    for f in sorted((WIKI / "projects").glob("*.md")):
+    for f in sorted((WIKI / "pages").glob("*.md")):
         text = f.read_text(errors="ignore")
         fm = frontmatter(text)
+        if "type: project" not in fm:
+            continue
         if "upland" not in fm:
             continue
         desc = re.search(r"^description:\s*(.*)$", fm, re.M)
