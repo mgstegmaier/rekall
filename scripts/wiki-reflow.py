@@ -34,7 +34,24 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from rekall_config import STATE_DIR, WIKI  # noqa: E402
 
 DATED = re.compile(r"^(#{2,3}) +(\d{4}-\d{2}-\d{2})\b(.*)$")
+# "## Connector live (2026-07-09)" or "(2026-06-10 to 2026-06-17)" or "(2026-07-13 weekly)":
+# the date at the END of the heading, the other style the wiki grew before this rule
+TRAILING = re.compile(r"^(#{2,3}) +(.*?)\s*\((\d{4}-\d{2}-\d{2})([^)]*)\)\s*$")
 CANON = ("State", "Next steps", "Members")
+
+
+def dated(heading):
+    """(date, normalized ### heading) for a dated update heading, else None.
+    Leading dates keep their text; trailing dates move to the front, and a paren that held
+    only the date is dropped, one that held more ("to 2026-06-17", "weekly") is kept."""
+    m = DATED.match(heading)
+    if m:
+        return m.group(2), f"### {m.group(2)}{m.group(3)}"
+    m = TRAILING.match(heading)
+    if m:
+        title, d, extra = m.group(2), m.group(3), m.group(4).strip()
+        return d, f"### {d} {title}" + (f" ({d} {extra})" if extra else "")
+    return None
 FOLDERS = ("projects", "entities", "concepts", "people")
 
 
@@ -99,8 +116,8 @@ def outline(text):
     return out
 
 
-def entry(date_str, rest, body, order):
-    return {"date": date_str, "order": order, "head": f"### {date_str}{rest}", "body": strip_blank(body)}
+def entry(date_str, head, body, order):
+    return {"date": date_str, "order": order, "head": head, "body": strip_blank(body)}
 
 
 def reflow(text):
@@ -115,42 +132,53 @@ def reflow(text):
 
     for head, blines in h2s[1:]:
         htxt = heading_text(head)
-        m = DATED.match(head)
-        if m:
+        d = dated(head)
+        if d:
             # dated H2: its own entry, plus any dated H3 children as separate entries
             h3s = blocks(blines, 3)
             own = list(h3s[0][1])
             for h3head, h3body in h3s[1:]:
-                m3 = DATED.match(h3head)
-                if m3:
+                d3 = dated(h3head)
+                if d3:
                     order += 1
-                    entries.append(entry(m3.group(2), m3.group(3), h3body, order))
+                    entries.append(entry(d3[0], d3[1], h3body, order))
                 else:
                     own += [h3head] + h3body  # stays with its parent, one level down
             order += 1
-            entries.append(entry(m.group(2), m.group(3), demote(own), order))
+            entries.append(entry(d[0], d[1], demote(own), order))
             continue
         if htxt == "Updates":
             # already newest-first: negative, decreasing order keeps same-day entries in place,
             # while anything appended below the page (positive order) still sorts in front of them
             for i, (h3head, h3body) in enumerate(blocks(blines, 3)[1:]):
-                m3 = DATED.match(h3head)
-                if m3:
-                    entries.append(entry(m3.group(2), m3.group(3), h3body, -i))
+                d3 = dated(h3head)
+                if d3:
+                    entries.append(entry(d3[0], d3[1], h3body, -i))
                 else:
                     entries.append({"date": "0000-00-00", "order": -i, "head": h3head, "body": strip_blank(h3body)})
             continue
         if htxt in canon:
-            canon[htxt].append((head, strip_blank(blines)))
+            # dated subsections filed under State/Next steps/Members are updates in the wrong place
+            h3s = blocks(blines, 3)
+            kept = list(h3s[0][1])
+            for h3head, h3body in h3s[1:]:
+                d3 = dated(h3head)
+                if d3:
+                    order += 1
+                    entries.append(entry(d3[0], d3[1], h3body, order))
+                    notes.append(f"moved dated subsection out of '{htxt}'")
+                else:
+                    kept += [h3head] + h3body
+            canon[htxt].append((head, strip_blank(kept)))
             continue
         if htxt == "Related pages":
             related.append((head, strip_blank(blines)))
             continue
         # reference section: keep, but reorder any dated H3 children newest-first in place
         h3s = blocks(blines, 3)
-        dated_idx = [i for i, (h, _) in enumerate(h3s[1:], 1) if DATED.match(h)]
+        dated_idx = [i for i, (h, _) in enumerate(h3s[1:], 1) if dated(h)]
         if len(dated_idx) > 1:
-            dated_sorted = sorted((h3s[i] for i in dated_idx), key=lambda hb: DATED.match(hb[0]).group(2), reverse=True)
+            dated_sorted = sorted((h3s[i] for i in dated_idx), key=lambda hb: dated(hb[0])[0], reverse=True)
             if [h3s[i] for i in dated_idx] != dated_sorted:
                 notes.append(f"reordered {len(dated_idx)} dated subsections under '{htxt}'")
                 for i, hb in zip(dated_idx, dated_sorted):
@@ -165,6 +193,8 @@ def reflow(text):
     out = []
     if preamble:
         out.append("\n".join(preamble))
+    if any(canon.values()) and not entries and not notes:
+        notes.append("moved State/Next steps/Members ahead of the prose")
     for k in CANON:
         for i, (head, b) in enumerate(canon[k]):
             out.append("\n".join([head] + ([""] + b if b else [])))

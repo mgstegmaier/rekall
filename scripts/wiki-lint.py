@@ -234,7 +234,13 @@ def check_pipeline_state(r):
 def check_page_order(r):
     """State first, one of each canonical section, dated updates newest-first (wiki/CLAUDE.md
     'Page body format'). Fix with scripts/wiki-reflow.py."""
-    dated = re.compile(r"^#{2,3} +(\d{4}-\d{2}-\d{2})\b")
+    lead = re.compile(r"^#{2,3} +(\d{4}-\d{2}-\d{2})\b")
+    trail = re.compile(r"^#{2,3} +.*\((\d{4}-\d{2}-\d{2})[^)]*\)\s*$")
+
+    def dated(ln):
+        m = lead.match(ln) or trail.match(ln)
+        return m.group(1) if m else None
+
     issues = []
     for d in ("projects", "entities", "concepts", "people"):
         for f in sorted((WIKI / d).glob("*.md")):
@@ -246,10 +252,10 @@ def check_page_order(r):
                     issues.append(f"{rel}: {h2.count(name)}x `{name}` (merge)")
             if "## State" in h2 and h2[0] != "## State":
                 issues.append(f"{rel}: first section is `{h2[0]}`, not `## State`")
-            dates = [dated.match(ln).group(1) for ln in lines if dated.match(ln)]
+            dates = [dated(ln) for ln in lines if dated(ln)]
             if any(a < b for a, b in zip(dates, dates[1:])):
                 issues.append(f"{rel}: dated headings not newest-first")
-            if any(ln.startswith("## ") and dated.match(ln) for ln in lines):
+            if any(ln.startswith("## ") and dated(ln) for ln in lines):
                 issues.append(f"{rel}: dated H2 outside `## Updates`")
     r.section("page_order", "9. Page order (State first, no duplicate sections, updates newest-first)", issues)
 
