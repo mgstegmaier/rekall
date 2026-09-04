@@ -24,9 +24,9 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
-from paths import DB, DISTILLED_DIR  # noqa: E402
+from paths import ARCHIVE, DB, DISTILLED_DIR  # noqa: E402
 CHUNK_BUDGET = 1600  # characters, roughly 400 tokens
-SKIP_DIRS = {".git", "node_modules", "__pycache__"}
+SKIP_DIRS = {".git", "node_modules", "__pycache__", ARCHIVE.name}  # files the owner took out of the wiki
 
 SCHEMA = """
 DROP TABLE IF EXISTS chunks;

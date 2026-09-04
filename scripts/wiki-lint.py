@@ -21,11 +21,12 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from rekall_config import STATE_DIR, VAULT, WIKI  # noqa: E402
+from rekall_config import ARCHIVE, STATE_DIR, VAULT, WIKI  # noqa: E402
 RAW = WIKI / "raw"
 TYPED_DIRS = ["pages"]
 REQUIRED_FIELDS = ["type", "title", "description", "date"]
 PAGE_TYPES = {"person", "project", "entity", "concept", "summary"}  # `type` is the taxonomy; pages/ is flat
+STATUSES = {"active", "retired", "archive"}
 STATE_FILE = STATE_DIR / "wiki-lint-state.json"
 PIPELINE_STATE = STATE_DIR / "fathom-pipeline-state.json"
 LOG_DIR = STATE_DIR / "logs"
@@ -58,9 +59,10 @@ def notify(msg, title="Wiki lint"):
 def all_wiki_files():
     # CLAUDE.md excluded from link checks: its wikilinks are schema examples, not references
     # raw/ and meetings/distilled/ excluded: source material, not wiki pages
+    # archive/ excluded: out of the wiki, but its basenames stay valid link targets (see main)
     return [p for p in WIKI.rglob("*.md")
             if ".obsidian" not in p.parts and p.name != "CLAUDE.md"
-            and "raw" not in p.parts and "distilled" not in p.parts]
+            and "raw" not in p.parts and "distilled" not in p.parts and ARCHIVE.name not in p.parts]
 
 
 def parse_link_target(raw):
@@ -103,14 +105,14 @@ class Report:
 
 # ── Checks ──────────────────────────────────────────────────
 
-def check_broken_links(r, files, basenames):
+def check_broken_links(r, files, known):
     broken = []  # (file_rel, target)
     for f in files:
         if f.name == "log.md":
             continue
         for raw in LINK_RE.findall(f.read_text(encoding="utf-8", errors="replace")):
             target = parse_link_target(raw)
-            if target and target not in basenames:
+            if target and target not in known:
                 broken.append((str(f.relative_to(WIKI)), target))
 
     r.counts["broken_links"] = len(broken)
@@ -232,13 +234,13 @@ def check_pipeline_state(r):
         for name in state.get("raw_ingested", []):
             # entries may be "name" (legacy) or "name:sha16" (content-hash keys)
             fname = name.rsplit(":", 1)[0] if re.fullmatch(r".+:[0-9a-f]{16}", name) else name
-            if not (RAW / fname).exists():
+            if not (RAW / fname).exists() and not (ARCHIVE / fname).exists():
                 issues.append(f"raw_ingested references missing file: wiki/raw/{fname}")
         for mid, entry in state.get("meetings", {}).items():
             if entry.get("retired"):
-                continue  # page retired via wiki-cleanup.py; missing on disk is correct
+                continue  # deleted under the pre-2026-09-04 retire path; missing on disk is correct
             note = entry.get("note", "")
-            if note and not (VAULT / note).exists():
+            if note and not (VAULT / note).exists() and not (ARCHIVE / Path(note).name).exists():
                 issues.append(f"meeting {mid} ({entry.get('title', '?')}) note missing: {note}")
         for source, count in state.get("ingest_failures", {}).items():
             if count >= 2:
@@ -275,6 +277,21 @@ def check_page_order(r):
     r.section("page_order", "9. Page order (State first, no duplicate sections, updates newest-first)", issues)
 
 
+def check_lifecycle(r):
+    """Every page and meeting note carries `status: active|retired|archive` (wiki/CLAUDE.md
+    'Page lifecycle'). Fix missing ones with scripts/wiki-cleanup.py --stamp."""
+    issues = []
+    for d in TYPED_DIRS + ["meetings"]:
+        for f in sorted((WIKI / d).glob("*.md")):
+            fm = frontmatter_text(f.read_text(encoding="utf-8", errors="replace"))
+            m = re.search(r"(?m)^status:\s*(\S+)", fm)
+            if not m:
+                issues.append(f"{f.relative_to(WIKI)}: missing `status`")
+            elif m.group(1) not in STATUSES:
+                issues.append(f"{f.relative_to(WIKI)}: status `{m.group(1)}` not in active/retired/archive")
+    r.section("lifecycle", "10. Lifecycle status (active/retired/archive on every page)", issues)
+
+
 # ── Main ────────────────────────────────────────────────────
 
 def main():
@@ -291,7 +308,8 @@ def main():
     for f in files:
         basenames.setdefault(f.stem, []).append(f)
 
-    check_broken_links(r, files, basenames)
+    known = set(basenames) | {p.stem for p in ARCHIVE.glob("*.md")}
+    check_broken_links(r, files, known)
     check_duplicates(r, basenames)
     check_frontmatter(r)
     check_naming(r)
@@ -300,6 +318,7 @@ def main():
     check_log_order(r)
     check_pipeline_state(r)
     check_page_order(r)
+    check_lifecycle(r)
 
     total = sum(r.counts.values())
     r.out(f"\nLINT: {total} issues across {len(r.counts)} checks")

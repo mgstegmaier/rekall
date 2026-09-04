@@ -15,6 +15,11 @@ path = "~/rekall-data"
 # Pipeline state, lint state, locks and logs. Default is fine unless you run two installs on one machine.
 # state = "~/.config/rekall"
 
+[wiki]
+# Folder under wiki/ that the lifecycle job (scripts/wiki-cleanup.py) moves `status: archive`
+# files into. Out of the index, lint and search; wikilinks to them keep resolving.
+archive = "archive"
+
 [monday]
 # Optional. Only used when MONDAY_API_TOKEN is set in .env.
 board = 0

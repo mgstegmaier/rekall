@@ -3,15 +3,17 @@
 <!-- Template. Replace __REPO__ (this repo's absolute path), __HOME__ (your home folder) and
      __PYTHON__ (the absolute path of a python3 that is 3.11 or newer; launchd's PATH is
      minimal and Apple's /usr/bin/python3 is too old), then copy to ~/Library/LaunchAgents/
-     and `launchctl load` it. Runs nightly at 21:30. -->
+     and `launchctl load` it. Runs nightly at 21:30: the lint report, then the lifecycle job
+     that moves `status: archive` files to wiki/archive/. -->
 <plist version="1.0">
 <dict>
     <key>Label</key>
     <string>com.rekall.wiki-lint</string>
     <key>ProgramArguments</key>
     <array>
-        <string>__PYTHON__</string>
-        <string>__REPO__/scripts/wiki-lint.py</string>
+        <string>/bin/bash</string>
+        <string>-c</string>
+        <string>"__PYTHON__" "__REPO__/scripts/wiki-lint.py"; "__PYTHON__" "__REPO__/scripts/wiki-cleanup.py" --execute</string>
     </array>
     <key>StandardErrorPath</key>
     <string>__HOME__/.config/rekall/logs/wiki-lint-launchd.log</string>

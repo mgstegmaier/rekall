@@ -23,6 +23,7 @@ TIMEZONE = _cfg["user"]["timezone"]
 VAULT = Path(_cfg["vault"]["path"]).expanduser()
 WIKI = VAULT / "wiki"
 SESSIONS = VAULT / "memory" / "sessions"
+ARCHIVE = WIKI / _cfg.get("wiki", {}).get("archive", "archive")  # lifecycle job's destination
 DATA = Path(_cfg["data"]["path"]).expanduser()
 # pipeline state, lint state, locks, logs. Per install, so two installs on one machine stay apart.
 STATE_DIR = Path(_cfg["data"].get("state", "~/.config/rekall")).expanduser()
@@ -30,6 +31,6 @@ MONDAY_BOARD = int(_cfg.get("monday", {}).get("board", 0))
 MONDAY_GROUP = _cfg.get("monday", {}).get("group", "Auto-Capture")
 
 if __name__ == "__main__":
-    names = sys.argv[1:] or ["USER_NAME", "TIMEZONE", "VAULT", "WIKI", "SESSIONS", "DATA", "STATE_DIR", "MONDAY_BOARD", "MONDAY_GROUP"]
+    names = sys.argv[1:] or ["USER_NAME", "TIMEZONE", "VAULT", "WIKI", "SESSIONS", "ARCHIVE", "DATA", "STATE_DIR", "MONDAY_BOARD", "MONDAY_GROUP"]
     for n in names:
         print(globals()[n] if len(names) == 1 else f"{n}={globals()[n]}")

@@ -78,6 +78,8 @@ def regen(dry):
         span = frontmatter_span(text)
         desc = get_scalar(text[span[0]:span[1]], "description") if span else None
         entry = f"- [[{p.stem}]] -- {desc}" if desc else f"- [[{p.stem}]]"
+        if span and get_scalar(text[span[0]:span[1]], "status") == "retired":
+            entry += " (retired)"  # still listed and searchable; the pipeline no longer updates it
         by_section[section].append(entry)
     out = HEADER
     for section, _ in SECTIONS:

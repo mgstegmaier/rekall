@@ -45,6 +45,7 @@ Three layers, per the LLM Wiki pattern: `raw/` and `meetings/` are immutable sou
 
 ```yaml
 type: entity|person|project|concept|summary   # meetings: type: meeting. The only taxonomy field (wiki-type retired 2026-09-04).
+status: active           # active | retired | archive, on every page and meeting note
 title: "Human Readable Title"
 description: One sentence. This is the index hook.
 date: YYYY-MM-DD         # last updated
@@ -59,16 +60,16 @@ generated: {by: PIPELINE_NAME, at: ISO-8601}   # pipeline-written pages only
 
 ## Hard rules
 
-1. A writer never deletes a wiki page. Mark `[deprecated]` in its Summary, or let the curator mark `status: retired` for the cleanup job (below).
-2. Never modify `meetings/` notes after creation, and never touch `raw/`. Sources are immutable; the wiki is where knowledge changes.
+1. A writer never deletes or moves a wiki page, and never sets `status: archive`. Set `status: retired` when a page should stop changing; the curator marks `archive` for the lifecycle job (below).
+2. Never modify `meetings/` notes after creation, and never touch `raw/`. Sources are immutable; the wiki is where knowledge changes. The lifecycle job is the one exception: it moves marked files to `archive/`.
 3. Cite every factual claim: `(source: filename)`. Flag uncertainty `[unverified]`.
 4. Note contradictions explicitly; never silently resolve them.
 5. Every ingest or update sets the page's `title` and `description` frontmatter, then regenerates `index.md` from frontmatter with the index script. Never hand-edit index entries. Append the operation to `log.md` at the end of the file: append-only, bare ISO heading, bold `**tag | name**` first line. The log is the audit trail.
 6. Link with basename `[[wikilinks]]` only, never path-style links.
 
-## Retiring pages (the only sanctioned delete path)
+## Page lifecycle (the only sanctioned removal path)
 
-The curator marks a page `status: retired` in its frontmatter; a cleanup job (dry-run by default) then unlinks references vault-wide, removes the index entry, deletes the file, and logs an audit entry. The mark is the permission: a writer never deletes an unmarked page. Citations pointing at a retired source are annotated `— retired`, never removed; the claims they supported stay, flagged by the annotation.
+Every page and meeting note carries `status`, stamped explicitly: `active`, `retired`, or `archive`. Retired pages stay in place, linkable and searchable, and writers stop updating them. `archive` is the curator's mark for the lifecycle job, which moves the file to `wiki/archive/` and drops its index entry. Nothing is deleted and no link is rewritten: Obsidian resolves wikilinks by basename vault-wide, so links to an archived page keep working, and the index, lint, and search skip `archive/`. The job reports would-be orphans as candidates and never cascades. The mark is the permission.
 
 ## Markdown gotchas (Obsidian renderer)
 

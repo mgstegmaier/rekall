@@ -203,7 +203,7 @@ See wiki/CLAUDE.md "Placement" for type and naming rules (lowercase, hyphen-sepa
 
 ## Rules
 
-Hard structural rules (deletion, citations, index/log updates, contradictions, wikilinks) are defined in wiki/CLAUDE.md -- see "Hard rules". The one exception worth restating here because it's easy to miss mid-workflow: NEVER modify `wiki/raw/` or `wiki/meetings/` -- both are immutable source layers (Mike curates `wiki/raw/` himself), except the retire-cleanup job (`wiki-cleanup.py`), which may rewrite wikilinks and annotate citations in both while unlinking a retired page.
+Hard structural rules (deletion, citations, index/log updates, contradictions, wikilinks) are defined in wiki/CLAUDE.md -- see "Hard rules". The one exception worth restating here because it's easy to miss mid-workflow: NEVER modify `wiki/raw/` or `wiki/meetings/` -- both are immutable source layers (Mike curates `wiki/raw/` himself), except the lifecycle job (`wiki-cleanup.py`), which moves files marked `status: archive` to `wiki/archive/` and may rewrite wikilinks in both when unlinking a hand-deleted page. Never set `status: archive` yourself; `retired` is the writer's ceiling.
 
 This skill adds two workflow rules on top of wiki/CLAUDE.md's hard rules:
 

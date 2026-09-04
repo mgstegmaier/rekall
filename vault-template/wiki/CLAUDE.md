@@ -19,7 +19,8 @@ wiki/
 ├── *.base            # one Obsidian Base per type (people, projects, entities, concepts, summaries, meetings) — the human browsing surface
 ├── pages/            # every compiled page, flat; `type` in frontmatter says what it is (person, project, entity, concept, summary)
 ├── meetings/         # meeting notes written by the Fathom pipeline — SOURCE layer, immutable once written
-└── raw/              # user-curated sources — IMMUTABLE to Claude; the wiki owner adds and removes files
+├── raw/              # user-curated sources — IMMUTABLE to Claude; the wiki owner adds and removes files
+└── archive/          # files marked `status: archive`, moved here by the lifecycle job; out of the wiki, links still resolve
 ```
 
 One flat `pages/` folder, not type folders: folders do nothing for retrieval (wikilinks resolve by basename; the index, recall hook, and Bases read frontmatter) and stop being browsable past ~50 files. Humans browse through the Bases and index.md; the LLM finds pages through the index, wikilinks, and grep.
@@ -51,6 +52,7 @@ Project pages (`type: project`) hold every initiative the wiki knows about, not 
 
 ```yaml
 type: entity|person|project|concept|summary   # meetings: type: meeting; log.md: type: log
+status: active           # active | retired | archive — see "Page lifecycle"; on every page and meeting note
 title: "Human Readable Title"
 description: One sentence.
 date: YYYY-MM-DD         # last updated
@@ -80,14 +82,20 @@ The reader question this answers is "what is true now?" — State answers it, Up
 - Never write raw angle-bracket placeholders (like a bare `<name>`) in page bodies — Obsidian parses them as unclosed HTML and silently swallows everything after them, including whole tables. Use backticks or ALL_CAPS placeholders.
 - Tables: escape literal pipes in cells as `\|` (wikilink aliases in tables too: `[[page\|alias]]`), keep cells single-line, leave a blank line before the header row, and never let `**emphasis**` open in one cell and close in another.
 
-## Retiring pages (the only sanctioned delete path)
+## Page lifecycle (the only sanctioned removal path)
 
-The owner marks a page `status: retired` in its frontmatter; the cleanup job (`scripts/wiki-cleanup.py` in the rekall repo, dry-run by default) then unlinks references vault-wide, removes the index entry, deletes the file, and logs an audit entry. The mark is the permission — Claude never deletes an unmarked page. For pages the owner already deleted by hand, run the job with `--gone NAME` to clean up the orphaned references. Retired meeting-note citations are annotated `— retired`, never removed; the claims they supported stay, flagged by the annotation.
+Every page and meeting note carries `status`, stamped explicitly, never implied by absence:
+
+- `active` — normal.
+- `retired` — the page stays where it is: links still resolve, it stays in the index (marked `(retired)`) and in search. Writers stop updating it; match new content elsewhere.
+- `archive` — the mark for the nightly lifecycle job (`REKALL_REPO/scripts/wiki-cleanup.py`, runs after lint, dry-run by hand): it MOVES the file to `wiki/archive/` and drops its index entry. Nothing is deleted and no link is rewritten: Obsidian resolves `[[wikilinks]]` by basename vault-wide, so links to an archived page keep working. The index, lint, recall index and graph skip `archive/`. `raw/` files can be marked too (they need a frontmatter block to carry it).
+
+The mark is the permission: Claude never moves or deletes an unmarked page, and never sets `archive` itself. The job reports would-be orphans (pages whose every inbound link came from what was archived) as candidates; it never cascades. Restore = drag the file back and set `status: active`. For a page the owner already deleted by hand, `wiki-cleanup.py --gone NAME` unlinks the dangling references.
 
 ## Hard rules
 
-1. Never delete a wiki page yourself — mark `[deprecated]` in its Summary, or let the owner mark `status: retired` for the cleanup job.
-2. Never modify `meetings/` notes or `raw/` files after creation. Sole exception: the retire-cleanup job may rewrite wikilinks and annotate citations inside them while unlinking a retired page.
+1. Never delete or move a wiki page yourself, and never set `status: archive`. Set `status: retired` when a page should stop changing; the owner marks `archive` for the lifecycle job.
+2. Never modify `meetings/` notes or `raw/` files after creation. Sole exception: the lifecycle job may move marked files to `archive/`, and may rewrite wikilinks inside them when unlinking a hand-deleted page (`--gone`).
 3. Cite every factual claim: `(source: filename)`. Flag uncertainty `[unverified]`.
 4. Note contradictions explicitly; never silently resolve them.
 5. Every ingest/update: set the page's `title` and `description` frontmatter (the index hook IS the `description`), then regenerate the index with `python3 REKALL_REPO/scripts/wiki-index.py` — never hand-edit index entries. The Fathom pipeline regenerates automatically; interactive sessions run the script. Append to `log.md` at the END of the file — append-only, bare ISO heading, bold `**tag | name**` first line. The log is the audit trail.

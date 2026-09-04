@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from rekall_config import DATA, SESSIONS, WIKI  # noqa: E402,F401
+from rekall_config import ARCHIVE, DATA, SESSIONS, WIKI  # noqa: E402,F401
 
 DB = DATA / "rag.db"
 MODEL_DIR = DATA / "model"

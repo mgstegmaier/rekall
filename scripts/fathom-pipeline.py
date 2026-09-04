@@ -211,6 +211,7 @@ def write_note(m):
     lines = [
         "---",
         "type: meeting",
+        "status: active",
         f'title: "{safe_title}"',
         f"date: {date_str}",
         "---",
