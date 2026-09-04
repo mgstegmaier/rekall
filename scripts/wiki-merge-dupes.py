@@ -4,7 +4,8 @@
 The judgement half of the page-order rule (wiki/CLAUDE.md, decided 2026-09-04). wiki-reflow.py
 puts duplicate sections side by side; this sends ONLY those sections to a headless Claude call
 and splices the merged result back, so ## Updates and the reference sections never pass
-through the model. "State (as of DATE)" blocks count as State duplicates.
+through the model. Run wiki-reflow.py first: it moves "State (as of DATE)" snapshots into
+## Updates, so only true duplicates reach this script.
 
 Accepted only if the reply has exactly one section per group and keeps every citation
 (`(source: ...)`) and every [[wikilink]] the inputs had. Otherwise the page is left alone
@@ -48,9 +49,6 @@ Rules:
   copies say the same thing, keep it once with both citations.
 - Where copies conflict, the newer statement wins and the older one is kept as a one-line
   "Earlier: ..." note with its citation, so the change is visible.
-- A "State (as of DATE)" copy is a historical snapshot: fold anything still true into State,
-  and fold what has since changed into a short "Earlier state (DATE)" paragraph at the end of
-  State. Do not keep it as its own section.
 - Next steps: one list. Drop an item only if another copy or the State text says it is done,
   and then keep it struck through (~~like this~~) with the source that closed it.
 - Members: one list, deduplicated, roles preserved.
@@ -64,9 +62,9 @@ Rules:
 
 
 def group_of(heading):
+    # "State (as of DATE)" snapshots are dated updates; wiki-reflow.py moves them into
+    # ## Updates first, so only true duplicate sections reach the merge
     t = reflow.heading_text(heading)
-    if t == "State" or t.startswith("State (as of"):
-        return "State"
     return t if t in GROUPS else None
 
 
@@ -79,7 +77,7 @@ def claude_merge(payload, model):
                               input=PROMPT + "\n\n---\n\n" + payload, capture_output=True, text=True,
                               cwd=scratch, timeout=600)
     if proc.returncode != 0:
-        raise RuntimeError((proc.stderr or "claude failed").strip()[:300])
+        raise RuntimeError(f"claude exit {proc.returncode}: {(proc.stderr or proc.stdout or '').strip()[:300]}")
     return proc.stdout.strip() + "\n"
 
 
@@ -159,8 +157,12 @@ def main():
             path = hits[0]
         rel = path.relative_to(WIKI).as_posix()
         text = path.read_text(encoding="utf-8")
-        new, notes, reply = merge_page(text, args.model)
-        print(f"{rel}: " + "; ".join(n for n in notes if n))
+        try:
+            new, notes, reply = merge_page(text, args.model)
+        except Exception as exc:  # one bad page never stops the run
+            print(f"{rel}: FAILED {type(exc).__name__}: {exc}")
+            continue
+        print(f"{rel}: " + "; ".join(n for n in notes if n), flush=True)
         if new is None:
             if reply and args.out:
                 Path(args.out).mkdir(parents=True, exist_ok=True)

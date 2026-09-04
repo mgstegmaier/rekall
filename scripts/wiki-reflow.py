@@ -37,6 +37,9 @@ DATED = re.compile(r"^(#{2,3}) +(\d{4}-\d{2}-\d{2})\b(.*)$")
 # "## Connector live (2026-07-09)" or "(2026-06-10 to 2026-06-17)" or "(2026-07-13 weekly)":
 # the date at the END of the heading, the other style the wiki grew before this rule
 TRAILING = re.compile(r"^(#{2,3}) +(.*?)\s*\((\d{4}-\d{2}-\d{2})([^)]*)\)\s*$")
+# "## State (as of 2026-02-24 — EDP Refactor Day 1)" or "## State (as of 2026-02-19) — naming":
+# a dated snapshot of State, i.e. an update, not a second State section
+SNAPSHOT = re.compile(r"^(#{2,3}) +State \(as of (\d{4}-\d{2}-\d{2})\s*(?:[—:-]\s*)?([^)]*)\)\s*(?:[—:-]\s*)?(.*)$")
 CANON = ("State", "Next steps", "Members")
 
 
@@ -47,6 +50,10 @@ def dated(heading):
     m = DATED.match(heading)
     if m:
         return m.group(2), f"### {m.group(2)}{m.group(3)}"
+    m = SNAPSHOT.match(heading)
+    if m:
+        rest = " — ".join(p.strip() for p in (m.group(3), m.group(4)) if p.strip())
+        return m.group(2), f"### {m.group(2)} State snapshot" + (f" — {rest}" if rest else "")
     m = TRAILING.match(heading)
     if m:
         title, d, extra = m.group(2), m.group(3), m.group(4).strip()
