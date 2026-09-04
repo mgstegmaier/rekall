@@ -148,6 +148,19 @@ def spawn(staged):
     )
 
 
+def monday_line(session_id):
+    """Join the session to its Monday ticket by session id (state written by the monday-nudge
+    hook / monday_ticket.py in familiar). Deterministic; the digest never parses URLs out of prose."""
+    try:
+        st = json.loads((Path.home() / ".config" / "rekall" / "monday" / f"{session_id}.json").read_text())
+    except Exception:
+        return ""
+    if not st.get("item_id"):
+        return ""
+    status = f'closed {st["closed_status"]}' if st.get("closed_at") else "open"
+    return f'[monday ticket] #{st["item_id"]} "{st.get("name", "")}" {st.get("url", "")} ({status})\n\n'
+
+
 def main():
     if os.environ.get("MEMORY_STARTER_CHILD"):  # our own headless call closing
         return
@@ -171,6 +184,7 @@ def main():
         return
     if not text:
         return
+    text = monday_line(session_id) + text
 
     # the stamp matters: one long session can close twice, once before a
     # compaction and once at the end, and neither half may overwrite the other

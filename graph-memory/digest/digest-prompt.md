@@ -27,6 +27,8 @@ real to put under it.
 
     ### Facts
     - a number, a name, a rule, a path worth finding again
+    - if the input opens with a `[monday ticket]` line, repeat it here verbatim; it is the
+      session's ticket on the team board, joined by session id, and the only place it appears
 
     ### Open loops
     - [open] what is still pending, and where it could be checked
