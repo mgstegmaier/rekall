@@ -19,19 +19,15 @@ https://github.com/mgstegmaier/rekall (fresh single-commit history since 2026-09
 
 ## Current state (2026-09-04)
 
-Shipped: the turn-key Mac install, cold-tested end to end from the one-paste bootstrap in
-README/`SETUP.md` (43 meetings → 53 pages, hook answering, lint 0). Repo public with squashed
-history (original on wiki page `rekall-git-history-pre-publish` + `~/.config/rekall/backups/`).
-Distil fix (child was writing files; 36 wasted calls/hour) and raw/ distillation. Windows install
-planned, not started: `docs/plans/2026-09-03-windows-install.md`. 2026-09-04: `install.sh` added
-because auto mode's classifier blocks Claude writing hooks into `~/.claude/settings.json` and plists
-into `~/Library/LaunchAgents`; SETUP.md step 5 runs the script (one approval). Tested in a scratch
-HOME: install, re-install, uninstall. Detail: wiki `projects/rekall.md`.
+Shipped: turn-key Mac install (`install.sh`, one approval; cold-tested), repo public with squashed
+history, raw/ distillation. 2026-09-04 evening: wiki schema change. `type` is the single taxonomy
+field (`wiki-type` retired) and the five type folders collapsed into flat `wiki/pages/` with one Base
+per type at the wiki root; the graph builder reads type from frontmatter (PRs #2, #3). Detail: wiki
+`pages/rekall.md`; migration `scripts/wiki-retype.py`.
 
 Open: `wiki-index.py` can't run unattended in interactive ingests; pipeline writes a Familiar-style
-`today.md` at the vault root; first reindex after a backfill distils every meeting (one call each);
-`graph-memory/README.md` ops table still shows Mike's literal paths.
+`today.md` at the vault root; first reindex after a backfill distils every meeting; `graph-memory/
+README.md` shows Mike's literal paths; Windows install planned (`docs/plans/2026-09-03-windows-install.md`).
 
-Next action: run the bootstrap paste on Jeff's Mac (VS Code extension; first verify hooks fire
-there and `claude` is on PATH). Parked: package Rekall as a Claude Code plugin (hooks, skills and
-commands without touching settings.json); Mike wants the pros and cons laid out first.
+Next action: run the bootstrap paste on Jeff's Mac (verify hooks fire and `claude` is on PATH).
+Parked: package Rekall as a plugin; Mike wants pros and cons first.

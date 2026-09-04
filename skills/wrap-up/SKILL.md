@@ -48,7 +48,7 @@ CLAUDE.md auto-loads every session; a separate status file only works if someone
 
 ## 2. Conditional target: the wiki project page (touch ONLY if the session changed what it describes)
 
-The page lives at `wiki/projects/<project>.md` in the vault named by `rekall.toml`. Update it when the
+The page lives at `wiki/pages/<project>.md` (`type: project`) in the vault named by `rekall.toml`. Update it when the
 session materially changed what the page describes: a decision made, a phase shipped, architecture
 changed, a project started or renamed. Update State and Next steps with citations, and append an
 entry to `wiki/log.md` (append-only, at the end). Structure rules are in the vault's `wiki/CLAUDE.md`.
