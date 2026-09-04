@@ -5,9 +5,23 @@ meetings from the previous 30 days compiled into 53 wiki pages, indexed, and ans
 through the recall hook.
 
 You need a Mac, Claude Code (the VS Code extension is fine), and a Fathom account. Nothing
-else. Clone this repo, open the folder in Claude Code, and paste the message below.
+else.
+
+## The short way
+
+Open Claude Code in the folder where you want Rekall to live and paste this. Claude clones the
+repo and runs the setup message below on its own.
+
+```
+Clone https://github.com/mgstegmaier/rekall into a folder called rekall here, then read
+rekall/SETUP.md and follow its setup message exactly, one step at a time. Stop and tell me
+if a step fails.
+```
 
 ## The setup message
+
+If you already cloned the repo, open Claude Code in the `rekall` folder and paste this instead.
+"The rekall folder" below means the folder this file is in.
 
 ```
 Set up Rekall for me, one step at a time. Read SETUP.md first. Stop and tell me if a step
@@ -20,7 +34,7 @@ fails. Never skip a failed step and never overwrite a file that already exists.
    ~/rekall-vault) and copy the contents of vault-template/ into it. If I already have an
    Obsidian vault, ask for its path and copy vault-template/wiki/ and
    vault-template/memory/ into it, skipping anything already there. In the copied
-   wiki/CLAUDE.md, replace REKALL_REPO with this repo's absolute path.
+   wiki/CLAUDE.md, replace REKALL_REPO with the rekall folder's absolute path.
 3. Ask me for my name, the email address Fathom knows me by, and my timezone. Write
    rekall.toml from rekall.example.toml with those and the vault path.
 4. Secrets: copy .env.example to .env and set its mode to 600. Ask whether I have a
@@ -37,12 +51,12 @@ fails. Never skip a failed step and never overwrite a file that already exists.
    me how many meeting notes landed in wiki/meetings/ and how many wiki pages it wrote.
 8. Hooks: merge the UserPromptSubmit and SessionEnd entries from hooks.json into the hooks
    block of ~/.claude/settings.json, keeping everything already there, with __REPO__
-   replaced by this repo's absolute path.
+   replaced by the rekall folder's absolute path.
 9. Skills: copy each folder in skills/ into ~/.claude/skills/ and each file in commands/
    into ~/.claude/commands/, skipping any that already exist, and replace __REPO__ in the
-   copies with this repo's absolute path.
+   copies with the rekall folder's absolute path.
 10. Schedules: copy the three plists in launchd/ to ~/Library/LaunchAgents/, replacing
-    __REPO__ with this repo's absolute path, __HOME__ with my home folder, and __PYTHON__
+    __REPO__ with the rekall folder's absolute path, __HOME__ with my home folder, and __PYTHON__
     with the absolute path of the python3 from step 1. Create ~/.config/rekall/logs/. Load
     each one and show me `launchctl list | grep rekall`.
 11. Test: run graph-memory/search.py with a question about my most recent meeting and
