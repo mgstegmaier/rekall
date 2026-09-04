@@ -16,15 +16,15 @@ https://github.com/mgstegmaier/rekall (fresh single-commit history since 2026-09
 
 ## Current state (2026-09-03)
 
-Shipped: turn-key install, all three steps. Config lift (`3632e7f`), vault template + hooks +
-skills (`60565d6`), and a full cold test of the `SETUP.md` paste on an empty folder: 43 meetings
-→ 53 pages, hook answering, lint 0. Repo published public with squashed history; the 10-commit
-original is on wiki page `rekall-git-history-pre-publish` and in `~/.config/rekall/backups/`.
-Also fixed: distil child writing its own files (36 wasted Sonnet calls/hour); raw/ now distilled.
+Shipped: the turn-key Mac install, cold-tested end to end from the one-paste bootstrap in
+README/`SETUP.md` (43 meetings → 53 pages, hook answering, lint 0). Repo public with squashed
+history (original on wiki page `rekall-git-history-pre-publish` + `~/.config/rekall/backups/`).
+Distil fix (child was writing files; 36 wasted calls/hour) and raw/ distillation. Windows install
+planned, not started: `docs/plans/2026-09-03-windows-install.md`. Detail: wiki `projects/rekall.md`.
 
-Open: `wiki-index.py` still can't run unattended in interactive ingests; pipeline writes a
-Familiar-style `today.md` at the vault root, odd for a non-Familiar install; first hourly reindex
-after a backfill distils every meeting (one Sonnet call each).
+Open: `wiki-index.py` can't run unattended in interactive ingests; pipeline writes a Familiar-style
+`today.md` at the vault root; first reindex after a backfill distils every meeting (one call each);
+`graph-memory/README.md` ops table still shows Mike's literal paths.
 
-Next action: run `SETUP.md` on Jeff's Mac (VS Code extension; verify hooks fire and `claude` is
-on PATH first).
+Next action: run the bootstrap paste on Jeff's Mac (VS Code extension; first verify hooks fire
+there and `claude` is on PATH).
