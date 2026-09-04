@@ -16,7 +16,7 @@ reported: merging them is a judgement call for a Claude pass, not this script.
 
 Usage:
   wiki-reflow.py PAGE [PAGE ...]        # dry-run: report what would move, write nothing
-  wiki-reflow.py --all                  # every page under wiki/{projects,entities,concepts,people}
+  wiki-reflow.py --all                  # every page under wiki/pages
   wiki-reflow.py ... --out DIR          # dry-run, but write the reflowed copies into DIR
   wiki-reflow.py ... --write            # rewrite in place; originals copied to
                                         # STATE_DIR/backups/reflow-YYYY-MM-DD/; one wiki/log.md entry
@@ -59,7 +59,7 @@ def dated(heading):
         title, d, extra = m.group(2), m.group(3), m.group(4).strip()
         return d, f"### {d} {title}" + (f" ({d} {extra})" if extra else "")
     return None
-FOLDERS = ("projects", "entities", "concepts", "people")
+FOLDERS = ("pages",)
 
 
 def split_frontmatter(text):

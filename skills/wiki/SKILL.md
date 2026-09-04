@@ -36,7 +36,7 @@ heck-db/
 
 **Three layers:**
 1. Sources -- `wiki/raw/` (user drops files; Claude reads but NEVER modifies; Mike curates it himself, so files may appear and disappear) and `wiki/meetings/` (one note per meeting, written by the Fathom pipeline, then treated as immutable source material).
-2. `wiki/` -- Claude creates/updates interlinked markdown pages in the type folders per wiki/CLAUDE.md's placement rules.
+2. `wiki/` -- Claude creates/updates interlinked markdown pages in `wiki/pages/` (flat; `type` frontmatter is the taxonomy) per wiki/CLAUDE.md's placement rules.
 3. Schema -- **`wiki/CLAUDE.md` in the vault is the source of truth for structure** (layout, placement, page format, hard rules); it loads automatically for any session touching wiki files. This skill file owns the workflows (ingest/query/lint). Layout follows Google's Open Knowledge Format idiom (see `docs/research/2026-08-22-okf-for-obsidian-wiki.md`); only `type` frontmatter is required for OKF conformance.
 
 **Automated ingest:** the Fathom pipeline (see `docs/plans/2026-08-21-wiki-revival-fathom-pipeline.md`) runs unattended: it writes meeting notes to `wiki/meetings/`, ingests them and anything in `wiki/raw/` into the wiki, and logs everything. It has standing permission to create and update pages anywhere in `wiki/`, including `index.md` and `log.md`. Review happens after the fact -- by reading pages and `wiki/log.md` -- not by pre-approval.
@@ -56,8 +56,7 @@ obsidian create vault="heck-db" path="wiki/index.md" content="# Wiki Index\n\nCo
 obsidian property:set vault="heck-db" path="wiki/index.md" name="okf_version" value="0.2" type=text
 
 obsidian create vault="heck-db" path="wiki/log.md" content="# Wiki Log\n\nChronological record of all wiki operations.\n\n---"
-obsidian property:set vault="heck-db" path="wiki/log.md" name="type" value="wiki-page" type=text
-obsidian property:set vault="heck-db" path="wiki/log.md" name="wiki-type" value="log" type=text
+obsidian property:set vault="heck-db" path="wiki/log.md" name="type" value="log" type=text
 obsidian property:set vault="heck-db" path="wiki/log.md" name="date" value="{YYYY-MM-DD}" type=date
 obsidian property:set vault="heck-db" path="wiki/log.md" name="tags" value="wiki,log" type=list
 ```
@@ -94,10 +93,10 @@ User drops `wiki/raw/karpathy-llm-wiki.md` and says "ingest this" (or the pipeli
 
 1. Read the source
 2. Create pages:
-   - `wiki/concepts/llm-wiki-pattern.md`
-   - `wiki/concepts/rag-vs-compiled-knowledge.md`
-   - `wiki/people/andrej-karpathy.md`
-   - `wiki/summaries/karpathy-llm-wiki-summary.md`
+   - `wiki/pages/llm-wiki-pattern.md`
+   - `wiki/pages/rag-vs-compiled-knowledge.md`
+   - `wiki/pages/andrej-karpathy.md`
+   - `wiki/pages/karpathy-llm-wiki-summary.md`
 3. Regenerate index.md (wiki-index.py) and append to log.md (append-only, at the END)
 
 ---
@@ -174,12 +173,11 @@ Set via `obsidian property:set` after creating each wiki page. See wiki/CLAUDE.m
 ### Example Property Commands
 
 ```bash
-# After creating wiki/concepts/llm-wiki-pattern.md
-obsidian property:set vault="heck-db" path="wiki/concepts/llm-wiki-pattern.md" name="type" value="wiki-page" type=text
-obsidian property:set vault="heck-db" path="wiki/concepts/llm-wiki-pattern.md" name="wiki-type" value="concept" type=text
-obsidian property:set vault="heck-db" path="wiki/concepts/llm-wiki-pattern.md" name="date" value="2026-04-14" type=date
-obsidian property:set vault="heck-db" path="wiki/concepts/llm-wiki-pattern.md" name="tags" value="knowledge-management,ai,patterns" type=list
-obsidian property:set vault="heck-db" path="wiki/concepts/llm-wiki-pattern.md" name="sources" value="karpathy-llm-wiki.md" type=list
+# After creating wiki/pages/llm-wiki-pattern.md
+obsidian property:set vault="heck-db" path="wiki/pages/llm-wiki-pattern.md" name="type" value="concept" type=text
+obsidian property:set vault="heck-db" path="wiki/pages/llm-wiki-pattern.md" name="date" value="2026-04-14" type=date
+obsidian property:set vault="heck-db" path="wiki/pages/llm-wiki-pattern.md" name="tags" value="knowledge-management,ai,patterns" type=list
+obsidian property:set vault="heck-db" path="wiki/pages/llm-wiki-pattern.md" name="sources" value="karpathy-llm-wiki.md" type=list
 ```
 
 ---
@@ -199,7 +197,7 @@ When a new source adds information to an existing wiki page:
 
 ## Naming Rules
 
-See wiki/CLAUDE.md "Placement" for folder and naming rules (lowercase, hyphen-separated, max 50 chars, unique basenames across the wiki). In practice: derive the slug from the topic ("Machine Learning" -> `machine-learning.md`), entity pages use the entity name ("Andrej Karpathy" -> `andrej-karpathy.md`), summary pages include a source reference (`karpathy-llm-wiki-summary.md`). `wiki/daily-notes-archive/` is `/today`-owned machinery, not wiki pages -- never ingest from it, never write to it.
+See wiki/CLAUDE.md "Placement" for type and naming rules (lowercase, hyphen-separated, max 50 chars, unique basenames across the wiki). In practice: derive the slug from the topic ("Machine Learning" -> `machine-learning.md`), entity pages use the entity name ("Andrej Karpathy" -> `andrej-karpathy.md`), summary pages include a source reference (`karpathy-llm-wiki-summary.md`). `wiki/daily-notes-archive/` is `/today`-owned machinery, not wiki pages -- never ingest from it, never write to it.
 
 ---
 

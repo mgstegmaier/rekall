@@ -1,6 +1,6 @@
 """Build the wiki graph: one entity per page, one edge per wikilink.
 
-Deterministic — no LLM. Entities come from the wiki's type folders plus
+Deterministic — no LLM. Entities come from the wiki's pages (typed by frontmatter) plus
 frontmatter title/description; relations are untyped "mentions" edges parsed
 from [[wikilinks]] in page bodies. Writes entities/relations/aliases into
 rag.db next to this script. Run any time; the tables are disposable.
@@ -34,13 +34,9 @@ CREATE TABLE relations (source_id TEXT, target_id TEXT,
 CREATE TABLE aliases   (entity_id TEXT, alias TEXT);
 """
 
-TYPE_BY_FOLDER = {
-    "people": "person",
-    "projects": "project",
-    "entities": "entity",
-    "concepts": "concept",
+TYPE_BY_FOLDER = {  # pages/ is flat since 2026-09-04: its pages carry `type` in frontmatter
+    "pages": None,
     "meetings": "meeting",
-    "summaries": "summary",
 }
 
 
@@ -54,11 +50,14 @@ def pages(corpus, extras=()):
     out = []
     for path in note_files(root):
         rel = path.relative_to(root).as_posix()
-        kind = TYPE_BY_FOLDER.get(rel.split("/", 1)[0])
-        if kind is None:  # index.md, log.md, daily-notes-archive, ...
+        top = rel.split("/", 1)[0]
+        if top not in TYPE_BY_FOLDER:  # index.md, log.md, daily-notes-archive, ...
             continue
         lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
         meta, off = frontmatter(lines)
+        kind = TYPE_BY_FOLDER[top] or meta.get("type")
+        if not kind:
+            continue
         out.append((rel, path.stem.lower(), kind, meta, "\n".join(lines[off:])))
     # extra folders (session digests): "session" entities whose wikilinks become
     # edges, so "when did I last touch X" is answerable from the graph. rel climbs

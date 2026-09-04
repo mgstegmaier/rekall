@@ -15,7 +15,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from rekall_config import VAULT  # noqa: E402
 SESSIONS = VAULT / "memory" / "sessions"
-PAGE = VAULT / "wiki" / "entities" / "annual-review-2026-accomplishments.md"
+PAGE = VAULT / "wiki" / "pages" / "annual-review-2026-accomplishments.md"
 HEADING = "## Running log (auto)"
 
 

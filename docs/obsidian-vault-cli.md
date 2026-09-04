@@ -85,7 +85,7 @@ Every file gets typed properties via `property:set`:
 
 | Property | Type | Values |
 |----------|------|--------|
-| `type` | text | `learning`, `decision`, `session`, `context`, `inbox`, `proposed-learning`, `daily`, `meeting`, `recipe`, `wiki-page`, `schema` |
+| `type` | text | `learning`, `decision`, `session`, `context`, `inbox`, `proposed-learning`, `daily`, `meeting`, `recipe`, `person`, `project`, `entity`, `concept`, `summary`, `log`, `schema` |
 | `date` | date | `YYYY-MM-DD` |
 | `tags` | list | comma-separated |
 
