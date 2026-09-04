@@ -40,6 +40,15 @@ TYPE_BY_FOLDER = {  # pages/ is flat since 2026-09-04: its pages carry `type` in
 }
 
 
+def page_type(fm_lines):
+    """`type:` from raw frontmatter lines (build_index.frontmatter keeps only title/description)."""
+    for ln in fm_lines:
+        m = re.match(r"type:\s*[\"']?([\w-]+)", ln)
+        if m:
+            return m.group(1)
+    return None
+
+
 def eid(kind, name):
     return str(uuid.uuid5(uuid.NAMESPACE_OID, f"{kind}:{' '.join(name.lower().split())}"))
 
@@ -55,7 +64,7 @@ def pages(corpus, extras=()):
             continue
         lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
         meta, off = frontmatter(lines)
-        kind = TYPE_BY_FOLDER[top] or meta.get("type")
+        kind = TYPE_BY_FOLDER[top] or page_type(lines[:off])
         if not kind:
             continue
         out.append((rel, path.stem.lower(), kind, meta, "\n".join(lines[off:])))
