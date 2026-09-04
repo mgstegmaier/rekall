@@ -11,7 +11,7 @@ Maintain a persistent, interlinked knowledge base in the Obsidian vault. Unlike 
 
 Based on Andrej Karpathy's LLM Wiki pattern. The wiki is a "codebase" maintained by AI: Obsidian is the IDE, Claude is the programmer, the wiki is the code.
 
-**Vault path:** `[vault].path` in `rekall.toml` at the rekall repo root (read it with `python3 <rekall repo>/rekall_config.py VAULT`). In the `obsidian` CLI commands below, `{vault}` means that folder's name. If Obsidian is not installed or not running, use the Read/Write/Edit tools on the same paths instead.
+**Vault path:** `~/obsidian-vault/heck-db/`
 
 ## When to Invoke
 
@@ -27,15 +27,15 @@ Based on Andrej Karpathy's LLM Wiki pattern. The wiki is a "codebase" maintained
 ## Architecture
 
 ```
-{vault}/
+heck-db/
 └── wiki/                 # Claude-maintained knowledge base = one OKF-style bundle
     │                     # layout, placement, page format: see wiki/CLAUDE.md
-    └── raw/              # User-curated sources (IMMUTABLE to Claude -- the user adds and removes files)
+    └── raw/              # User-curated sources (IMMUTABLE to Claude -- Mike adds/removes files himself)
         └── *.md, *.pdf   # Web clips, articles, notes, PDFs
 ```
 
 **Three layers:**
-1. Sources -- `wiki/raw/` (user drops files; Claude reads but NEVER modifies; the user curates it, so files may appear and disappear) and `wiki/meetings/` (one note per meeting, written by the Fathom pipeline, then treated as immutable source material).
+1. Sources -- `wiki/raw/` (user drops files; Claude reads but NEVER modifies; Mike curates it himself, so files may appear and disappear) and `wiki/meetings/` (one note per meeting, written by the Fathom pipeline, then treated as immutable source material).
 2. `wiki/` -- Claude creates/updates interlinked markdown pages in the type folders per wiki/CLAUDE.md's placement rules.
 3. Schema -- **`wiki/CLAUDE.md` in the vault is the source of truth for structure** (layout, placement, page format, hard rules); it loads automatically for any session touching wiki files. This skill file owns the workflows (ingest/query/lint). Layout follows Google's Open Knowledge Format idiom (see `docs/research/2026-08-22-okf-for-obsidian-wiki.md`); only `type` frontmatter is required for OKF conformance.
 
@@ -49,22 +49,22 @@ On first invocation, check if `wiki/index.md` and `wiki/log.md` exist. If not, c
 
 ```bash
 # Check if wiki directory exists
-ls {vault}/wiki/index.md 2>/dev/null
+ls ~/obsidian-vault/heck-db/wiki/index.md 2>/dev/null
 
 # If missing, bootstrap:
-obsidian create vault="{vault}" path="wiki/index.md" content="# Wiki Index\n\nContent catalog for the LLM-maintained wiki.\n\n---\n\n## Entities\n\n_No entity pages yet._\n\n## Concepts\n\n_No concept pages yet._\n\n## Summaries\n\n_No summary pages yet._"
-obsidian property:set vault="{vault}" path="wiki/index.md" name="okf_version" value="0.2" type=text
+obsidian create vault="heck-db" path="wiki/index.md" content="# Wiki Index\n\nContent catalog for the LLM-maintained wiki.\n\n---\n\n## Entities\n\n_No entity pages yet._\n\n## Concepts\n\n_No concept pages yet._\n\n## Summaries\n\n_No summary pages yet._"
+obsidian property:set vault="heck-db" path="wiki/index.md" name="okf_version" value="0.2" type=text
 
-obsidian create vault="{vault}" path="wiki/log.md" content="# Wiki Log\n\nChronological record of all wiki operations.\n\n---"
-obsidian property:set vault="{vault}" path="wiki/log.md" name="type" value="wiki-page" type=text
-obsidian property:set vault="{vault}" path="wiki/log.md" name="wiki-type" value="log" type=text
-obsidian property:set vault="{vault}" path="wiki/log.md" name="date" value="{YYYY-MM-DD}" type=date
-obsidian property:set vault="{vault}" path="wiki/log.md" name="tags" value="wiki,log" type=list
+obsidian create vault="heck-db" path="wiki/log.md" content="# Wiki Log\n\nChronological record of all wiki operations.\n\n---"
+obsidian property:set vault="heck-db" path="wiki/log.md" name="type" value="wiki-page" type=text
+obsidian property:set vault="heck-db" path="wiki/log.md" name="wiki-type" value="log" type=text
+obsidian property:set vault="heck-db" path="wiki/log.md" name="date" value="{YYYY-MM-DD}" type=date
+obsidian property:set vault="heck-db" path="wiki/log.md" name="tags" value="wiki,log" type=list
 ```
 
 Also check that `wiki/raw/` exists:
 ```bash
-mkdir -p {vault}/wiki/raw
+mkdir -p ~/obsidian-vault/heck-db/wiki/raw
 ```
 
 ---
@@ -75,17 +75,17 @@ Runs when the Fathom pipeline finds a new meeting note or `wiki/raw/` file, or w
 
 ### Workflow
 
-1. **Read the source** via `obsidian read vault="{vault}" path="wiki/raw/{filename}"` (or Read tool for PDFs/images; meeting notes live in `wiki/meetings/`)
-2. **Check for existing pages** via `obsidian search vault="{vault}" query="{concept}"` -- update existing pages rather than creating duplicates
+1. **Read the source** via `obsidian read vault="heck-db" path="wiki/raw/{filename}"` (or Read tool for PDFs/images; meeting notes live in `wiki/meetings/`)
+2. **Check for existing pages** via `obsidian search vault="heck-db" query="{concept}"` -- update existing pages rather than creating duplicates
 3. **Create or update wiki pages** for each major entity, concept, or topic:
    - Entity pages: people, places, organizations, tools, systems, projects
    - Concept pages: ideas, patterns, methodologies, principles
-   - Summary pages: source-specific summaries -- for NON-MEETING sources only (long/raw/external docs where the compiled summary is the artifact). NEVER create a per-meeting summary page: the meeting note is already Fathom's summary; merge meeting content into entity/project/concept pages citing the meeting note (decided 2026-08-25)
+   - Summary pages: source-specific summaries -- for NON-MEETING sources only (long/raw/external docs where the compiled summary is the artifact). NEVER create a per-meeting summary page: the meeting note is already Fathom's summary; merge meeting content into entity/project/concept pages citing the meeting note (Mike, 2026-08-25)
    - Project entity pages capture: current state, members, decisions, next steps
 4. **Cite every factual claim** with `(source: filename)` after the claim
 5. **Note contradictions** explicitly when new source disagrees with existing wiki pages
 6. **Flag unverified claims** with `[unverified]` when source reliability is uncertain
-7. **Regenerate `wiki/index.md`** -- the index is generated from page frontmatter (each page's `description` is its index hook). Run `python3 <rekall repo>/scripts/wiki-index.py`; never hand-edit index entries
+7. **Regenerate `wiki/index.md`** -- the index is generated from page frontmatter (each page's `description` is its index hook). Run `python3 ~/github_repos/personal_projects/rekall/scripts/wiki-index.py`; never hand-edit index entries
 8. **Append to `wiki/log.md`** with entry: `## [YYYY-MM-DD] ingest | {source-name}\n\nPages created/updated: [[page-1]], [[page-2]], ...` -- ALWAYS at the END of the file, dated with today's date, even when the source material is older. The log is append-only run order, not subject-date order; inserting a backdated block mid-file breaks the ordering contract (lint check 7 catches it)
 
 ### Example Ingest
@@ -108,7 +108,7 @@ When the user asks a question about topics covered by the wiki.
 
 ### Workflow
 
-1. **For cross-cutting questions**, run `obsidian search vault="{vault}" query="{topic}"` (or Grep over `wiki/`) before walking index links -- it catches pages the index's category grouping can miss
+1. **For cross-cutting questions**, run `obsidian search vault="heck-db" query="{topic}"` (or Grep over `wiki/`) before walking index links -- it catches pages the index's category grouping can miss
 2. **Read `wiki/index.md`** to find relevant pages
 3. **Read relevant wiki pages** via `obsidian read`
 4. **Synthesize an answer** with citations to both wiki pages and raw sources
@@ -126,7 +126,7 @@ wiki pages, and a schema document (source: karpathy-llm-wiki.md).
 
 ## Mode: Lint
 
-Lint is automated: `rekall/scripts/wiki-lint.py` runs nightly via launchd (`com.rekall.wiki-lint`, or `com.heckatron.wiki-lint` on the original install) and notifies on regressions. To run it manually:
+Lint is automated: `rekall/scripts/wiki-lint.py` runs nightly via launchd (`com.heckatron.wiki-lint`) and notifies on regressions. To run it manually:
 
 ```bash
 python3 ~/github_repos/personal_projects/rekall/scripts/wiki-lint.py --verbose
@@ -175,11 +175,11 @@ Set via `obsidian property:set` after creating each wiki page. See wiki/CLAUDE.m
 
 ```bash
 # After creating wiki/concepts/llm-wiki-pattern.md
-obsidian property:set vault="{vault}" path="wiki/concepts/llm-wiki-pattern.md" name="type" value="wiki-page" type=text
-obsidian property:set vault="{vault}" path="wiki/concepts/llm-wiki-pattern.md" name="wiki-type" value="concept" type=text
-obsidian property:set vault="{vault}" path="wiki/concepts/llm-wiki-pattern.md" name="date" value="2026-04-14" type=date
-obsidian property:set vault="{vault}" path="wiki/concepts/llm-wiki-pattern.md" name="tags" value="knowledge-management,ai,patterns" type=list
-obsidian property:set vault="{vault}" path="wiki/concepts/llm-wiki-pattern.md" name="sources" value="karpathy-llm-wiki.md" type=list
+obsidian property:set vault="heck-db" path="wiki/concepts/llm-wiki-pattern.md" name="type" value="wiki-page" type=text
+obsidian property:set vault="heck-db" path="wiki/concepts/llm-wiki-pattern.md" name="wiki-type" value="concept" type=text
+obsidian property:set vault="heck-db" path="wiki/concepts/llm-wiki-pattern.md" name="date" value="2026-04-14" type=date
+obsidian property:set vault="heck-db" path="wiki/concepts/llm-wiki-pattern.md" name="tags" value="knowledge-management,ai,patterns" type=list
+obsidian property:set vault="heck-db" path="wiki/concepts/llm-wiki-pattern.md" name="sources" value="karpathy-llm-wiki.md" type=list
 ```
 
 ---
@@ -188,7 +188,7 @@ obsidian property:set vault="{vault}" path="wiki/concepts/llm-wiki-pattern.md" n
 
 When a new source adds information to an existing wiki page:
 
-1. Read the existing page via `obsidian read vault="{vault}" path="wiki/{slug}.md"`
+1. Read the existing page via `obsidian read vault="heck-db" path="wiki/{slug}.md"`
 2. Merge new information with existing content -- never silently drop existing claims; note contradictions instead
 3. Write the updated page via Write tool (Obsidian CLI `create` overwrites; use Write tool for targeted edits to preserve properties)
 4. Update the `sources` property to include the new source
@@ -205,7 +205,7 @@ See wiki/CLAUDE.md "Placement" for folder and naming rules (lowercase, hyphen-se
 
 ## Rules
 
-Hard structural rules (deletion, citations, index/log updates, contradictions, wikilinks) are defined in wiki/CLAUDE.md -- see "Hard rules". The one exception worth restating here because it's easy to miss mid-workflow: NEVER modify `wiki/raw/` or `wiki/meetings/` -- both are immutable source layers (the user curates `wiki/raw/`), except the retire-cleanup job (`wiki-cleanup.py`), which may rewrite wikilinks and annotate citations in both while unlinking a retired page.
+Hard structural rules (deletion, citations, index/log updates, contradictions, wikilinks) are defined in wiki/CLAUDE.md -- see "Hard rules". The one exception worth restating here because it's easy to miss mid-workflow: NEVER modify `wiki/raw/` or `wiki/meetings/` -- both are immutable source layers (Mike curates `wiki/raw/` himself), except the retire-cleanup job (`wiki-cleanup.py`), which may rewrite wikilinks and annotate citations in both while unlinking a retired page.
 
 This skill adds two workflow rules on top of wiki/CLAUDE.md's hard rules:
 

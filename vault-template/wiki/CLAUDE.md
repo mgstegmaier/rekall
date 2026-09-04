@@ -62,7 +62,17 @@ Only `type` is required for OKF conformance; the rest is this wiki's convention.
 
 ## Page body format
 
-`# Title`, then `**Summary**:` (1-2 sentences), `**Sources**:` (basename wikilinks), `**Last updated**:`, `---`, body with `[[wikilinks]]` throughout. Project pages carry `## State`, `## Members`, `## Next steps` sections.
+`# Title`, then `**Summary**:` (1-2 sentences), `**Sources**:` (basename wikilinks), `**Last updated**:`, `---`, body with `[[wikilinks]]` throughout.
+
+Section order (`scripts/wiki-reflow.py` in the rekall repo enforces it mechanically, lint check 9 reports drift):
+
+1. `## State` — the current picture, REWRITTEN in place on every update, never appended to. One State section per page.
+2. `## Next steps`, then `## Members` (project pages carry all three; other pages carry what applies).
+3. `## Updates` — the dated log, NEWEST FIRST. Each entry is `### YYYY-MM-DD short title`; a new entry goes at the TOP of this section, directly under the heading. Dated headings never appear anywhere else on the page.
+4. Reference sections (architecture, RCAs, specs, merged-in material), any order.
+5. `## Related pages` last.
+
+The reader question this answers is "what is true now?" — State answers it, Updates shows how it got there. Any section that carries dated sub-entries keeps them newest-first too.
 
 ## Markdown gotchas (Obsidian renderer)
 
@@ -81,4 +91,5 @@ The owner marks a page `status: retired` in its frontmatter; the cleanup job (`s
 4. Note contradictions explicitly; never silently resolve them.
 5. Every ingest/update: set the page's `title` and `description` frontmatter (the index hook IS the `description`), then regenerate the index with `python3 REKALL_REPO/scripts/wiki-index.py` — never hand-edit index entries. The Fathom pipeline regenerates automatically; interactive sessions run the script. Append to `log.md` at the END of the file — append-only, bare ISO heading, bold `**tag | name**` first line. The log is the audit trail.
 6. Link with basename `[[wikilinks]]` only — never path-style links.
-7. Interpersonal and organizational friction is documented professionally, on non-violent-communication principles: observations, not evaluations; process gaps, not personal failings; no attributed motives or frustration language. Keep the fact, drop the heat — pages may be read by the people they describe.
+7. Updating a page: rewrite `## State` in place, insert the new `### YYYY-MM-DD` entry at the top of `## Updates`, and carry closed items out of `## Next steps`. Never append a dated section to the bottom of a page.
+8. Interpersonal and organizational friction is documented professionally, on non-violent-communication principles: observations, not evaluations; process gaps, not personal failings; no attributed motives or frustration language. Keep the fact, drop the heat — pages may be read by the people they describe.

@@ -231,6 +231,29 @@ def check_pipeline_state(r):
     r.section("pipeline_state", "8. Fathom pipeline state cross-check", issues)
 
 
+def check_page_order(r):
+    """State first, one of each canonical section, dated updates newest-first (wiki/CLAUDE.md
+    'Page body format'). Fix with scripts/wiki-reflow.py."""
+    dated = re.compile(r"^#{2,3} +(\d{4}-\d{2}-\d{2})\b")
+    issues = []
+    for d in ("projects", "entities", "concepts", "people"):
+        for f in sorted((WIKI / d).glob("*.md")):
+            rel = f.relative_to(WIKI)
+            lines = f.read_text(encoding="utf-8", errors="replace").splitlines()
+            h2 = [ln for ln in lines if ln.startswith("## ")]
+            for name in ("## State", "## Next steps", "## Members", "## Related pages"):
+                if h2.count(name) > 1:
+                    issues.append(f"{rel}: {h2.count(name)}x `{name}` (merge)")
+            if "## State" in h2 and h2[0] != "## State":
+                issues.append(f"{rel}: first section is `{h2[0]}`, not `## State`")
+            dates = [dated.match(ln).group(1) for ln in lines if dated.match(ln)]
+            if any(a < b for a, b in zip(dates, dates[1:])):
+                issues.append(f"{rel}: dated headings not newest-first")
+            if any(ln.startswith("## ") and dated.match(ln) for ln in lines):
+                issues.append(f"{rel}: dated H2 outside `## Updates`")
+    r.section("page_order", "9. Page order (State first, no duplicate sections, updates newest-first)", issues)
+
+
 # ── Main ────────────────────────────────────────────────────
 
 def main():
@@ -255,6 +278,7 @@ def main():
     check_project_sections(r)
     check_log_order(r)
     check_pipeline_state(r)
+    check_page_order(r)
 
     total = sum(r.counts.values())
     r.out(f"\nLINT: {total} issues across {len(r.counts)} checks")
