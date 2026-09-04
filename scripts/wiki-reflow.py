@@ -124,11 +124,23 @@ def reflow(text):
     """Return (new_text, notes). notes lists what moved and what needs a merge pass."""
     fm, body = split_frontmatter(text)
     h2s = blocks(body.splitlines(), 2)
-    preamble = strip_blank(h2s[0][1])
     canon = {k: [] for k in CANON}
     entries, reference, related = [], [], []
     notes = []
     order = 0
+
+    # dated H3s with no H2 above them (a page that grew a log before it grew sections)
+    pre = blocks(h2s[0][1], 3)
+    preamble = list(pre[0][1])
+    for h3head, h3body in pre[1:]:
+        d3 = dated(h3head)
+        if d3:
+            order += 1
+            entries.append(entry(d3[0], d3[1], h3body, order))
+            notes.append("moved dated subsection out of the preamble")
+        else:
+            preamble += [h3head] + h3body
+    preamble = strip_blank(preamble)
 
     for head, blines in h2s[1:]:
         htxt = heading_text(head)
