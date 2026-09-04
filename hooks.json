@@ -1,5 +1,5 @@
 {
-  "_comment": "Merge the two entries below into the hooks block of ~/.claude/settings.json, keeping anything already there. Replace __REPO__ with this repo's absolute path. The recall hook fails open: any error exits silently and never blocks a prompt.",
+  "_comment": "install.sh merges the two entries below into the hooks block of ~/.claude/settings.json, keeping anything already there, with __REPO__ replaced by this repo's absolute path; install.sh --uninstall removes them. The recall hook fails open: any error exits silently and never blocks a prompt.",
   "hooks": {
     "UserPromptSubmit": [
       {

@@ -1,0 +1,11 @@
+{
+  "_comment": "Project-level permission rules; Claude Code loads this whenever it runs in the rekall folder. install.sh writes outside the repo (hooks, skills, schedules), so it always prompts for approval, in every permission mode including auto. Rules resolve before the auto-mode classifier, so this replaces a classifier denial with a yes/no prompt.",
+  "permissions": {
+    "ask": [
+      "Bash(bash install.sh)",
+      "Bash(bash install.sh:*)",
+      "Bash(./install.sh)",
+      "Bash(./install.sh:*)"
+    ]
+  }
+}

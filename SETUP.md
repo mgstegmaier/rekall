@@ -10,13 +10,16 @@ else.
 ## The short way
 
 Open Claude Code in the folder where you want Rekall to live and paste this. Claude clones the
-repo and runs the setup message below on its own.
+repo and tells you what to do next.
 
 ```
-Clone https://github.com/mgstegmaier/rekall into a folder called rekall here, then read
-rekall/SETUP.md and follow its setup message exactly, one step at a time. Stop and tell me
-if a step fails.
+Clone https://github.com/mgstegmaier/rekall into a folder called rekall here. Then tell me
+to open the rekall folder in Claude Code and paste the setup message from rekall/SETUP.md.
 ```
+
+Opening the rekall folder matters: the repo carries its own Claude Code permission rules
+(`.claude/settings.json`), and they only load when Claude Code runs inside that folder. They
+make the one step that writes outside the repo ask for your approval instead of failing.
 
 ## The setup message
 
@@ -27,9 +30,8 @@ If you already cloned the repo, open Claude Code in the `rekall` folder and past
 Set up Rekall for me, one step at a time. Read SETUP.md first. Stop and tell me if a step
 fails. Never skip a failed step and never overwrite a file that already exists.
 
-1. Check the machine: macOS, python3 3.11 or newer, git, and `claude` on PATH (run
-   `claude -p "say ok"`). If claude is missing, install the Claude Code CLI and re-check.
-   If python3 is too old, tell me how to install it and stop.
+1. Check the machine: macOS, git, and `claude` on PATH (run `claude -p "say ok"`). If
+   claude is missing, install the Claude Code CLI and re-check.
 2. Ask me where my wiki should live. If I have no vault, ask for a folder (suggest
    ~/rekall-vault) and copy the contents of vault-template/ into it. If I already have an
    Obsidian vault, ask for its path and copy vault-template/wiki/ and
@@ -40,32 +42,30 @@ fails. Never skip a failed step and never overwrite a file that already exists.
 4. Secrets: copy .env.example to .env and set its mode to 600. Ask whether I have a
    Fathom API key. If not, tell me where in Fathom to create one and wait for me. Write
    FATHOM_API_KEY and WORK_EMAIL into .env and leave the Monday and Jira lines blank.
-   Test the key by listing my most recent meeting and show me its title. If the call
-   fails with a certificate error, follow the corporate-CA note in SETUP.md and retry once.
-5. Python environment: create graph-memory/.venv, install fastembed into it, and run
-   graph-memory/fetch_model.sh. Confirm the model folder exists.
-6. First build: run graph-memory/reindex.sh and show me the counts it prints.
-7. Backfill: run scripts/fathom-pipeline.py --since <30 days ago> --no-monday in the
+5. Install: run `bash install.sh` in the rekall folder and show me its output. It checks
+   for python 3.11 or newer, builds graph-memory/.venv, downloads the embedding model,
+   merges the hooks into ~/.claude/settings.json, copies the skills and commands into
+   ~/.claude/, and loads the three com.rekall.* schedules. Claude Code will ask me to
+   approve this command; that is expected, tell me to approve it. If the script stops
+   on python, tell me how to install a newer one and stop.
+6. Test the Fathom key by listing my most recent meeting and show me its title. If the
+   call fails with a certificate error, follow the corporate-CA note in SETUP.md and
+   retry once.
+7. First build: run graph-memory/reindex.sh and show me the counts it prints.
+8. Backfill: run scripts/fathom-pipeline.py --since <30 days ago> --no-monday in the
    background. It ingests five meetings per Claude call and a month of meetings takes
    about an hour, so carry on with the steps below while it runs. When it finishes, tell
    me how many meeting notes landed in wiki/meetings/ and how many wiki pages it wrote.
-8. Hooks: merge the UserPromptSubmit and SessionEnd entries from hooks.json into the hooks
-   block of ~/.claude/settings.json, keeping everything already there, with __REPO__
-   replaced by the rekall folder's absolute path.
-9. Skills: copy each folder in skills/ into ~/.claude/skills/ and each file in commands/
-   into ~/.claude/commands/, skipping any that already exist, and replace __REPO__ in the
-   copies with the rekall folder's absolute path.
-10. Schedules: copy the three plists in launchd/ to ~/Library/LaunchAgents/, replacing
-    __REPO__ with the rekall folder's absolute path, __HOME__ with my home folder, and __PYTHON__
-    with the absolute path of the python3 from step 1. Create ~/.config/rekall/logs/. Load
-    each one and show me `launchctl list | grep rekall`.
-11. Test: run graph-memory/search.py with a question about my most recent meeting and
-    show me the top hits.
-12. Tell me in five lines: where my wiki is, what runs when, how to drop a file into
-    raw/, where the logs are, and how to turn all of it off.
+9. Test: run graph-memory/search.py with a question about my most recent meeting and
+   show me the top hits.
+10. Tell me in five lines: where my wiki is, what runs when, how to drop a file into
+    raw/, where the logs are, and that `bash install.sh --uninstall` turns all of it off.
 ```
 
-Then type `/exit` and open Claude Code again so the hooks load. From here on, meetings land
+Then type `/exit` and open Claude Code again so the hooks load. Everything that writes outside
+the rekall folder (hooks, skills, schedules, permission rules) goes through `install.sh`. It is
+safe to re-run after a `git pull`, and `bash install.sh --uninstall` removes exactly what it
+added. From here on, meetings land
 in your wiki within the hour, anything you save into `wiki/raw/` gets compiled on the next
 run, and every session you close is written up and indexed by morning.
 
@@ -82,5 +82,5 @@ security find-certificate -a -c "PROXY_CA_NAME" -p /Library/Keychains/System.key
 cat "$(python3 -c 'import certifi; print(certifi.where())')" ~/.config/rekall/corp-ca.pem > ~/.config/rekall/ca-bundle.pem
 ```
 
-If step 4 fails with `CERTIFICATE_VERIFY_FAILED`, run this, then retry the step.
+If step 6 fails with `CERTIFICATE_VERIFY_FAILED`, run this, then retry the step.
 

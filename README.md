@@ -11,12 +11,11 @@ Named after the memory-implant company in *Total Recall*.
 You need a Mac, Claude Code (the VS Code extension is fine), and a Fathom account. Open Claude Code in the folder where you want Rekall to live and paste this:
 
 ```
-Clone https://github.com/mgstegmaier/rekall into a folder called rekall here, then read
-rekall/SETUP.md and follow its setup message exactly, one step at a time. Stop and tell me
-if a step fails.
+Clone https://github.com/mgstegmaier/rekall into a folder called rekall here. Then tell me
+to open the rekall folder in Claude Code and paste the setup message from rekall/SETUP.md.
 ```
 
-Claude clones the repo, walks you through the questions (where your wiki should live, your Fathom key, your timezone), installs the index, the hooks, and the schedules, and backfills your last 30 days of meetings. When it finishes, type `/exit` and open Claude Code again so the hooks load. `SETUP.md` has the full step list and the corporate-proxy fix if your laptop rewrites HTTPS.
+Then open the `rekall` folder in Claude Code and paste the setup message from `SETUP.md`. Claude walks you through the questions (where your wiki should live, your Fathom key, your timezone), runs `install.sh` for the index, the hooks, and the schedules (it asks you to approve that one command), and backfills your last 30 days of meetings. When it finishes, type `/exit` and open Claude Code again so the hooks load. `SETUP.md` has the full step list and the corporate-proxy fix if your laptop rewrites HTTPS.
 
 ## What it does
 
