@@ -19,6 +19,7 @@ from paths import DB  # noqa: E402
 TOP = 5
 BUDGET = 1500  # characters of context in total
 PER_HIT = 280  # characters of chunk text per hit
+READ_TIMEOUT = 0.25  # seconds; a prompt must never wait on the indexer
 WORD_SNAP = 40  # how far the window may slide to avoid cutting a word
 
 
@@ -26,7 +27,7 @@ def hits(query):
     """The top rows for a query, as (label, one-line text) pairs."""
     from search import fuse, keyword_leg, meaning_leg
 
-    db = sqlite3.connect(DB)
+    db = sqlite3.connect(DB, timeout=READ_TIMEOUT)
     try:
         legs = {"keyword": keyword_leg(db, query)}
         meaning = meaning_leg(db, query)

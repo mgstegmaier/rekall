@@ -68,7 +68,7 @@ def _seeds(db, question):
 
 def recall(question, hops=2, top_k=8):
     t0 = time.perf_counter()
-    db = sqlite3.connect(DB)
+    db = sqlite3.connect(DB, timeout=0.25)  # see READ_TIMEOUT in recall_hook
     try:
         seeds = _seeds(db, question)
         if not seeds:

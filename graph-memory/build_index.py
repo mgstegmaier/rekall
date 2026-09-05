@@ -227,13 +227,18 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--corpus", default=str(HERE.parent / "corpus-before"))
     ap.add_argument("--extra", action="append", default=[],
-                    help="extra folder to index (e.g. the vault's memory/sessions)")
+                    help="extra folder to index (digests outside the corpus; in-wiki sessions/ needs no flag)")
     ap.add_argument("--full", action="store_true",
                     help="drop and rebuild everything; required after an embedding-model change")
     args = ap.parse_args()
     corpus = Path(args.corpus)
 
     db = sqlite3.connect(DB)
+    # WAL so the recall hook can read the last committed index while this
+    # build holds its write transaction. Persistent in the DB header, so one
+    # writer setting it is enough; a filesystem that cannot do WAL (a network
+    # mount) just keeps its old mode and everything still works, more slowly.
+    db.execute("PRAGMA journal_mode=WAL")
     # incremental needs a DB built with the files table and a matching corpus;
     # anything else (first run, pre-upgrade DB, corpus moved) forces a full build
     full = args.full

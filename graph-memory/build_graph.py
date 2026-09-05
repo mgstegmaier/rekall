@@ -37,6 +37,7 @@ CREATE TABLE aliases   (entity_id TEXT, alias TEXT);
 TYPE_BY_FOLDER = {  # pages/ is flat since 2026-09-04: its pages carry `type` in frontmatter
     "pages": None,
     "meetings": "meeting",
+    "sessions": "session",  # SessionEnd digests; moved in from memory/sessions 2026-09-04
 }
 
 
@@ -67,6 +68,8 @@ def pages(corpus, extras=()):
         kind = TYPE_BY_FOLDER[top] or page_type(lines[:off])
         if not kind:
             continue
+        if kind == "session":
+            meta.setdefault("title", f"session {path.stem}")
         out.append((rel, path.stem.lower(), kind, meta, "\n".join(lines[off:])))
     # extra folders (session digests): "session" entities whose wikilinks become
     # edges, so "when did I last touch X" is answerable from the graph. rel climbs
@@ -89,13 +92,18 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--corpus", required=True, help="the wiki folder")
     ap.add_argument("--extra", action="append", default=[],
-                    help="extra folder of session digests to graph (e.g. the vault's memory/sessions)")
+                    help="extra folder of session digests to graph (digests outside the corpus; in-wiki sessions/ needs no flag)")
     args = ap.parse_args()
 
     rows = pages(args.corpus, args.extra)
     by_slug = {}
     ident_by_rel = {}
     db = sqlite3.connect(DB)
+    # WAL so the recall hook can read the last committed index while this
+    # build holds its write transaction. Persistent in the DB header, so one
+    # writer setting it is enough; a filesystem that cannot do WAL (a network
+    # mount) just keeps its old mode and everything still works, more slowly.
+    db.execute("PRAGMA journal_mode=WAL")
     db.executescript(SCHEMA)
 
     for rel, slug, kind, meta, _ in rows:
