@@ -27,8 +27,13 @@ STOPWORDS = {
 }
 
 
+def query_terms(query):
+    """The searchable words of a query: lowercased, stopwords dropped."""
+    return [t for t in re.findall(r"\w+", query.lower()) if t not in STOPWORDS]
+
+
 def keyword_leg(db, query):
-    terms = [t for t in re.findall(r"\w+", query.lower()) if t not in STOPWORDS]
+    terms = query_terms(query)
     if not terms:
         return []
     match = " OR ".join(f'"{t}"' for t in terms)
