@@ -33,4 +33,4 @@ Open: scheduled Graph calls paused by Mike (calendar watch unloaded, `prep_in_sw
 `snowflake-deployment-automation` need `repos:` path prefixes; Windows install and existing-vault
 install still designed only (memory `existing-vault-install-design.md`); plugin packaging parked.
 
-Next action: add `repos:` path prefixes on `signals-ai` and `snowflake-deployment-automation`, then finish Jeff's install (he now gets `cos/`).
+Next action: add `repos:` path prefixes on `signals-ai` and `snowflake-deployment-automation`. Jeff's install is done; a `git pull` on his clone brings in `cos/`.
