@@ -21,16 +21,16 @@ https://github.com/mgstegmaier/rekall (fresh single-commit history since 2026-09
 
 ## Current state (2026-09-07)
 
-Shipped 2026-09-07, uncommitted on `recall-wal-no-reader-block`: the chief of staff in `cos/`
+Shipped 2026-09-07 (`b718928` on main): the chief of staff in `cos/`
 (ledger, meeting prep, calendar watch, Friday status, GitHub PRs as Shipped, rigor check, `repos:`
 mapping), two skills (`prep`, `status`), two plists, `[cos]` config keys, pipeline steps 4 and 5,
 `REKALL_NO_DIGEST` guard. Detail: wiki `pages/chief-of-staff.md` and the plan
-`wiki/plans/2026-09-07-chief-of-staff-agent.md` (build log). Also uncommitted from 09-04/09-07:
-`wiki/plans/` folder, "Mode: Plan" in `skills/wiki`.
+`wiki/plans/2026-09-07-chief-of-staff-agent.md` (build log). Same commit carried the 09-04/09-07
+`wiki/plans/` folder and "Mode: Plan" in `skills/wiki`.
 
 Open: scheduled Graph calls paused by Mike (calendar watch unloaded, `prep_in_sweep = false`);
 `com.rekall.status` Friday 15:00 has not had its first launchd run; `signals-ai` and
 `snowflake-deployment-automation` need `repos:` path prefixes; Windows install and existing-vault
 install still designed only (memory `existing-vault-install-design.md`); plugin packaging parked.
 
-Next action: commit the branch (cos/, skills, plists, config, plus the 14 earlier files), then push so Jeff's install picks up `cos/`.
+Next action: add `repos:` path prefixes on `signals-ai` and `snowflake-deployment-automation`, then finish Jeff's install (he now gets `cos/`).
