@@ -29,8 +29,8 @@ mapping), two skills (`prep`, `status`), two plists, `[cos]` config keys, pipeli
 `wiki/plans/` folder and "Mode: Plan" in `skills/wiki`.
 
 Open: scheduled Graph calls paused by Mike (calendar watch unloaded, `prep_in_sweep = false`);
-`com.rekall.status` Friday 15:00 has not had its first launchd run; `signals-ai` and
-`snowflake-deployment-automation` need `repos:` path prefixes; Windows install and existing-vault
+`com.rekall.status` Friday 15:00 has not had its first launchd run; `qval` and `doc-extraction`
+have no `repos:` yet; Windows install and existing-vault
 install still designed only (memory `existing-vault-install-design.md`); plugin packaging parked.
 
-Next action: add `repos:` path prefixes on `signals-ai` and `snowflake-deployment-automation`. Jeff's install is done; a `git pull` on his clone brings in `cos/`.
+Next action: set `repos:` on the `qval` and `doc-extraction` pages, or resume scheduled Graph calls when ready (`prep_in_sweep`, calendar-watch plist). Jeff's install is done; a `git pull` on his clone brings in `cos/`.
