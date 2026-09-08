@@ -29,8 +29,7 @@ mapping), two skills (`prep`, `status`), two plists, `[cos]` config keys, pipeli
 `wiki/plans/` folder and "Mode: Plan" in `skills/wiki`.
 
 Open: scheduled Graph calls paused by Mike (calendar watch unloaded, `prep_in_sweep = false`);
-`com.rekall.status` Friday 15:00 has not had its first launchd run; `qval` and `doc-extraction`
-have no `repos:` yet; Windows install and existing-vault
+`com.rekall.status` Friday 15:00 has not had its first launchd run; every project page that has a repo carries `repos:`; Windows install and existing-vault
 install still designed only (memory `existing-vault-install-design.md`); plugin packaging parked.
 
-Next action: set `repos:` on the `qval` and `doc-extraction` pages, or resume scheduled Graph calls when ready (`prep_in_sweep`, calendar-watch plist). Jeff's install is done; a `git pull` on his clone brings in `cos/`.
+Next action: resume scheduled Graph calls when ready (`prep_in_sweep = true`, reload the calendar-watch plist); until then `/prep` by hand. Jeff's install is done; a `git pull` on his clone brings in `cos/`.

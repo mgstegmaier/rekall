@@ -32,6 +32,10 @@ assert p.project_for("Org/Repo.Snow", ["signals/x.sql"], mapping) == (None, ["dc
 # a repo with one whole-repo claimant -> that page, files irrelevant
 assert p.project_for("Org/Repo.Astro", [], mapping) == ("ingest", ["ingest"])
 assert p.project_for("org/repo.dbt", ["models/a.sql"], mapping) == ("dv2", ["dv2"])  # case-insensitive
+# a repo split by folders: a whole-repo page is a candidate, not the label, for PRs outside every folder
+split = {"dv2": [("Org/Repo.Snow", "perf_bench")], "docx": [("Org/Repo.Snow", "")]}
+assert p.project_for("Org/Repo.Snow", ["RP_DEV/a.sql"], split) == (None, ["docx"])
+assert p.project_for("Org/Repo.Snow", ["perf_bench/a.py"], split) == ("dv2", ["dv2"])
 # unknown repo
 assert p.project_for("Org/Nope", ["a"], mapping) == (None, [])
 

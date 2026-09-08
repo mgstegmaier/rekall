@@ -5,9 +5,9 @@
       - your-org/platform/perf_bench       # one folder of a shared repo
 
 A PR maps to the page with the longest prefix that covers at least half its changed files. A whole-repo entry
-wins only when it is the sole page claiming that repo; when two pages claim the same repo with no
-prefix, the PR stays unlabelled and both pages are returned as candidates, so the rigor check can
-say "cite on one of ...". Read-only, stdlib only.
+wins only when it is the sole page claiming that repo AND no page names a folder of it. In a repo
+split by folders, or when two pages claim it whole, the PR keeps its repo label and the whole-repo
+pages come back as candidates, so the rigor check can say "cite on one of ...". Read-only, stdlib only.
 """
 import re
 import sys
@@ -64,7 +64,7 @@ def covers(prefix, files):
 def project_for(full_repo, files, mapping):
     """(page stem or None, candidate stems). Longest covering prefix wins; whole-repo wins only if unique."""
     full_repo = full_repo.lower()
-    best, best_len, whole = None, -1, []
+    best, best_len, whole, split = None, -1, [], False
     for stem, repos in mapping.items():
         for repo, prefix in repos:
             if repo.lower() != full_repo:
@@ -72,12 +72,14 @@ def project_for(full_repo, files, mapping):
             if not prefix:
                 whole.append(stem)
                 continue
+            split = True  # at least one page names a folder of this repo
             if covers(prefix, files) and len(prefix) > best_len:
                 best, best_len = stem, len(prefix)
     if best:
         return best, [best]
-    if len(whole) == 1:
+    if len(whole) == 1 and not split:
         return whole[0], whole
+    # a repo split by folders: a page that names no folder can be a candidate, never the label
     return None, sorted(set(whole))
 
 
