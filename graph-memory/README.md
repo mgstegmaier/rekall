@@ -13,18 +13,18 @@ Vendored from [Glitch-Cat-Club/graph-memory-starter](https://github.com/Glitch-C
 
 ## Graph layer
 
-`build_graph.py --corpus ~/obsidian-vault/heck-db/wiki` builds a deterministic knowledge graph into the same `rag.db`: one entity per wiki page (type from its folder, name/description from frontmatter), one untyped `mentions` edge per `[[wikilink]]`. No LLM involved. `--extra` folders (reindex.sh passes the vault's `memory/sessions/`) become `session`-type entities whose wikilinks become edges too, so "when did I last touch X" is answerable from the graph; wiki pages always win a slug collision, and spaced link text like `[[Familiar Cost Watch]]` resolves to its hyphenated slug. `graph_recall.py "question"` seeds entities named in the question and walks 2 hops with a recursive SQL query (~30ms). The recall hook runs this as a third leg and appends the triples as a "Wiki graph:" block.
+`build_graph.py --corpus ~/obsidian-vault/heck-db/wiki` builds a deterministic knowledge graph into the same `rag.db`: one entity per wiki page (type from its folder, name/description from frontmatter), one untyped `mentions` edge per `[[wikilink]]`. No LLM involved. `--extra` folders (none needed since 2026-09-04: digests live in `wiki/sessions/`, inside the corpus) become `session`-type entities whose wikilinks become edges too, so "when did I last touch X" is answerable from the graph; wiki pages always win a slug collision, and spaced link text like `[[Familiar Cost Watch]]` resolves to its hyphenated slug. `graph_recall.py "question"` seeds entities named in the question and walks 2 hops with a recursive SQL query (~30ms). The recall hook runs this as a third leg and appends the triples as a "Wiki graph:" block.
 
 ## Session digest
 
-`digest/session_end.py` runs on the `SessionEnd` hook: it filters the transcript down to your words and the replies (tool calls, results, and thinking dropped), stages it under `digest/pending/`, and spawns a detached `claude -p` (sonnet) that writes a structured digest (`digest/digest-prompt.md` is the voice) into the vault at `memory/sessions/YYYY-MM-DD.md`. Sessions under 5 turns are skipped. Failures never block a session close; they land in `digest/log/digest.log` and the staged file stays for retry. The reindex sweeps `memory/sessions/` (via `--extra`), so past sessions become searchable memory. This complements `/wrap-up`, which stays the deliberate close-out.
+`digest/session_end.py` runs on the `SessionEnd` hook: it filters the transcript down to your words and the replies (tool calls, results, and thinking dropped), stages it under `digest/pending/`, and spawns a detached `claude -p` (sonnet) that writes a structured digest (`digest/digest-prompt.md` is the voice) into the vault at `wiki/sessions/YYYY-MM-DD.md`. Sessions under 5 turns are skipped. Failures never block a session close; they land in `digest/log/digest.log` and the staged file stays for retry. The reindex sweeps `wiki/sessions/` with the rest of the corpus, so past sessions become searchable memory. This complements `/wrap-up`, which stays the deliberate close-out.
 
 ## Operations
 
 | Task | Command |
 |------|---------|
 | Refresh index + graph | `./reindex.sh` (also runs hourly via `com.heckatron.wiki-reindex` LaunchAgent; incremental, with the week's first Sunday run auto-promoted to a full rebuild) |
-| Force a full rebuild | `.venv/bin/python build_index.py --corpus ~/obsidian-vault/heck-db/wiki --extra ~/obsidian-vault/heck-db/memory/sessions --full` |
+| Force a full rebuild | `.venv/bin/python build_index.py --corpus ~/obsidian-vault/heck-db/wiki --full` |
 | Test a query | `.venv/bin/python search.py "what's next on QVal"` |
 | Test graph recall | `.venv/bin/python graph_recall.py "who is involved in QVal"` |
 | Distil new meeting notes | `.venv/bin/python distil.py ~/obsidian-vault/heck-db/wiki --under meetings` |

@@ -164,6 +164,8 @@ def monday_line(session_id):
 def main():
     if os.environ.get("MEMORY_STARTER_CHILD"):  # our own headless call closing
         return
+    if os.environ.get("REKALL_NO_DIGEST"):  # headless chief-of-staff runs leave no durable memory (Mike, 2026-09-07)
+        return
     try:
         payload = read_stdin()
     except Exception:

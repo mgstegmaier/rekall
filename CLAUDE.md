@@ -9,7 +9,9 @@ https://github.com/mgstegmaier/rekall (fresh single-commit history since 2026-09
   script at another vault. Secrets: `.env` at the repo root (see `.env.example`) or Doppler.
 - `graph-memory/` — the LIVE copy (hooks in `~/.claude/settings.json` and the hourly
   `com.heckatron.wiki-reindex` LaunchAgent point here). See `graph-memory/README.md`.
-- `scripts/` — ingest pipeline, indexers, wiki lint/cleanup, wins mining. `launchd/` — plist
+- `scripts/` — ingest pipeline, indexers, wiki lint/cleanup, wins mining.
+- `cos/` — the chief of staff: `followups.py`, `prep.py`, `calendar-watch.py`, `status.py`, `gh.py`, `projects.py`,
+  each with a `test_*.py`; config under `[cos]` in `rekall.toml`. Wiki page `pages/chief-of-staff.md` is the reference. `launchd/` — plist
   templates (`com.rekall.*`). `vault-template/` — what setup copies into a new vault.
 - `SETUP.md` — the guided install (paste into Claude Code). `install.sh` — every step that writes
   outside the repo (hooks, skills, plists, allow rules); idempotent, `--uninstall` reverses it.
@@ -17,17 +19,18 @@ https://github.com/mgstegmaier/rekall (fresh single-commit history since 2026-09
   Claude Code runs inside the rekall folder). `docs/obsidian-vault-cli.md` —
   vault CLI reference; read before any vault write. Wiki structure rules: vault `wiki/CLAUDE.md`.
 
-## Current state (2026-09-04)
+## Current state (2026-09-07)
 
-Shipped today: `install.sh` (PR #1); `type` as the single taxonomy field with flat `wiki/pages/` and
-one Base per type (PRs #2, #3); three-stage page lifecycle `status: active|retired|archive`, where
-`scripts/wiki-cleanup.py` moves archive-marked files to `wiki/archive/` and never deletes (commit
-`76be8be`; self-check `scripts/test_wiki_cleanup.py`). Detail: wiki `pages/rekall.md`.
+Shipped 2026-09-07, uncommitted on `recall-wal-no-reader-block`: the chief of staff in `cos/`
+(ledger, meeting prep, calendar watch, Friday status, GitHub PRs as Shipped, rigor check, `repos:`
+mapping), two skills (`prep`, `status`), two plists, `[cos]` config keys, pipeline steps 4 and 5,
+`REKALL_NO_DIGEST` guard. Detail: wiki `pages/chief-of-staff.md` and the plan
+`wiki/plans/2026-09-07-chief-of-staff-agent.md` (build log). Also uncommitted from 09-04/09-07:
+`wiki/plans/` folder, "Mode: Plan" in `skills/wiki`.
 
-Open: `wiki-index.py` can't run unattended in interactive ingests; pipeline writes a Familiar-style
-`today.md` at the vault root; first reindex after a backfill distils every meeting; Windows install
-planned (`docs/plans/2026-09-03-windows-install.md`). Designed, not built: existing-vault install
-(layered `install.sh [wiki|recall]`, minimal contract, ownership stamp) — project memory
-`existing-vault-install-design.md`. Parked: plugin packaging, pros and cons first.
+Open: scheduled Graph calls paused by Mike (calendar watch unloaded, `prep_in_sweep = false`);
+`com.rekall.status` Friday 15:00 has not had its first launchd run; `signals-ai` and
+`snowflake-deployment-automation` need `repos:` path prefixes; Windows install and existing-vault
+install still designed only (memory `existing-vault-install-design.md`); plugin packaging parked.
 
-Next action: finish Jeff's install (`git pull`, `bash install.sh`, confirm recall fires).
+Next action: commit the branch (cos/, skills, plists, config, plus the 14 earlier files), then push so Jeff's install picks up `cos/`.

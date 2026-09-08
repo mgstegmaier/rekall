@@ -4,6 +4,6 @@
   "max_turns": 30,
   "max_chars": 15000,
   "model": "sonnet",
-  "log_dir": "../memory/sessions",
+  "log_dir": "sessions",
   "distil": false
 }

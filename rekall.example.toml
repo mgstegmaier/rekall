@@ -5,7 +5,7 @@ name = "Your Name"            # how the wiki and digests refer to you
 timezone = "America/Chicago"  # IANA name; meeting notes are dated in this zone
 
 [vault]
-# The folder that holds wiki/ and memory/sessions/. An Obsidian vault if you have one,
+# The folder that holds wiki/ (session digests land in wiki/sessions/). An Obsidian vault if you have one,
 # otherwise any folder; setup copies vault-template/ into it.
 path = "~/rekall-vault"
 
@@ -24,3 +24,22 @@ archive = "archive"
 # Optional. Only used when MONDAY_API_TOKEN is set in .env.
 board = 0
 group = "Auto-Capture"
+
+[cos]
+# Optional, for cos/followups.py. Meeting to-dos are kept only for you and the people listed
+# under tracked (direct reports, say). Everyone else's items stay in the meeting note.
+# Names exactly as they appear in your notes; first names count.
+me = ["Your Name", "First"]
+# GitHub owners whose PRs count as work (status Shipped, PRs waiting on review). Empty = every repo you can see.
+# github_orgs = ["YourEmployerOrg"]
+# Run cos/prep.py (calendar via Microsoft Graph) inside every Fathom sweep. Off unless you set it.
+# prep_in_sweep = false
+# Optional. A script that prints a Monday board snapshot JSON (familiar's monday-board-snapshot.py);
+# its on_hold items become the ledger's "Waiting on" bucket. Blank or absent = no Monday feed.
+# monday_snapshot = ""
+# Optional, for cos/status.py. Your manager, as the name appears in 1:1 note filenames
+# (any word of it, lowercased, e.g. "Jane Doe" matches 2026-09-01-1-1-doe-you.md).
+# Open follow-ups from those notes become the "You owe" bucket of the Friday status.
+# status_audience = ""
+[cos.tracked]
+# "Display Name" = ["aliases", "as", "written", "in", "notes"]

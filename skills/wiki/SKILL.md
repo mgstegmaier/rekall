@@ -123,6 +123,48 @@ wiki pages, and a schema document (source: karpathy-llm-wiki.md).
 
 ---
 
+## Mode: Plan
+
+Files a Claude Code plan or scope in the wiki so it is recall-indexed and linked from its project
+page. Trigger: Mike says "send this plan to Obsidian", "file the plan in the wiki", or a plan-mode
+session ends with a plan worth keeping.
+
+**Where:** `wiki/plans/{YYYY-MM-DD}-{slug}.md`. Slug rules match pages (lowercase, hyphens, under 50
+chars). Plans are not in `index.md`; the project page and recall are how they are found.
+
+**Frontmatter** (all required):
+
+```yaml
+---
+type: plan
+date: 2026-09-07
+status: draft            # draft | approved | complete | abandoned
+project: "[[doc-extraction]]"
+source: Claude Code plan-mode session 2026-09-07, UCG.DataEngineering.Snowflake
+tags: [upland, plan]     # plus project tags
+---
+```
+
+**How:**
+
+1. Prepend the frontmatter to the plan file (`~/.claude/plans/*.md` or `docs/plans/*.md`) and write
+   it to `wiki/plans/` with `obsidian create vault="heck-db" path="wiki/plans/{file}" content="..."`.
+   If Obsidian is closed and the CLI fails, use the Write tool on the vault path; Obsidian picks it
+   up on next launch.
+2. Append to `wiki/log.md` at the END: `## YYYY-MM-DD` heading if today's is missing, then
+   `**plan | {slug}**` and one line saying what the plan covers and its status.
+3. Add one line under the project page's newest `## Updates` entry: `Plan: [[{slug}]] ({status}).`
+   If the page has no update for today, add a dated `### YYYY-MM-DD` entry with that line.
+4. When the plan's status changes later, update the `status` property with `obsidian property:set`;
+   never make a second copy.
+
+**Format check before writing** (Obsidian's renderer is stricter than a terminal): no inline
+code span may cross a line break (one stray span flips every backtick after it), SQL and commands
+go in fenced blocks, and no bare `<placeholder>` tokens outside fences (they parse as HTML). Quick
+test: strip the fences and confirm the backtick count is even and no span contains a newline.
+
+---
+
 ## Mode: Lint
 
 Lint is automated: `rekall/scripts/wiki-lint.py` runs nightly via launchd (`com.heckatron.wiki-lint`) and notifies on regressions. To run it manually:

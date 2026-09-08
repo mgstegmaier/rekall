@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Template. Replace __REPO__ (this repo's absolute path) and __HOME__ (your home folder),
+     then copy to ~/Library/LaunchAgents/ and `launchctl load` it. Every 15 minutes: when a
+     meeting appears, moves, or gains people, cos/prep.py briefs it and a notification says so. -->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.rekall.calendar-watch</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>__REPO__/cos/run-calendar-watch.sh</string>
+    </array>
+    <key>StartInterval</key>
+    <integer>900</integer>
+    <key>StandardOutPath</key>
+    <string>__HOME__/.config/rekall/logs/calendar-watch.log</string>
+    <key>StandardErrorPath</key>
+    <string>__HOME__/.config/rekall/logs/calendar-watch.log</string>
+</dict>
+</plist>

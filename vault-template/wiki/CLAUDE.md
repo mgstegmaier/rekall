@@ -25,7 +25,7 @@ wiki/
 
 One flat `pages/` folder, not type folders: folders do nothing for retrieval (wikilinks resolve by basename; the index, recall hook, and Bases read frontmatter) and stop being browsable past ~50 files. Humans browse through the Bases and index.md; the LLM finds pages through the index, wikilinks, and grep.
 
-Beside `wiki/`, `memory/sessions/` holds the session digests the SessionEnd hook writes. They are indexed for recall and cited by wiki pages, but they are not wiki pages and never get edited.
+`wiki/sessions/` holds the session digests the SessionEnd hook writes (one file per day). They are indexed for recall and graphed as `session` entities, and wiki pages cite them, but they are not compiled pages: no frontmatter, never edited, not in index.md.
 
 ## Placement (mechanical, never a judgment call)
 
@@ -58,6 +58,7 @@ description: One sentence.
 date: YYYY-MM-DD         # last updated
 tags: [ ... ]
 sources: [ ... ]         # source filenames feeding this page
+repos: [ ... ]           # project pages only: owner/repo, or owner/repo/path-prefix when one repo hosts several projects
 generated: {by: fathom-pipeline, at: ISO-8601}   # pipeline-written pages
 ```
 

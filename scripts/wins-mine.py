@@ -3,7 +3,7 @@
 
 Sources, all local: commits by Mike in the Upland repos, Claude Code prompt history
 for work projects, wiki project pages tagged `upland`, meeting-note titles, and any
-`### Wins` bullets the session digest has written into memory/sessions/.
+`### Wins` bullets the session digest has written into wiki/sessions/.
 
     python3 wins-mine.py --since 2025-09-01 > /tmp/wins-evidence.md
 
@@ -101,7 +101,7 @@ def meetings(since):
 
 def digest_wins():
     found = []
-    sessions = VAULT / "memory" / "sessions"
+    sessions = VAULT / "wiki" / "sessions"
     if not sessions.is_dir():
         return found
     for f in sorted(sessions.glob("*.md")):

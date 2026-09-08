@@ -108,7 +108,9 @@ class Report:
 def check_broken_links(r, files, known):
     broken = []  # (file_rel, target)
     for f in files:
-        if f.name == "log.md":
+        # sessions/: SessionEnd digests are generated and never edited, so their dangling
+        # links are not actionable here; they stay in `known` as link targets
+        if f.name == "log.md" or "sessions" in f.parts:
             continue
         for raw in LINK_RE.findall(f.read_text(encoding="utf-8", errors="replace")):
             target = parse_link_target(raw)

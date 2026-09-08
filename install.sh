@@ -17,7 +17,8 @@ LOGS="$HOME/.config/rekall/logs"
 VENV="$REPO/graph-memory/.venv"
 PY="$VENV/bin/python"
 DOMAIN="gui/$(id -u)"
-LABELS="com.rekall.fathom-pipeline com.rekall.wiki-lint com.rekall.wiki-reindex"
+# com.rekall.calendar-watch polls Microsoft Graph; not installed by default (paused 2026-09-07). Add it back here to schedule it.
+LABELS="com.rekall.fathom-pipeline com.rekall.wiki-lint com.rekall.wiki-reindex com.rekall.status"
 
 # Merges (or removes) rekall's hooks and permission rules in settings.json.
 # Matching is by exact command / rule string, so re-runs never duplicate.

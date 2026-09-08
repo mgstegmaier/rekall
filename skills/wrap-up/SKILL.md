@@ -13,7 +13,7 @@ session lands oriented, with no stale or contradictory notes. The failure this p
 Best run at a natural stopping point while context is still sharp, not on a near-full window.
 
 The session-end digest (the `SessionEnd` hook) captures every session automatically into
-`memory/sessions/` in the vault. Wrap-up is the deliberate close-out on top of it: it decides what
+`wiki/sessions/` in the vault. Wrap-up is the deliberate close-out on top of it: it decides what
 from this session belongs on a project page, not only in a digest.
 
 ## 0. Scope the session
@@ -53,7 +53,7 @@ session materially changed what the page describes: a decision made, a phase shi
 changed, a project started or renamed. Update State and Next steps with citations, and append an
 entry to `wiki/log.md` (append-only, at the end). Structure rules are in the vault's `wiki/CLAUDE.md`.
 
-- **Promote from the session digests.** Read the newest 2–3 files in `memory/sessions/` (this
+- **Promote from the session digests.** Read the newest 2–3 files in `wiki/sessions/` (this
   session's own digest lands only after close). Promote any Decisions or durable Facts about this
   project that never made it onto the page, citing the digest file as the source.
 - **Sweep `[open]` loops.** From those same digests, mark the loops this session closed and carry

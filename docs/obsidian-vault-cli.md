@@ -60,7 +60,7 @@ obsidian move vault="heck-db" path="old/path.md" to="new/path.md"      # auto-up
 
 | Directory | Purpose | Naming |
 |-----------|---------|--------|
-| `memory/sessions/{YYYY-MM-DD}/` | Active work sessions | `session-{slug}.md` |
+| `wiki/sessions/` | Session digests (SessionEnd hook, one file per day) | `{YYYY-MM-DD}.md` |
 | `memory/context/` | Cross-conversation context | `context-{slug}.md` |
 | `inbox/` | Quick capture | `{YYYY-MM-DD}-{source}-{slug}.md` |
 | `inbox/proposed-learnings/` | Tier 3 learning proposals | `{YYYY-MM-DD}-{slug}.md` |

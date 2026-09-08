@@ -32,7 +32,7 @@ from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from rekall_config import MONDAY_BOARD, MONDAY_GROUP, STATE_DIR, TIMEZONE, VAULT  # noqa: E402
+from rekall_config import MONDAY_BOARD, MONDAY_GROUP, STATE_DIR, TIMEZONE, VAULT, COS_PREP_IN_SWEEP  # noqa: E402
 
 MEETINGS = VAULT / "wiki" / "meetings"
 RAW = VAULT / "wiki" / "raw"
@@ -576,6 +576,19 @@ def main():
     sweep = subprocess.run(["python3", str(Path(__file__).parent / "wins-sweep.py")],
                            capture_output=True, text=True, timeout=60)
     log(f"  {sweep.stdout.strip() or sweep.stderr.strip()}")
+
+    # 4. follow-ups ledger: re-harvest the meeting notes just written, refresh the today.md block
+    cos = Path(__file__).parent.parent / "cos" / "followups.py"
+    if cos.exists():
+        fu = subprocess.run(["python3", str(cos), "render"], capture_output=True, text=True, timeout=60)
+        log(f"  {fu.stdout.strip() or fu.stderr.strip()}")
+
+    # 5. meeting prep: re-brief every meeting still on today's calendar, so a note that just
+    #    landed for an earlier instance shows up under this afternoon's meeting
+    prep = cos.parent / "prep.py"
+    if prep.exists() and COS_PREP_IN_SWEEP:  # off by default: prep needs the Graph token
+        pr = subprocess.run(["python3", str(prep)], capture_output=True, text=True, timeout=300)
+        log(f"  {pr.stdout.strip() or pr.stderr.strip()[-300:]}")
 
     log("done")
 

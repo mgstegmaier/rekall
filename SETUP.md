@@ -39,6 +39,8 @@ fails. Never skip a failed step and never overwrite a file that already exists.
    wiki/CLAUDE.md, replace REKALL_REPO with the rekall folder's absolute path.
 3. Ask me for my name, the email address Fathom knows me by, and my timezone. Write
    rekall.toml from rekall.example.toml with those and the vault path.
+   The `[cos]` section (chief of staff: follow-ups ledger, meeting prep, Friday status) is optional;
+   leave it out and those scripts report blind sources instead of failing. See `cos/` docstrings.
 4. Secrets: copy .env.example to .env and set its mode to 600. Ask whether I have a
    Fathom API key. If not, tell me where in Fathom to create one and wait for me. Write
    FATHOM_API_KEY and WORK_EMAIL into .env and leave the Monday and Jira lines blank.
