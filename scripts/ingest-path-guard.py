@@ -17,6 +17,7 @@ exiting 0 blocks the call and hands the reason back to the model.
 import json
 import os
 import sys
+from datetime import datetime
 from pathlib import Path
 
 # Every key a path can arrive under across Read, Write, Edit, Glob, and Grep. A tool
@@ -64,6 +65,15 @@ def main():
 
 
 def deny(reason):
+    # A control with no record can't be shown to anyone. Append-only, best effort: a
+    # logging failure must never turn a denial into an allow.
+    path = os.environ.get("REKALL_GUARD_LOG")
+    if path:
+        try:
+            with open(path, "a") as fh:
+                fh.write(f"{datetime.now().isoformat(timespec='seconds')} DENY {reason}\n")
+        except OSError:
+            pass
     json.dump({"hookSpecificOutput": {
         "hookEventName": "PreToolUse",
         "permissionDecision": "deny",

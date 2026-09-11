@@ -62,7 +62,38 @@ def main():
         other.mkdir()
         assert call({"file_path": str(other / "SKILL.md")}, [vault, other]) is None, "a second root must be allowed"
 
+    check_settings()
     print("ingest path guard: all checks pass")
+
+
+def check_settings():
+    """The pipeline's own guard_settings() must produce settings that name this guard."""
+    import importlib.util
+    import tempfile as _tf
+    root = Path(__file__).resolve().parents[1]
+    with _tf.TemporaryDirectory() as tmp:
+        vault = Path(tmp) / "vault"
+        (vault / "wiki").mkdir(parents=True)
+        cfg = Path(tmp) / "rekall.toml"
+        cfg.write_text(
+            '[user]\nname = "T"\ntimezone = "America/Chicago"\n'
+            f'[vault]\npath = "{vault}"\n'
+            f'[data]\npath = "{tmp}/data"\nstate = "{tmp}/state"\n'
+            '[wiki]\narchive = "archive"\n[monday]\nboard = 0\ngroup = "Auto-Capture"\n')
+        os.environ["REKALL_CONFIG"] = str(cfg)
+        sys.path.insert(0, str(root))
+        spec = importlib.util.spec_from_file_location("_fp", root / "scripts" / "fathom-pipeline.py")
+        fp = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(fp)
+
+        settings, roots = fp.guard_settings()
+        hook = json.loads(settings)["hooks"]["PreToolUse"][0]
+        for tool in ("Read", "Glob", "Grep", "Write", "Edit"):
+            assert tool in hook["matcher"], f"{tool} must be matched by the guard hook"
+        assert "ingest-path-guard.py" in hook["hooks"][0]["command"], "the hook must invoke this guard"
+        assert str(vault) in roots, "the vault must be an allowed root"
+        assert ".claude/skills/wiki" in roots or "skills/wiki" in roots, \
+            "the wiki skill dir must be an allowed root; ingest is told to read it"
 
 
 if __name__ == "__main__":

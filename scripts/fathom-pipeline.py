@@ -408,6 +408,26 @@ def verify_ingest(source_paths):
     return True, None
 
 
+def guard_settings():
+    """The PreToolUse guard for the headless child, as (settings JSON, roots env value).
+
+    The child's tools reach any path on disk, and the summaries it ingests are LLM output
+    from whatever was said in a meeting. Confine every path-carrying tool to the vault and
+    the wiki skill the prompt tells it to read. See scripts/ingest-path-guard.py.
+
+    Split out of ingest_to_wiki so the control itself is testable without running an ingest.
+    """
+    guard = Path(__file__).parent / "ingest-path-guard.py"
+    roots = [VAULT, Path.home() / ".claude" / "skills" / "wiki"]
+    settings = json.dumps({"hooks": {"PreToolUse": [{
+        "matcher": "Read|Glob|Grep|Write|Edit",
+        "hooks": [{"type": "command",
+                   "command": f'"{sys.executable}" "{guard}"',
+                   "timeout": 5000}],
+    }]}})
+    return settings, os.pathsep.join(str(r) for r in roots)
+
+
 def ingest_to_wiki(source_paths, extra=""):
     """Run headless claude over a batch of source paths. Returns True on success."""
     LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -425,17 +445,7 @@ def ingest_to_wiki(source_paths, extra=""):
         "Append ONE log entry at the END of wiki/log.md covering this batch."
         + (f"\nAdditional instructions for this batch: {extra}" if extra else "")
     )
-    # The child's tools reach any path on disk, and the meeting summaries it reads are
-    # LLM output from whatever was said in the room. Confine every path-carrying tool to
-    # the vault and the wiki skill it is told to read. See scripts/ingest-path-guard.py.
-    guard = Path(__file__).parent / "ingest-path-guard.py"
-    guard_roots = [VAULT, Path.home() / ".claude" / "skills" / "wiki"]
-    settings = json.dumps({"hooks": {"PreToolUse": [{
-        "matcher": "Read|Glob|Grep|Write|Edit",
-        "hooks": [{"type": "command",
-                   "command": f'"{sys.executable}" "{guard}"',
-                   "timeout": 5000}],
-    }]}})
+    settings, roots = guard_settings()
     cmd = ["claude", "-p", prompt, "--model", "sonnet",
            "--permission-mode", "acceptEdits",
            "--allowedTools", "Read,Glob,Grep,Write,Edit",
@@ -444,7 +454,8 @@ def ingest_to_wiki(source_paths, extra=""):
     # Doppler injects ANTHROPIC_API_KEY; strip it so claude uses the subscription login, not API billing
     import os
     clean_env = {k: v for k, v in os.environ.items() if k != "ANTHROPIC_API_KEY"}
-    clean_env["REKALL_GUARD_ROOTS"] = os.pathsep.join(str(p) for p in guard_roots)
+    clean_env["REKALL_GUARD_ROOTS"] = roots
+    clean_env["REKALL_GUARD_LOG"] = str(LOG_DIR / "guard-denials.log")
     # Stream claude's events into the logfile timestamped and truncated, so after
     # a timeout kill the last line names what the session was doing when it hung.
     proc = subprocess.Popen(cmd, cwd=VAULT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
