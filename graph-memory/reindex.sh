@@ -2,6 +2,7 @@
 # Rebuild the wiki RAG index + graph. Safe to run any time; both are disposable.
 HERE="$(cd "$(dirname "$0")" && pwd)"
 PY="$HERE/.venv/bin/python"
+[ -x "$PY" ] || PY="$HERE/.venv/Scripts/python.exe"   # Windows venv layout
 WIKI="$("$PY" "$HERE/../rekall_config.py" WIKI)"
 export PATH="$HOME/.local/bin:$PATH"  # launchd's PATH lacks claude
 # distil any new/changed meeting notes and raw/ sources first (SHA256 state makes

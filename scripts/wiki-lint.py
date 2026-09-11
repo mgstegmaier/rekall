@@ -13,6 +13,7 @@ Exit code is always 0 -- this is a reporter, not a gate.
 
 import argparse
 import json
+import os
 import re
 import subprocess
 from collections import Counter
@@ -46,8 +47,10 @@ def log(msg):
 
 
 def notify(msg, title="Wiki lint"):
-    """macOS notification; never raises."""
+    """macOS notification; never raises. Windows has no osascript, so the log line is it."""
     log(f"  NOTIFY: {msg}")
+    if os.name == "nt":
+        return
     try:
         subprocess.run(
             ["osascript", "-e", f"display notification {json.dumps(msg)} with title {json.dumps(title)}"],

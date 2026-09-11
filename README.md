@@ -38,11 +38,11 @@ rekall/
 ├── .env.example        # secrets: Fathom key, optional Monday and Jira tokens (copy to .env)
 ├── hooks.json          # the two Claude Code hook entries
 ├── vault-template/     # what setup copies into a new vault
-├── launchd/            # schedule templates: pipeline, reindex, lint, Friday status, calendar watch
+├── launchd/            # macOS schedule templates: pipeline, reindex, lint
+├── windows/            # the same three as Task Scheduler tasks
 ├── scripts/            # Fathom pipeline, wiki index/lint/cleanup
 ├── graph-memory/       # the index, the recall hook, distillation, the session digest
-├── cos/                # chief of staff: follow-ups ledger, meeting prep, Friday status, PR rigor check
-├── skills/ commands/   # Claude Code skills: wiki, wrap-up, fathom-sync, prep, status
+├── skills/ commands/   # Claude Code skills: wiki, wrap-up, fathom-sync
 └── docs/               # vault CLI reference, prior art, plans
 ```
 

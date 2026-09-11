@@ -1,11 +1,13 @@
 # Set up Rekall
 
-Cold-tested end to end on 2026-09-03: an empty folder became a working install with 43
-meetings from the previous 30 days compiled into 53 wiki pages, indexed, and answering
-through the recall hook.
+Cold-tested end to end on macOS on 2026-09-03: an empty folder became a working install with
+43 meetings from the previous 30 days compiled into 53 wiki pages, indexed, and answering
+through the recall hook. The Windows path landed on 2026-09-10 and has not had its own cold
+test yet, so on Windows expect to read the errors rather than trust the script.
 
-You need a Mac, Claude Code (the VS Code extension is fine), and a Fathom account. Nothing
-else.
+You need a Mac or a Windows 10-or-later machine, Claude Code (the VS Code extension is fine),
+and a Fathom account. Nothing else. On Windows, Claude Code already requires Git for Windows, and
+every step below runs in the Git Bash it installs.
 
 ## The short way
 
@@ -30,8 +32,11 @@ If you already cloned the repo, open Claude Code in the `rekall` folder and past
 Set up Rekall for me, one step at a time. Read SETUP.md first. Stop and tell me if a step
 fails. Never skip a failed step and never overwrite a file that already exists.
 
-1. Check the machine: macOS, git, and `claude` on PATH (run `claude -p "say ok"`). If
-   claude is missing, install the Claude Code CLI and re-check.
+1. Check the machine: macOS or Windows 10 or later, git, and `claude` on PATH (run
+   `claude -p "say ok"`). If claude is missing, install the Claude Code CLI and re-check.
+   Tell me which OS you found, because steps 5, 8 and 10 branch on it. On Windows, also
+   confirm Git Bash exists at `C:\Program Files\Git\bin\bash.exe` and run every later
+   step in it, not in PowerShell.
 2. Ask me where my wiki should live. If I have no vault, ask for a folder (suggest
    ~/rekall-vault) and copy the contents of vault-template/ into it. If I already have an
    Obsidian vault, ask for its path and copy vault-template/wiki/ and
@@ -39,29 +44,33 @@ fails. Never skip a failed step and never overwrite a file that already exists.
    wiki/CLAUDE.md, replace REKALL_REPO with the rekall folder's absolute path.
 3. Ask me for my name, the email address Fathom knows me by, and my timezone. Write
    rekall.toml from rekall.example.toml with those and the vault path.
-   The `[cos]` section (chief of staff: follow-ups ledger, meeting prep, Friday status) is optional;
-   leave it out and those scripts report blind sources instead of failing. See `cos/` docstrings.
 4. Secrets: copy .env.example to .env and set its mode to 600. Ask whether I have a
    Fathom API key. If not, tell me where in Fathom to create one and wait for me. Write
    FATHOM_API_KEY and WORK_EMAIL into .env and leave the Monday and Jira lines blank.
 5. Install: run `bash install.sh` in the rekall folder and show me its output. It checks
    for python 3.11 or newer, builds graph-memory/.venv, downloads the embedding model,
    merges the hooks into ~/.claude/settings.json, copies the skills and commands into
-   ~/.claude/, and loads the three com.rekall.* schedules. Claude Code will ask me to
-   approve this command; that is expected, tell me to approve it. If the script stops
-   on python, tell me how to install a newer one and stop.
+   ~/.claude/, and loads the three com.rekall.* schedules (launchd agents on macOS, Task
+   Scheduler tasks on Windows; on Windows it also adds tzdata to the venv, because Windows
+   ships no timezone database). Claude Code will ask me to approve this command; that is
+   expected, tell me to approve it. If the script stops on python, tell me how to install
+   a newer one and stop.
 6. Test the Fathom key by listing my most recent meeting and show me its title. If the
    call fails with a certificate error, follow the corporate-CA note in SETUP.md and
    retry once.
 7. First build: run graph-memory/reindex.sh and show me the counts it prints.
 8. Backfill: run scripts/fathom-pipeline.py --since <30 days ago> --no-monday in the
-   background. It ingests five meetings per Claude call and a month of meetings takes
-   about an hour, so carry on with the steps below while it runs. When it finishes, tell
-   me how many meeting notes landed in wiki/meetings/ and how many wiki pages it wrote.
-9. Test: run graph-memory/search.py with a question about my most recent meeting and
-   show me the top hits.
-10. Tell me in five lines: where my wiki is, what runs when, how to drop a file into
-    raw/, where the logs are, and that `bash install.sh --uninstall` turns all of it off.
+   background, with the venv interpreter (graph-memory/.venv/bin/python on macOS,
+   graph-memory/.venv/Scripts/python.exe on Windows) so it sees tzdata. It ingests five
+   meetings per Claude call and a month of meetings takes about an hour, so carry on with
+   the steps below while it runs. When it finishes, tell me how many meeting notes landed
+   in wiki/meetings/ and how many wiki pages it wrote.
+9. Test: run graph-memory/search.py with the same venv interpreter as step 8, asking a
+   question about my most recent meeting, and show me the top hits.
+10. Tell me in five lines: where my wiki is, what runs when (name the schedule mechanism
+    for my OS: `launchctl list | grep rekall` on macOS, `schtasks /Query /TN com.rekall.*`
+    on Windows), how to drop a file into raw/, where the logs are, and that
+    `bash install.sh --uninstall` turns all of it off.
 ```
 
 Then type `/exit` and open Claude Code again so the hooks load. Everything that writes outside
@@ -74,8 +83,14 @@ run, and every session you close is written up and indexed by morning.
 ## Corporate CA note
 
 On a company laptop whose security proxy re-signs HTTPS, Python's `urllib` rejects Fathom's
-certificate. The fix is a combined CA bundle that the pipeline picks up automatically when
-it exists. Replace `PROXY_CA_NAME` with the name of the proxy's root certificate as it appears
+certificate. On Windows this usually does not happen, because Python there reads the system
+certificate store, which already trusts the proxy. If step 6 does fail on Windows with
+`CERTIFICATE_VERIFY_FAILED`, find the proxy root with `certutil -store Root`, export it to
+`~/.config/rekall/corp-ca.pem`, and build the same combined bundle as below with
+`certifi`'s path in place of the macOS command.
+
+The macOS recipe. The fix is a combined CA bundle that the pipeline picks up automatically
+when it exists. Replace `PROXY_CA_NAME` with the name of the proxy's root certificate as it appears
 in Keychain Access under System > Certificates:
 
 ```bash

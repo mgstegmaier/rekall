@@ -16,9 +16,9 @@ Flags: --hours N (default 26) | --since YYYY-MM-DD (backfill) | --no-monday | --
 """
 
 import argparse
-import fcntl
 import hashlib
 import json
+import os
 import re
 import ssl
 import subprocess
@@ -32,7 +32,7 @@ from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from rekall_config import MONDAY_BOARD, MONDAY_GROUP, STATE_DIR, TIMEZONE, VAULT, COS_PREP_IN_SWEEP  # noqa: E402
+from rekall_config import MONDAY_BOARD, MONDAY_GROUP, STATE_DIR, TIMEZONE, VAULT  # noqa: E402
 
 MEETINGS = VAULT / "wiki" / "meetings"
 RAW = VAULT / "wiki" / "raw"
@@ -51,8 +51,11 @@ def log(msg):
 
 
 def notify(msg, title="Fathom pipeline"):
-    """macOS notification; never raises. An unattended job must be able to say it's broken."""
+    """macOS notification; never raises. An unattended job must be able to say it's broken.
+    On Windows there is no osascript, so the log line above is the whole record."""
     log(f"  NOTIFY: {msg}")
+    if os.name == "nt":
+        return
     try:
         subprocess.run(
             ["osascript", "-e", f"display notification {json.dumps(msg)} with title {json.dumps(title)}"],
@@ -61,8 +64,24 @@ def notify(msg, title="Fathom pipeline"):
         pass
 
 
+def acquire_lock(path):
+    """Exclusive, non-blocking lock on `path`, held until this process exits. None if
+    another run holds it. Windows has no fcntl, so it locks the first byte with msvcrt
+    instead; both release on exit, which is what the caller relies on."""
+    fh = open(path, "w")
+    try:
+        if os.name == "nt":
+            import msvcrt
+            msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        return None
+    return fh
+
+
 def env(key, fallback=None):
-    import os
     return os.environ.get(key) or (os.environ.get(fallback) if fallback else None)
 
 
@@ -258,8 +277,8 @@ def _today_skeleton(date_str, dt_local):
         f"# {dt_local.strftime('%A, %B %-d, %Y')}\n\n"
         "*(Skeleton from the Fathom pipeline — run /today for the full worksheet. "
         "The Meeting Digest below grows with each hourly sweep.)*\n\n"
-        "## Meeting Digest\n\n"
         f"{DIGEST_START}\n"
+        "## Meeting Digest\n\n"
         f"{DIGEST_END}\n"
     )
 
@@ -280,7 +299,7 @@ def rollover_today_note():
             if DIGEST_START in text and DIGEST_START not in target.read_text():
                 block = text[text.index(DIGEST_START):text.index(DIGEST_END) + len(DIGEST_END)]
                 target.write_text(target.read_text().rstrip("\n")
-                                  + f"\n\n## Meeting Digest\n\n{block}\n")
+                                  + f"\n\n{block}\n")
             TODAY_NOTE.unlink()
         else:
             ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
@@ -322,7 +341,7 @@ def append_digest(entries):
     text = TODAY_NOTE.read_text()
     if DIGEST_END not in text:
         # /today rewrote the note without the block; re-add it at the end.
-        text = text.rstrip("\n") + f"\n\n## Meeting Digest\n\n{DIGEST_START}\n{DIGEST_END}\n"
+        text = text.rstrip("\n") + f"\n\n{DIGEST_START}\n## Meeting Digest\n\n{DIGEST_END}\n"
     joined = "\n\n".join(entries)
     text = text.replace(DIGEST_END, f"{joined}\n\n{DIGEST_END}", 1)
     TODAY_NOTE.write_text(text)
@@ -406,13 +425,26 @@ def ingest_to_wiki(source_paths, extra=""):
         "Append ONE log entry at the END of wiki/log.md covering this batch."
         + (f"\nAdditional instructions for this batch: {extra}" if extra else "")
     )
+    # The child's tools reach any path on disk, and the meeting summaries it reads are
+    # LLM output from whatever was said in the room. Confine every path-carrying tool to
+    # the vault and the wiki skill it is told to read. See scripts/ingest-path-guard.py.
+    guard = Path(__file__).parent / "ingest-path-guard.py"
+    guard_roots = [VAULT, Path.home() / ".claude" / "skills" / "wiki"]
+    settings = json.dumps({"hooks": {"PreToolUse": [{
+        "matcher": "Read|Glob|Grep|Write|Edit",
+        "hooks": [{"type": "command",
+                   "command": f'"{sys.executable}" "{guard}"',
+                   "timeout": 5000}],
+    }]}})
     cmd = ["claude", "-p", prompt, "--model", "sonnet",
            "--permission-mode", "acceptEdits",
            "--allowedTools", "Read,Glob,Grep,Write,Edit",
+           "--settings", settings,
            "--output-format", "stream-json", "--verbose"]
     # Doppler injects ANTHROPIC_API_KEY; strip it so claude uses the subscription login, not API billing
     import os
     clean_env = {k: v for k, v in os.environ.items() if k != "ANTHROPIC_API_KEY"}
+    clean_env["REKALL_GUARD_ROOTS"] = os.pathsep.join(str(p) for p in guard_roots)
     # Stream claude's events into the logfile timestamped and truncated, so after
     # a timeout kill the last line names what the session was doing when it hung.
     proc = subprocess.Popen(cmd, cwd=VAULT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -454,13 +486,11 @@ def main():
     args = ap.parse_args()
 
     LOCK_FILE.parent.mkdir(parents=True, exist_ok=True)
-    lock_fh = open(LOCK_FILE, "w")
-    try:
-        fcntl.flock(lock_fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except OSError:
+    lock_fh = acquire_lock(LOCK_FILE)
+    if lock_fh is None:
         log("another pipeline run is active; exiting")
         return
-    # ponytail: lock_fh stays open (never closed) so the flock holds for the whole run;
+    # ponytail: lock_fh stays open (never closed) so the lock holds for the whole run;
     # the OS releases it automatically on process exit.
 
     now = datetime.now(timezone.utc)
@@ -568,27 +598,14 @@ def main():
         # rather than trusting the headless agent to hand-edit a contended catalog file.
         if any(e["ingested"] for e in state["meetings"].values()) or state["raw_ingested"]:
             regen = subprocess.run(
-                ["python3", str(Path(__file__).parent / "wiki-index.py")],
+                [sys.executable, str(Path(__file__).parent / "wiki-index.py")],
                 capture_output=True, text=True, timeout=120)
             log(f"  index regen: exit {regen.returncode} ({regen.stdout.strip() or regen.stderr.strip()})")
 
     # 3. wins sweep: roll `### Wins` bullets from session digests onto the accomplishments page
-    sweep = subprocess.run(["python3", str(Path(__file__).parent / "wins-sweep.py")],
+    sweep = subprocess.run([sys.executable, str(Path(__file__).parent / "wins-sweep.py")],
                            capture_output=True, text=True, timeout=60)
     log(f"  {sweep.stdout.strip() or sweep.stderr.strip()}")
-
-    # 4. follow-ups ledger: re-harvest the meeting notes just written, refresh the today.md block
-    cos = Path(__file__).parent.parent / "cos" / "followups.py"
-    if cos.exists():
-        fu = subprocess.run(["python3", str(cos), "render"], capture_output=True, text=True, timeout=60)
-        log(f"  {fu.stdout.strip() or fu.stderr.strip()}")
-
-    # 5. meeting prep: re-brief every meeting still on today's calendar, so a note that just
-    #    landed for an earlier instance shows up under this afternoon's meeting
-    prep = cos.parent / "prep.py"
-    if prep.exists() and COS_PREP_IN_SWEEP:  # off by default: prep needs the Graph token
-        pr = subprocess.run(["python3", str(prep)], capture_output=True, text=True, timeout=300)
-        log(f"  {pr.stdout.strip() or pr.stderr.strip()[-300:]}")
 
     log("done")
 

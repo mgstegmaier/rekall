@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Template, the Windows counterpart of launchd/com.rekall.wiki-lint.plist.
+     install.sh fills __BASH__, __REPO_WIN__, __HOME_WIN__ and __VENV_PY_WIN__ (the venv
+     interpreter) and registers it with Register-ScheduledTask. Runs nightly at 21:30:
+     the lint report, then the lifecycle job that moves `status: archive` files to
+     wiki/archive/. -->
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo>
+    <Description>Rekall: nightly wiki lint report, then the archive lifecycle job.</Description>
+  </RegistrationInfo>
+  <Triggers>
+    <CalendarTrigger>
+      <StartBoundary>2026-01-01T21:30:00</StartBoundary>
+      <ScheduleByDay>
+        <DaysInterval>1</DaysInterval>
+      </ScheduleByDay>
+      <Enabled>true</Enabled>
+    </CalendarTrigger>
+  </Triggers>
+  <Principals>
+    <Principal id="Author">
+      <LogonType>InteractiveToken</LogonType>
+      <RunLevel>LeastPrivilege</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <StartWhenAvailable>true</StartWhenAvailable>
+    <ExecutionTimeLimit>PT1H</ExecutionTimeLimit>
+    <Enabled>true</Enabled>
+    <Hidden>false</Hidden>
+    <WakeToRun>false</WakeToRun>
+  </Settings>
+  <Actions Context="Author">
+    <Exec>
+      <Command>__BASH__</Command>
+      <Arguments>-c "'__VENV_PY_WIN__' '__REPO_WIN__/scripts/wiki-lint.py' &gt;&gt; '__HOME_WIN__/.config/rekall/logs/wiki-lint.log' 2&gt;&amp;1; '__VENV_PY_WIN__' '__REPO_WIN__/scripts/wiki-cleanup.py' --execute &gt;&gt; '__HOME_WIN__/.config/rekall/logs/wiki-lint.log' 2&gt;&amp;1"</Arguments>
+    </Exec>
+  </Actions>
+</Task>

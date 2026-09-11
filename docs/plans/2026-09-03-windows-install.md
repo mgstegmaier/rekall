@@ -1,6 +1,10 @@
 # Windows install, alongside the Mac install
 
-**Status:** planned 2026-09-03, nothing built. The Mac install is done and cold-tested (see `SETUP.md`).
+**Status:** steps 1, 2 and 3 built 2026-09-10. Step 4, the cold test on a real Windows machine,
+is outstanding and now happens on a coworker's laptop on 2026-09-11, ahead of a second Windows
+install on 2026-09-16. The sit-down runbook for those sessions is a private wiki page
+(`rekall-windows-onboarding`), because it carries employer-specific names and ids. The Mac install is
+done and cold-tested (see `SETUP.md`).
 
 ## Goal
 
@@ -45,15 +49,26 @@ The corporate CA note gains a Windows paragraph. The bootstrap paste is unchange
 
 ## Order of work, each with its check
 
-1. Code: lock fallback, log-only notifications, `sys.executable`, `PYTHON` detection, venv path
-   detection in `reindex.sh`, `tzdata` in the venv requirements. Check: Mac install unchanged
-   (pipeline dry-run, reindex counts).
-2. `windows/` task templates and the `__VENV_PY__` placeholder in `hooks.json`. Check: `schtasks`
-   accepts each XML on a Windows box.
-3. `SETUP.md` OS clauses. Check: read-through on both branches.
-4. Cold test on the Windows desktop (Mike's secondary machine): empty folder, scratch config via
-   `REKALL_CONFIG`, own Fathom key, same numbers expected as the Mac test (meetings in, pages out,
-   hook answering, lint 0). Fix what breaks.
+1. ~~Code: lock fallback, log-only notifications, `sys.executable`, `PYTHON` detection, venv path
+   detection in `reindex.sh`, `tzdata` in the venv requirements.~~ Done 2026-09-10. `acquire_lock`
+   in `fathom-pipeline.py` picks `fcntl` or `msvcrt.locking` (self-check
+   `scripts/test_fathom_lock.py`); `notify()` returns early on `nt` in the pipeline and
+   `wiki-lint.py`; the pipeline calls `wiki-index.py` and `wins-sweep.py` with `sys.executable`;
+   `fetch_model.sh` and `run-fathom-pipeline.sh` take a `PYTHON` override defaulting to
+   `python3` then `python`; `reindex.sh` takes whichever venv interpreter exists; `install.sh`
+   adds `tzdata` on Windows. Checked: pipeline dry-run clean, reindex 8492 index rows /
+   720 entities / 3405 edges, the three repo self-checks pass.
+2. ~~`windows/` task templates and the `__VENV_PY__` placeholder in `hooks.json`.~~ Done
+   2026-09-10, plus the whole Windows branch of `install.sh` (Register-ScheduledTask instead of
+   launchctl, `cygpath -m` paths, a probed `sed -i`, and a guard that stops the install if a
+   placeholder survives). Checked with stubbed `launchctl`, `cygpath` and `powershell.exe`: both
+   branches install, re-install without duplicate hooks, and uninstall clean. NOT checked:
+   Task Scheduler actually accepting the XML.
+3. ~~`SETUP.md` OS clauses.~~ Done 2026-09-10: steps 1, 5, 8, 9 and 10, the header, and a
+   Windows paragraph on the corporate CA note.
+4. Cold test on a real Windows machine: empty folder, scratch config via `REKALL_CONFIG`, own
+   Fathom key, same numbers expected as the Mac test (meetings in, pages out, hook answering,
+   lint 0). Fix what breaks. First run: 2026-09-11.
 
 ## Out of scope
 

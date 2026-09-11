@@ -8,6 +8,9 @@
 # Claude Code performs them itself. Claude runs this script instead, and you
 # approve one command: .claude/settings.json in this repo carries an ask rule so
 # `bash install.sh` always prompts, in every permission mode.
+#
+# macOS and Windows. On Windows it runs under Git Bash, which Claude Code already
+# requires, and the schedules become Task Scheduler tasks instead of launchd agents.
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -15,26 +18,46 @@ SETTINGS="$HOME/.claude/settings.json"
 AGENTS="$HOME/Library/LaunchAgents"
 LOGS="$HOME/.config/rekall/logs"
 VENV="$REPO/graph-memory/.venv"
-PY="$VENV/bin/python"
 DOMAIN="gui/$(id -u)"
-# com.rekall.calendar-watch polls Microsoft Graph; not installed by default (paused 2026-09-07). Add it back here to schedule it.
-LABELS="com.rekall.fathom-pipeline com.rekall.wiki-lint com.rekall.wiki-reindex com.rekall.status"
+LABELS="com.rekall.fathom-pipeline com.rekall.wiki-lint com.rekall.wiki-reindex"
+
+case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) WIN=1 ;; *) WIN= ;; esac
+if [ -n "$WIN" ]; then
+  PY="$VENV/Scripts/python.exe"          # Windows venv layout
+  LIST_RULE="Bash(schtasks /Query:*)"
+else
+  PY="$VENV/bin/python"
+  LIST_RULE="Bash(launchctl list:*)"
+fi
+# GNU sed (Git Bash, Linux) takes no argument after -i; BSD sed (macOS) wants an empty
+# suffix. Probe the binary rather than the OS: the wrong one silently mangles the file.
+if sed --version >/dev/null 2>&1; then SEDI=(-i); else SEDI=(-i ''); fi
+
+# 1. python 3.11+ (Apple's /usr/bin/python3 is too old, and python.org on Windows
+# installs `python` rather than `python3`; prefer the newest one on PATH)
+PY3=""
+for c in python3.13 python3.12 python3.11 python3 python; do
+  if command -v "$c" >/dev/null && "$c" -c 'import sys; sys.exit(sys.version_info < (3, 11))' 2>/dev/null; then
+    PY3="$(command -v "$c")"; break
+  fi
+done
+[ -n "$PY3" ] || { echo "No python 3.11 or newer on PATH. Install one (brew install python, or python.org on Windows) and re-run." >&2; exit 1; }
 
 # Merges (or removes) rekall's hooks and permission rules in settings.json.
 # Matching is by exact command / rule string, so re-runs never duplicate.
 settings() {  # $1 = add | remove
   mkdir -p "$(dirname "$SETTINGS")"
   [ -f "$SETTINGS" ] || echo '{}' > "$SETTINGS"
-  python3 - "$1" "$REPO" "$SETTINGS" <<'EOF'
+  "$PY3" - "$1" "$REPO" "$SETTINGS" "$PY" "$LIST_RULE" <<'EOF'
 import json, sys
-mode, repo, path = sys.argv[1:]
+mode, repo, path, venv_py, list_rule = sys.argv[1:]
 s = json.load(open(path))
 ours = json.load(open(f"{repo}/hooks.json"))["hooks"]
 hooks = s.setdefault("hooks", {})
 for event, entries in ours.items():
     have = hooks.setdefault(event, [])
     for e in entries:
-        e = json.loads(json.dumps(e).replace("__REPO__", repo))
+        e = json.loads(json.dumps(e).replace("__REPO__", repo).replace("__VENV_PY__", venv_py))
         cmd = e["hooks"][0]["command"]
         have[:] = [h for h in have if h.get("hooks", [{}])[0].get("command") != cmd]
         if mode == "add":
@@ -45,7 +68,7 @@ if not hooks:
     del s["hooks"]
 # install.sh itself is NOT allowed here on purpose: .claude/settings.json in the repo
 # holds an ask rule so it always prompts (it writes outside the repo).
-rules = ["Bash(launchctl list:*)", f"Read({path})"]
+rules = [list_rule, f"Read({path})"]
 allow = s.setdefault("permissions", {}).setdefault("allow", [])
 allow[:] = [r for r in allow if r not in rules]
 if mode == "add":
@@ -63,15 +86,24 @@ EOF
 render() {
   local out; out="$(mktemp -d)/$(basename "$1")"
   cp -R "$1" "$out"
-  find "$out" -type f -exec sed -i '' "s|__REPO__|$REPO|g" {} +
+  find "$out" -type f -exec sed "${SEDI[@]}" "s|__REPO__|$REPO|g" {} +
+  ! grep -rq "__REPO__" "$out" || { echo "sed left __REPO__ unsubstituted in $out" >&2; exit 1; }
   echo "$out"
 }
 
 uninstall() {
-  for l in $LABELS; do
-    launchctl bootout "$DOMAIN/$l" 2>/dev/null || true
-    rm -f "$AGENTS/$l.plist"
-  done
+  if [ -n "$WIN" ]; then
+    for l in $LABELS; do
+      powershell.exe -NoProfile -Command \
+        "Unregister-ScheduledTask -TaskName '$l' -Confirm:\$false -ErrorAction SilentlyContinue" \
+        >/dev/null 2>&1 || true
+    done
+  else
+    for l in $LABELS; do
+      launchctl bootout "$DOMAIN/$l" 2>/dev/null || true
+      rm -f "$AGENTS/$l.plist"
+    done
+  fi
   settings remove
   # only remove skills/commands that still match what this repo installs; an edited copy stays
   for src in "$REPO"/skills/* "$REPO"/commands/*; do
@@ -86,25 +118,17 @@ uninstall() {
 
 [ -f "$REPO/rekall.toml" ] || { echo "rekall.toml is missing; write it first (SETUP.md step 3)." >&2; exit 1; }
 
-# 1. python 3.11+ (Apple's /usr/bin/python3 is too old; prefer a newer one on PATH)
-PY3=""
-for c in python3.13 python3.12 python3.11 python3; do
-  if command -v "$c" >/dev/null && "$c" -c 'import sys; sys.exit(sys.version_info < (3, 11))' 2>/dev/null; then
-    PY3="$(command -v "$c")"; break
-  fi
-done
-[ -n "$PY3" ] || { echo "No python3 3.11 or newer on PATH. Install one (brew install python) and re-run." >&2; exit 1; }
-
 # 2. secrets skeleton (values are yours to fill in; never overwritten)
 [ -f "$REPO/.env" ] || cp "$REPO/.env.example" "$REPO/.env"
-chmod 600 "$REPO/.env"
+chmod 600 "$REPO/.env" 2>/dev/null || true   # no-op on Windows, where the profile is already user-only
 
 # 3. venv, fastembed, embedding model
 [ -x "$PY" ] || "$PY3" -m venv "$VENV"
 "$PY" -c 'import fastembed' 2>/dev/null || "$PY" -m pip install -q fastembed
-export PATH="$VENV/bin:$PATH"   # fetch_model.sh and rekall_config.py want a 3.11+ python3
-MODEL_DIR="$(python3 "$REPO/rekall_config.py" DATA)/model"
-[ -f "$MODEL_DIR/model_optimized.onnx" ] || bash "$REPO/graph-memory/fetch_model.sh"
+# Windows ships no timezone database, so zoneinfo raises without tzdata in the venv
+[ -z "$WIN" ] || "$PY" -c 'import tzdata' 2>/dev/null || "$PY" -m pip install -q tzdata
+MODEL_DIR="$("$PY" "$REPO/rekall_config.py" DATA)/model"
+[ -f "$MODEL_DIR/model_optimized.onnx" ] || PYTHON="$PY" bash "$REPO/graph-memory/fetch_model.sh"
 
 # 4. hooks + permission rules
 settings add
@@ -118,17 +142,40 @@ for src in "$REPO"/skills/* "$REPO"/commands/*; do
 done
 
 # 6. schedules
-mkdir -p "$AGENTS" "$LOGS"
-for l in $LABELS; do
-  sed -e "s|__REPO__|$REPO|g" -e "s|__HOME__|$HOME|g" -e "s|__PYTHON__|$PY|g" \
-    "$REPO/launchd/$l.plist" > "$AGENTS/$l.plist"
-  launchctl bootout "$DOMAIN/$l" 2>/dev/null || true
-  launchctl bootstrap "$DOMAIN" "$AGENTS/$l.plist"
-done
+mkdir -p "$LOGS"
+if [ -n "$WIN" ]; then
+  # Forward-slash Windows paths throughout: sed treats a backslash in the replacement
+  # as an escape, and CreateProcess accepts either separator.
+  BASH_WIN="$(cygpath -m "$(command -v bash)")"
+  REPO_WIN="$(cygpath -m "$REPO")"
+  HOME_WIN="$(cygpath -m "$HOME")"
+  PY_WIN="$(cygpath -m "$PY")"
+  TASKS="$(mktemp -d)"
+  for l in $LABELS; do
+    sed -e "s|__BASH__|$BASH_WIN|g" -e "s|__REPO_WIN__|$REPO_WIN|g" \
+        -e "s|__HOME_WIN__|$HOME_WIN|g" -e "s|__VENV_PY_WIN__|$PY_WIN|g" \
+        "$REPO/windows/$l.xml" > "$TASKS/$l.xml"
+    powershell.exe -NoProfile -Command \
+      "Register-ScheduledTask -TaskName '$l' -Xml (Get-Content -Raw '$(cygpath -w "$TASKS/$l.xml")') -Force" \
+      >/dev/null
+  done
+else
+  mkdir -p "$AGENTS"
+  for l in $LABELS; do
+    sed -e "s|__REPO__|$REPO|g" -e "s|__HOME__|$HOME|g" -e "s|__PYTHON__|$PY|g" \
+      "$REPO/launchd/$l.plist" > "$AGENTS/$l.plist"
+    launchctl bootout "$DOMAIN/$l" 2>/dev/null || true
+    launchctl bootstrap "$DOMAIN" "$AGENTS/$l.plist"
+  done
+fi
 
 echo "Installed. python: $PY3 | venv: $VENV | model: $MODEL_DIR"
 echo "Hooks and permission rules merged into $SETTINGS"
 echo "Skills in ~/.claude/skills, commands in ~/.claude/commands, logs in $LOGS"
 echo "Schedules loaded:"
-launchctl list | grep rekall || echo "  (none listed: run 'launchctl list | grep rekall' yourself)"
+if [ -n "$WIN" ]; then
+  for l in $LABELS; do schtasks /Query /TN "$l" /FO LIST 2>/dev/null | grep -i "TaskName\|Next Run" || echo "  $l: not registered"; done
+else
+  launchctl list | grep rekall || echo "  (none listed: run 'launchctl list | grep rekall' yourself)"
+fi
 echo "Undo everything: bash $REPO/install.sh --uninstall"

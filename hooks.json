@@ -1,12 +1,12 @@
 {
-  "_comment": "install.sh merges the two entries below into the hooks block of ~/.claude/settings.json, keeping anything already there, with __REPO__ replaced by this repo's absolute path; install.sh --uninstall removes them. The recall hook fails open: any error exits silently and never blocks a prompt.",
+  "_comment": "install.sh merges the two entries below into the hooks block of ~/.claude/settings.json, keeping anything already there, with __REPO__ replaced by this repo's absolute path and __VENV_PY__ by the venv interpreter (bin/python on macOS, Scripts/python.exe on Windows); install.sh --uninstall removes them. The recall hook fails open: any error exits silently and never blocks a prompt.",
   "hooks": {
     "UserPromptSubmit": [
       {
         "hooks": [
           {
             "type": "command",
-            "command": "\"__REPO__/graph-memory/.venv/bin/python\" \"__REPO__/graph-memory/recall_hook.py\"",
+            "command": "\"__VENV_PY__\" \"__REPO__/graph-memory/recall_hook.py\"",
             "timeout": 20
           }
         ]
@@ -17,7 +17,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"__REPO__/graph-memory/.venv/bin/python\" \"__REPO__/graph-memory/digest/session_end.py\"",
+            "command": "\"__VENV_PY__\" \"__REPO__/graph-memory/digest/session_end.py\"",
             "timeout": 10
           }
         ]
