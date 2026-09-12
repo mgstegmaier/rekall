@@ -163,7 +163,13 @@ else
   mkdir -p "$AGENTS"
   for l in $LABELS; do
     sed -e "s|__REPO__|$REPO|g" -e "s|__HOME__|$HOME|g" -e "s|__PYTHON__|$PY|g" \
-      "$REPO/launchd/$l.plist" > "$AGENTS/$l.plist"
+      "$REPO/launchd/$l.plist" > "$AGENTS/$l.plist.new"
+    # re-register only when the plist changed or isn't loaded: every bootstrap of a bash
+    # agent fires a macOS "App Background Activity" popup
+    if cmp -s "$AGENTS/$l.plist.new" "$AGENTS/$l.plist" && launchctl print "$DOMAIN/$l" >/dev/null 2>&1; then
+      rm "$AGENTS/$l.plist.new"; continue
+    fi
+    mv "$AGENTS/$l.plist.new" "$AGENTS/$l.plist"
     launchctl bootout "$DOMAIN/$l" 2>/dev/null || true
     launchctl bootstrap "$DOMAIN" "$AGENTS/$l.plist"
   done
