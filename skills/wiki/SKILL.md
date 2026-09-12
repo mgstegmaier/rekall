@@ -259,7 +259,7 @@ This skill adds two workflow rules on top of wiki/CLAUDE.md's hard rules:
 | System | Purpose | Interaction |
 |--------|---------|-------------|
 | `memory/` (knowledge-capture) | Conversation continuity, point-in-time learnings | Wiki pages may `[[link]]` to memory notes; separate lifecycle |
-| `ideas.md` | Quick idea capture | Ideas about wiki topics can be ingested as sources |
+| `wiki/Ideas/` | Quick idea capture, one note per idea (`/idea`) | Promote a note to a project page when it becomes work; mark the note `status: retired` with a pointer |
 | `/knowledge-recall` | Search the vault | Can search wiki pages alongside memory |
 | `/upgrade` | Extract learnings from work | Learnings from wiki work captured normally |
 

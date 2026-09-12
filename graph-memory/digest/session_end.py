@@ -151,10 +151,17 @@ def spawn(staged):
 def monday_line(session_id):
     """Join the session to its Monday ticket by session id (state written by the monday-nudge
     hook / monday_ticket.py in familiar). Deterministic; the digest never parses URLs out of prose."""
-    try:
-        st = json.loads((Path.home() / ".config" / "rekall" / "monday" / f"{session_id}.json").read_text())
-    except Exception:
-        return ""
+    # the monday plugin writes ~/.config/ucg-claude/monday (or $MONDAY_STATE_DIR); the two older
+    # dirs are the familiar-repo copy and the pre-2026-09 rekall location
+    dirs = [Path(os.environ.get("MONDAY_STATE_DIR") or Path.home() / ".config" / "ucg-claude" / "monday"),
+            Path.home() / ".config" / "familiar" / "monday", Path.home() / ".config" / "rekall" / "monday"]
+    st = {}
+    for d in dirs:
+        try:
+            st = json.loads((d / f"{session_id}.json").read_text())
+            break
+        except Exception:
+            continue
     if not st.get("item_id"):
         return ""
     status = f'closed {st["closed_status"]}' if st.get("closed_at") else "open"

@@ -76,8 +76,8 @@ Notes with no specified home go in `notes/`, never the vault root.
 **System-managed files** (read and write, mutated by the `/today` skill): `today.md` (daily
 worksheet, archived and overwritten each day; its `<!-- fathom-digest -->` Meeting Digest block
 is owned by the Fathom pipeline, which also performs the daily rollover on its first sweep), `recurring.md` (templates, `next:` dates
-advanced), `ideas.md` (backlog, parking-lot items appended), `therapy-reflections.md`
-(mood/energy entries appended).
+advanced), `therapy-reflections.md`
+(mood/energy entries appended). Ideas are one note each in `wiki/Ideas/` (capital I), written by `/idea`; the vault-root `ideas.md` is retired as of 2026-09-12.
 
 ## File format
 
