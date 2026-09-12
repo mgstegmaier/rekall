@@ -32,6 +32,7 @@ STATE_FILE = STATE_DIR / "wiki-lint-state.json"
 PIPELINE_STATE = STATE_DIR / "fathom-pipeline-state.json"
 LOG_DIR = STATE_DIR / "logs"
 LINK_RE = re.compile(r"\[\[([^\]]+)\]\]")
+CODE_RE = re.compile(r"```.*?```|`[^`\n]*`", re.S)  # [[...]] inside code is TOML/prose, not a link
 FRONTMATTER_RE = re.compile(r"\A---\n(.*?)\n---\n", re.S)
 
 
@@ -111,11 +112,12 @@ class Report:
 def check_broken_links(r, files, known):
     broken = []  # (file_rel, target)
     for f in files:
-        # sessions/: SessionEnd digests are generated and never edited, so their dangling
-        # links are not actionable here; they stay in `known` as link targets
-        if f.name == "log.md" or "sessions" in f.parts:
+        # sessions/ and daily-notes-archive/ are generated (SessionEnd digests, /today) and never
+        # hand-edited, so their dangling links are not actionable here; they stay in `known`
+        if f.name == "log.md" or "sessions" in f.parts or "daily-notes-archive" in f.parts:
             continue
-        for raw in LINK_RE.findall(f.read_text(encoding="utf-8", errors="replace")):
+        text = CODE_RE.sub("", f.read_text(encoding="utf-8", errors="replace"))
+        for raw in LINK_RE.findall(text):
             target = parse_link_target(raw)
             if target and target not in known:
                 broken.append((str(f.relative_to(WIKI)), target))
@@ -313,7 +315,11 @@ def main():
     for f in files:
         basenames.setdefault(f.stem, []).append(f)
 
-    known = set(basenames) | {p.stem for p in ARCHIVE.glob("*.md")}
+    # raw/ and distilled/ are not linted, but summary pages cite them in Sources lines;
+    # attachments keep their extension because embeds do: ![[x.png]]
+    known = (set(basenames) | {p.stem for p in ARCHIVE.glob("*.md")}
+             | {p.stem for p in RAW.glob("*.md")} | {p.stem for p in (WIKI / "distilled").glob("*.md")}
+             | {p.name for p in (VAULT / "attachments").glob("*")})
     check_broken_links(r, files, known)
     check_duplicates(r, basenames)
     check_frontmatter(r)
