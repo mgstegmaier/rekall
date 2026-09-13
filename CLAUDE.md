@@ -19,24 +19,18 @@ https://github.com/mgstegmaier/rekall (fresh single-commit history since 2026-09
   Claude Code runs inside the rekall folder). `docs/obsidian-vault-cli.md` —
   vault CLI reference; read before any vault write. Wiki structure rules: vault `wiki/CLAUDE.md`.
 
-## Current state (2026-09-10)
+## Current state (2026-09-13)
 
-Shipped 2026-09-07 (`b718928` on main): the chief of staff, the `wiki/plans/` folder and "Mode: Plan" in
-`skills/wiki`. Later the same night the chief of staff moved out to `~/github_repos/cos-desk` (private,
-`mgstegmaier/cos-desk`): `cos/`, the `prep`/`status` skills, the two plists, the `[cos]` config keys, and
-pipeline steps 4 and 5 are gone from this repo. The ledger renders on its own 15-minute timer there
-(`com.cos.followups`). Detail: wiki `pages/chief-of-staff.md`.
+Typed wiki graph shipped 2026-09-12 and 2026-09-13 (`be95515`, `755e727`, `3f2ddd5` on main): relation
+frontmatter (`owner`, `people`, `maintainers`, `depends_on`, `part_of`, `about`, pipeline flow fields,
+`attendees`, `aliases`), `system` and `pipeline` page types, typed edges in `build_graph.py`, lint checks
+11 to 13, and a recall walk that skips `mentions` and does not expand through person pages. Plan, every
+measurement, and what was tried and reverted: `docs/plans/2026-09-12-typed-wiki-graph.md`. Eval harness:
+`graph-memory/eval/`. Backfill applier: `scripts/wiki-apply-props.py`.
 
-Windows support landed 2026-09-10 in the same commit as the `cos/` removal: `acquire_lock` (fcntl or
-msvcrt) in the pipeline, log-only notifications on `nt`, `PYTHON`/`sys.executable` instead of a literal
-`python3`, `__VENV_PY__` in `hooks.json`, `windows/*.xml` Task Scheduler templates, and a Windows branch
-in `install.sh` (Register-ScheduledTask, probed `sed -i`, tzdata). Both branches were checked with
-stubbed `launchctl`/`cygpath`/`powershell.exe`; the Mac hook command is byte-identical, so existing
-installs see no change. Plan: `docs/plans/2026-09-03-windows-install.md`. The onboarding runbook for Upland machines is a
-private wiki page (`rekall-windows-onboarding`); this repo stays free of employer names and ids.
+Open: Windows cold test still unverified (`docs/plans/2026-09-03-windows-install.md`); existing-vault
+install designed only (memory `existing-vault-install-design.md`); plugin packaging parked; one active
+project page without an owner by decision (`loss-run-roots-project`).
 
-Open: nothing has run on a real Windows machine, so Task Scheduler accepting the XML is unverified.
-Existing-vault install still designed only (memory `existing-vault-install-design.md`); plugin packaging
-parked.
-
-Next action: cold test on Windows, 2026-09-11, with a second install on 2026-09-16.
+Next action: `/prep` and `/wiki` query should read the typed graph (`owns`, `maintains`, `about`), the
+consumers the graph was built for; the hook already does.
