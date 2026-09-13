@@ -26,7 +26,7 @@ from rekall_config import ARCHIVE, STATE_DIR, VAULT, WIKI  # noqa: E402
 RAW = WIKI / "raw"
 TYPED_DIRS = ["pages"]
 REQUIRED_FIELDS = ["type", "title", "description", "date"]
-PAGE_TYPES = {"person", "project", "entity", "concept", "summary"}  # `type` is the taxonomy; pages/ is flat
+PAGE_TYPES = {"person", "project", "entity", "concept", "summary", "system", "pipeline"}  # `type` is the taxonomy; pages/ is flat
 STATUSES = {"active", "retired", "archive"}
 STATE_FILE = STATE_DIR / "wiki-lint-state.json"
 PIPELINE_STATE = STATE_DIR / "fathom-pipeline-state.json"
@@ -81,30 +81,60 @@ def frontmatter_text(text):
     return m.group(1) if m else ""
 
 
+def fm_field(fm, field):
+    """Scalar frontmatter value: `field: value` on one line, quotes stripped."""
+    m = re.search(rf"(?m)^{re.escape(field)}:[ \t]*(.+)$", fm)
+    return m.group(1).strip().strip("\"'") if m else None
+
+
+def fm_list(fm, field):
+    """List frontmatter value, either inline `field: [a, b]` or block `field:\\n  - a\\n  - b`."""
+    m = re.search(rf"(?m)^{re.escape(field)}:[ \t]*\[(.*?)\]", fm)
+    if m:
+        return [v.strip().strip("\"'") for v in m.group(1).split(",") if v.strip()]
+    m = re.search(rf"(?m)^{re.escape(field)}:[ \t]*$", fm)
+    if not m:
+        return []
+    items = []
+    for line in fm[m.end():].splitlines():
+        if re.match(r"^\s*-\s+", line):
+            items.append(re.sub(r"^\s*-\s+", "", line).strip().strip("\"'"))
+        elif line.strip():
+            break
+    return items
+
+
 class Report:
     def __init__(self, verbose):
         self.verbose = verbose
         self.lines = []
+        self.warn_lines = []  # separate tier: printed under "Warnings", never counted or gated on
         self.counts = {}
 
-    def out(self, line=""):
-        self.lines.append(line)
+    def out(self, line="", warn=False):
+        (self.warn_lines if warn else self.lines).append(line)
 
-    def section(self, key, title, entries):
-        """Generic check section: prints count + up to LIMIT (or all if verbose) entries."""
-        self.counts[key] = len(entries)
-        self.out(f"\n== {title} ({len(entries)}) ==")
+    def section(self, key, title, entries, warn=False):
+        """Generic check section: prints count + up to LIMIT (or all if verbose) entries.
+        warn=True routes to the Warnings tier: not added to self.counts, so it never affects the
+        issue total, the persisted state, or the regression notification."""
+        if not warn:
+            self.counts[key] = len(entries)
+        self.out(f"\n== {title} ({len(entries)}) ==", warn=warn)
         if not entries:
-            self.out("  none")
+            self.out("  none", warn=warn)
             return
         shown = entries if self.verbose else entries[:LIMIT]
         for e in shown:
-            self.out(f"  {e}")
+            self.out(f"  {e}", warn=warn)
         if not self.verbose and len(entries) > LIMIT:
-            self.out(f"  ... and {len(entries) - LIMIT} more")
+            self.out(f"  ... and {len(entries) - LIMIT} more", warn=warn)
 
     def text(self):
-        return "\n".join(self.lines)
+        out = "\n".join(self.lines)
+        if self.warn_lines:
+            out += "\n\n== Warnings ==\n" + "\n".join(self.warn_lines)
+        return out
 
 
 # ── Checks ──────────────────────────────────────────────────
@@ -165,7 +195,7 @@ def check_frontmatter(r):
         r.out("  none")
         return
     if type_mismatch:
-        r.out(f"  type outside the wiki page types person/project/entity/concept/summary ({len(type_mismatch)}):")
+        r.out(f"  type outside the wiki page types {'/'.join(sorted(PAGE_TYPES))} ({len(type_mismatch)}):")
         for p in (type_mismatch if r.verbose else type_mismatch[:LIMIT]):
             r.out(f"    {p}")
     for field, paths in missing_by_field.items():
@@ -299,6 +329,41 @@ def check_lifecycle(r):
     r.section("lifecycle", "10. Lifecycle status (active/retired/archive on every page)", issues)
 
 
+def check_relations(r):
+    """owner (string), people (list), depends_on (list): every value must be an existing pages/
+    slug (11), and owner/people targets must be `type: person` pages (12). `attendees` on meeting
+    notes is intentionally not validated here (plan phase 1: names may lack pages)."""
+    page_type_by_slug = {p.stem: page_type(p) for p in (WIKI / "pages").glob("*.md")}
+    unresolved, wrong_type = [], []
+    for f in sorted((WIKI / "pages").glob("*.md")):
+        fm = frontmatter_text(f.read_text(encoding="utf-8", errors="replace"))
+        rel = f.relative_to(WIKI)
+        owner = fm_field(fm, "owner")
+        fields = [("owner", [owner] if owner else []), ("people", fm_list(fm, "people")), ("maintainers", fm_list(fm, "maintainers"))]
+        for field, values in fields + [("depends_on", fm_list(fm, "depends_on"))]:
+            for v in values:
+                if v not in page_type_by_slug:
+                    unresolved.append(f"{rel}: {field} -> {v} (no such page)")
+        for field, values in fields:
+            for v in values:
+                if v in page_type_by_slug and page_type_by_slug[v] != "person":
+                    wrong_type.append(f"{rel}: {field} -> {v} (type: {page_type_by_slug[v]}, not person)")
+    r.section("relations_unresolved", "11. Relation targets (owner/people/maintainers/depends_on resolve to a page)", unresolved)
+    r.section("relations_type", "12. Relation targets are person pages (owner/people/maintainers)", wrong_type)
+
+
+def check_owner_warning(r):
+    """Active project pages with no `owner` -- warning tier, not an error (plan phase 1)."""
+    issues = []
+    for f in sorted((WIKI / "pages").glob("*.md")):
+        fm = frontmatter_text(f.read_text(encoding="utf-8", errors="replace"))
+        t = re.search(r"(?m)^type:\s*(\S+)", fm)
+        s = re.search(r"(?m)^status:\s*(\S+)", fm)
+        if t and t.group(1) == "project" and s and s.group(1) == "active" and not fm_field(fm, "owner"):
+            issues.append(str(f.relative_to(WIKI)))
+    r.section("owner_missing", "Active project pages missing `owner`", issues, warn=True)
+
+
 # ── Main ────────────────────────────────────────────────────
 
 def main():
@@ -330,6 +395,8 @@ def main():
     check_pipeline_state(r)
     check_page_order(r)
     check_lifecycle(r)
+    check_relations(r)
+    check_owner_warning(r)
 
     total = sum(r.counts.values())
     r.out(f"\nLINT: {total} issues across {len(r.counts)} checks")

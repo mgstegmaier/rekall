@@ -233,6 +233,11 @@ def write_note(m):
         "status: active",
         f'title: "{safe_title}"',
         f"date: {date_str}",
+    ]
+    if m["participants"]:
+        lines.append("attendees:")
+        lines += [f'  - "{p.replace(chr(34), chr(39))}"' for p in m["participants"]]
+    lines += [
         "---",
         f"# {m['title']}",
         "",

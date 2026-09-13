@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
-"""Self-check for recall_hook.excerpt: the window lands on the query terms.
+"""Self-check for recall_hook.excerpt (the window lands on the query terms) and
+graph_facts (typed edges pass, mentions edges are dropped).
 Run: python3 graph-memory/test_recall_hook.py"""
+import sqlite3
 import sys
+import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from recall_hook import PER_HIT, excerpt  # noqa: E402
+from recall_hook import PER_HIT, excerpt, graph_facts  # noqa: E402
 
 filler = "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu "
 
@@ -41,5 +44,44 @@ early = "the cost watch threshold " + (filler * 20)
 got = excerpt(early, ["cost", "threshold"])
 assert not got.startswith("..."), got
 assert got.endswith("..."), got
+
+# graph_facts: an "owns" edge reachable from a seed named in the prompt comes
+# back; a "mentions" edge on the same page does not (phase 0/5, see
+# docs/plans/2026-09-12-typed-wiki-graph.md).
+with tempfile.TemporaryDirectory() as tmp:
+    db_path = Path(tmp) / "rag.db"
+    db = sqlite3.connect(db_path)
+    db.executescript(
+        """
+        CREATE TABLE entities (id TEXT PRIMARY KEY, name TEXT, type TEXT,
+                               description TEXT, source_doc TEXT);
+        CREATE TABLE relations (source_id TEXT, target_id TEXT,
+                                predicate TEXT, source_doc TEXT);
+        CREATE TABLE aliases (entity_id TEXT, alias TEXT);
+        """
+    )
+    db.executemany(
+        "INSERT INTO entities VALUES (?,?,?,?,?)",
+        [
+            ("e_seed", "Widget Project", "project", "", "pages/widget-project.md"),
+            ("e_owner", "Alice", "person", "", "pages/alice.md"),
+            ("e_other", "Other Page", "entity", "", "pages/other-page.md"),
+        ],
+    )
+    db.executemany(
+        "INSERT INTO relations VALUES (?,?,?,?)",
+        [
+            ("e_owner", "e_seed", "owns", "pages/widget-project.md"),
+            ("e_seed", "e_other", "mentions", "pages/widget-project.md"),
+        ],
+    )
+    db.commit()
+    db.close()
+
+    import graph_recall
+
+    graph_recall.DB = db_path
+    facts = graph_facts("what's going on with widget project")
+    assert facts == [("Alice", "owns", "Widget Project", "pages/widget-project.md")], facts
 
 print("ok")

@@ -77,15 +77,18 @@ Runs when the Fathom pipeline finds a new meeting note or `wiki/raw/` file, or w
 1. **Read the source** via `obsidian read vault="heck-db" path="wiki/raw/{filename}"` (or Read tool for PDFs/images; meeting notes live in `wiki/meetings/`)
 2. **Check for existing pages** via `obsidian search vault="heck-db" query="{concept}"` -- update existing pages rather than creating duplicates
 3. **Create or update wiki pages** for each major entity, concept, or topic:
-   - Entity pages: people, places, organizations, tools, systems, projects
+   - System pages: named platforms, services, or tools other things run on or call (vendor SaaS, an internal application, a homelab host)
+   - Pipeline pages: scheduled or event-driven data flows with a source and a destination
+   - Entity pages: people, places, organizations, tools, projects
    - Concept pages: ideas, patterns, methodologies, principles
    - Summary pages: source-specific summaries -- for NON-MEETING sources only (long/raw/external docs where the compiled summary is the artifact). NEVER create a per-meeting summary page: the meeting note is already Fathom's summary; merge meeting content into entity/project/concept pages citing the meeting note (Mike, 2026-08-25)
    - Project entity pages capture: current state, members, decisions, next steps
-4. **Cite every factual claim** with `(source: filename)` after the claim
-5. **Note contradictions** explicitly when new source disagrees with existing wiki pages
-6. **Flag unverified claims** with `[unverified]` when source reliability is uncertain
-7. **Regenerate `wiki/index.md`** -- the index is generated from page frontmatter (each page's `description` is its index hook). Run `python3 ~/github_repos/personal_projects/rekall/scripts/wiki-index.py`; never hand-edit index entries
-8. **Append to `wiki/log.md`** with entry: `## [YYYY-MM-DD] ingest | {source-name}\n\nPages created/updated: [[page-1]], [[page-2]], ...` -- ALWAYS at the END of the file, dated with today's date, even when the source material is older. The log is append-only run order, not subject-date order; inserting a backdated block mid-file breaks the ordering contract (lint check 7 catches it)
+4. **Set relation fields** on `project`, `system`, or `pipeline` pages: set or extend `owner`, `people`, `maintainers`, `depends_on` from evidence in the source you're ingesting -- see wiki/CLAUDE.md's "Page frontmatter" for the field table and the writers' rule (evidence only, add to lists, never remove without a source). When choosing a type for a new page, use `system` or `pipeline` where they fit before falling back to `entity`.
+5. **Cite every factual claim** with `(source: filename)` after the claim
+6. **Note contradictions** explicitly when new source disagrees with existing wiki pages
+7. **Flag unverified claims** with `[unverified]` when source reliability is uncertain
+8. **Regenerate `wiki/index.md`** -- the index is generated from page frontmatter (each page's `description` is its index hook). Run `python3 ~/github_repos/personal_projects/rekall/scripts/wiki-index.py`; never hand-edit index entries
+9. **Append to `wiki/log.md`** with entry: `## [YYYY-MM-DD] ingest | {source-name}\n\nPages created/updated: [[page-1]], [[page-2]], ...` -- ALWAYS at the END of the file, dated with today's date, even when the source material is older. The log is append-only run order, not subject-date order; inserting a backdated block mid-file breaks the ordering contract (lint check 7 catches it)
 
 ### Example Ingest
 

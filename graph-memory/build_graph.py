@@ -41,13 +41,43 @@ TYPE_BY_FOLDER = {  # pages/ is flat since 2026-09-04: its pages carry `type` in
 }
 
 
-def page_type(fm_lines):
-    """`type:` from raw frontmatter lines (build_index.frontmatter keeps only title/description)."""
-    for ln in fm_lines:
+RELATION_FIELDS = ("owner", "people", "maintainers", "depends_on", "attendees", "aliases")
+
+
+def page_meta(fm_lines):
+    """`type:` plus relation fields from raw frontmatter lines (build_index.frontmatter
+    keeps only title/description). Relation values come as `[a, b]` inline lists,
+    `- a` block lists, or a bare scalar (owner); quotes are stripped either way.
+    Returns (type, {field: [values]})."""
+    kind = None
+    relations = {}
+    i, n = 0, len(fm_lines)
+    while i < n:
+        ln = fm_lines[i]
         m = re.match(r"type:\s*[\"']?([\w-]+)", ln)
         if m:
-            return m.group(1)
-    return None
+            kind = m.group(1)
+            i += 1
+            continue
+        m = re.match(rf"({'|'.join(RELATION_FIELDS)}):\s*(.*)", ln)
+        if m:
+            field, rest = m.group(1), m.group(2).strip()
+            if rest.startswith("["):
+                items = [v.strip().strip("\"'") for v in rest.strip("[]").split(",") if v.strip()]
+                i += 1
+            elif rest:
+                items = [rest.strip("\"'")]
+                i += 1
+            else:
+                items, i = [], i + 1
+                while i < n and re.match(r"\s*-\s+\S", fm_lines[i]):
+                    items.append(re.sub(r"\s*-\s+", "", fm_lines[i]).strip().strip("\"'"))
+                    i += 1
+            if items:
+                relations[field] = items
+            continue
+        i += 1
+    return kind, relations
 
 
 def eid(kind, name):
@@ -55,7 +85,7 @@ def eid(kind, name):
 
 
 def pages(corpus, extras=()):
-    """(rel, slug, type, meta, body) per graph-worthy page. Archive folders are skipped."""
+    """(rel, slug, type, meta, body, relations) per graph-worthy page. Archive folders are skipped."""
     root = Path(corpus).resolve()
     out = []
     for path in note_files(root):
@@ -65,12 +95,13 @@ def pages(corpus, extras=()):
             continue
         lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
         meta, off = frontmatter(lines)
-        kind = TYPE_BY_FOLDER[top] or page_type(lines[:off])
+        kind_fm, relations = page_meta(lines[:off])
+        kind = TYPE_BY_FOLDER[top] or kind_fm
         if not kind:
             continue
         if kind == "session":
             meta.setdefault("title", f"session {path.stem}")
-        out.append((rel, path.stem.lower(), kind, meta, "\n".join(lines[off:])))
+        out.append((rel, path.stem.lower(), kind, meta, "\n".join(lines[off:]), relations))
     # extra folders (session digests): "session" entities whose wikilinks become
     # edges, so "when did I last touch X" is answerable from the graph. rel climbs
     # out of the corpus ("../memory/sessions/x.md"), matching build_index --extra.
@@ -83,8 +114,59 @@ def pages(corpus, extras=()):
             lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
             meta, off = frontmatter(lines)
             meta.setdefault("title", f"session {path.stem}")
-            out.append((rel, path.stem.lower(), "session", meta, "\n".join(lines[off:])))
+            out.append((rel, path.stem.lower(), "session", meta, "\n".join(lines[off:]), {}))
     return out
+
+
+def resolve_slug(by_slug, by_name, aliases, value):
+    """Same lookup as a wikilink target (slug as written, else spaces to hyphens),
+    then the entity's name (frontmatter title) and its alias table, both
+    case-insensitive — attendees and other relation values are often written as
+    a display name ("Matthew Brink") rather than a slug."""
+    v = value.strip().lower()
+    return (
+        by_slug.get(v)
+        or by_slug.get(v.replace(" ", "-"))
+        or by_name.get(v)
+        or aliases.get(v)
+    )
+
+
+def relation_edges(rows, by_slug, by_name, aliases, ident_by_rel):
+    """(source_id, target_id, predicate, source_doc) edges from the owner/people/
+    depends_on/attendees frontmatter fields. Unresolved targets are skipped and
+    logged to stderr (lint already flags them)."""
+    edges = set()
+    for rel, _, kind, _, _, relations in rows:
+        src = ident_by_rel[rel]
+        owner = relations.get("owner")
+        if owner:
+            tid = resolve_slug(by_slug, by_name, aliases, owner[0])
+            if tid:
+                edges.add((tid, src, "owns", rel))
+            else:
+                print(f"unresolved owner '{owner[0]}' in {rel}", file=sys.stderr)
+        for field, pred in (("people", "member_of"), ("maintainers", "maintains")):
+            for person in relations.get(field, []):
+                tid = resolve_slug(by_slug, by_name, aliases, person)
+                if tid:
+                    edges.add((tid, src, pred, rel))
+                else:
+                    print(f"unresolved {field} '{person}' in {rel}", file=sys.stderr)
+        for dep in relations.get("depends_on", []):
+            tid = resolve_slug(by_slug, by_name, aliases, dep)
+            if tid:
+                edges.add((src, tid, "depends_on", rel))
+            else:
+                print(f"unresolved depends_on '{dep}' in {rel}", file=sys.stderr)
+        if kind == "meeting":
+            for att in relations.get("attendees", []):
+                tid = resolve_slug(by_slug, by_name, aliases, att)
+                if tid:
+                    edges.add((tid, src, "attended", rel))
+                else:
+                    print(f"unresolved attendees '{att}' in {rel}", file=sys.stderr)
+    return edges
 
 
 def main():
@@ -97,6 +179,8 @@ def main():
 
     rows = pages(args.corpus, args.extra)
     by_slug = {}
+    by_name = {}
+    aliases = {}
     ident_by_rel = {}
     db = sqlite3.connect(DB)
     # WAL so the recall hook can read the last committed index while this
@@ -106,21 +190,26 @@ def main():
     db.execute("PRAGMA journal_mode=WAL")
     db.executescript(SCHEMA)
 
-    for rel, slug, kind, meta, _ in rows:
+    for rel, slug, kind, meta, _, relations in rows:
         name = meta.get("title") or slug.replace("-", " ")
         ident = eid(kind, name)
         ident_by_rel[rel] = ident
         by_slug.setdefault(slug, ident)  # wiki pages come first; a session never shadows one
+        by_name.setdefault(name.lower(), ident)
         db.execute(
             "INSERT OR IGNORE INTO entities VALUES (?,?,?,?,?)",
             (ident, name, kind, meta.get("description", ""), rel),
         )
         spaced = slug.replace("-", " ")
-        if spaced != name.lower():
-            db.execute("INSERT INTO aliases VALUES (?,?)", (ident, spaced))
+        # slug spacing plus the page's own `aliases:` list (how pages/me.md
+        # says "Michael Stegmaier" without the name living in this repo)
+        for alias in [spaced] + relations.get("aliases", []):
+            if alias.lower() != name.lower():
+                db.execute("INSERT INTO aliases VALUES (?,?)", (ident, alias))
+                aliases.setdefault(alias.lower(), ident)
 
     edges = set()
-    for rel, slug, kind, _, body in rows:
+    for rel, slug, kind, _, body, _ in rows:
         src = ident_by_rel[rel]
         for target in WIKILINK.findall(body):
             t = target.strip().lower()
@@ -128,6 +217,7 @@ def main():
             tid = by_slug.get(t) or by_slug.get(t.replace(" ", "-"))
             if tid and tid != src:
                 edges.add((src, tid, "mentions", rel))
+    edges |= relation_edges(rows, by_slug, by_name, aliases, ident_by_rel)
     db.executemany("INSERT INTO relations VALUES (?,?,?,?)", sorted(edges))
 
     db.commit()

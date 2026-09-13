@@ -66,7 +66,11 @@ def _seeds(db, question):
     return list(found)
 
 
-def recall(question, hops=2, top_k=8):
+PRIORITY = {"owns": 0, "maintains": 1, "depends_on": 2, "member_of": 3, "attended": 4}  # within a hop level; mentions last
+
+
+def recall(question, hops=2, top_k=8, skip=()):
+    """`skip`: predicates dropped before the top_k cut, e.g. ("mentions",)."""
     t0 = time.perf_counter()
     db = sqlite3.connect(DB, timeout=0.25)  # see READ_TIMEOUT in recall_hook
     try:
@@ -75,6 +79,7 @@ def recall(question, hops=2, top_k=8):
             return Facts([], (time.perf_counter() - t0) * 1000)
         marks = ",".join("?" * len(seeds))
         rows = db.execute(WALK.format(seeds=marks), (*seeds, hops)).fetchall()
+        rows = sorted((r for r in rows if r[1] not in skip), key=lambda r: (r[4], PRIORITY.get(r[1], 9)))
         triples = [(s, p, t, doc) for s, p, t, doc, _ in rows[:top_k]]
         return Facts(triples, (time.perf_counter() - t0) * 1000)
     finally:

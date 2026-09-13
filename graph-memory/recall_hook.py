@@ -93,11 +93,16 @@ def block(found, query):
 
 
 def graph_facts(prompt):
-    """Multi-hop triples for entities named in the prompt. Empty on any failure."""
+    """Multi-hop typed triples for entities named in the prompt. Empty on any failure.
+
+    `mentions` edges are dropped: they duplicate the text index (every
+    wikilink is already in context) and judged 2% helpful in the sample that
+    motivated typed edges (see docs/plans/2026-09-12-typed-wiki-graph.md).
+    """
     try:
         from graph_recall import recall
 
-        return recall(prompt).triples
+        return recall(prompt, skip=("mentions",)).triples
     except Exception:
         return []
 
