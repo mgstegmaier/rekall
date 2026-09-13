@@ -186,8 +186,12 @@ def file_docs(rel, path):
         text = f"{meta.get('title') or path.stem}: {meta['description']}"
         docs.append((f"[{rel} § description]\n" + text,
                      (rel, "description", 0, 0, text, "description")))
+    # contextual retrieval, deterministic form: every chunk embeds and full-text
+    # indexes with its page's title and description in front, so a "Next steps"
+    # section still knows which page it belongs to (docs/plans/2026-09-13-contextual-retrieval.md)
+    context = f"{meta.get('title') or path.stem}: {meta['description']}\n" if meta.get("description") else ""
     for section, s, e, text in chunks:
-        docs.append((f"[{rel} § {section}]\n" + text,
+        docs.append((f"[{rel} § {section}]\n" + context + text,
                      (rel, section, s, e, text, "chunk")))
     return docs
 

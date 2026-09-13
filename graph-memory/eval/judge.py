@@ -3,6 +3,9 @@ Usage: python judge.py hits.csv outdir   -> one JSON per prompt in outdir
        python judge.py --score hits.csv outdir  -> precision by leg, position, predicate
 Run sample_hits.py first (it freezes prompts to prompts_fixed.json so runs compare)."""
 import collections, csv, glob, json, os, re, subprocess, sys
+from concurrent.futures import ThreadPoolExecutor
+
+WORKERS = 8  # claude -p calls in flight at once
 
 ASK = ("A hook injects note excerpts into an AI assistant's context when a user sends a prompt. "
        "Judge each item: would this excerpt plausibly help the assistant answer THIS prompt better than having nothing? "
@@ -20,13 +23,17 @@ def by_prompt(path):
 
 def label(path, out):
     os.makedirs(out, exist_ok=True)
-    for pid, v in by_prompt(path).items():
+
+    def one(pid, v):
         if os.path.exists(f"{out}/{pid}.json"):
-            continue
+            return
         items = [f"{'M' if r['leg_type'] == 'memory' else 'G'}{r['pos']}: [{r['label']}] {r['excerpt'][:300]}" for r in v]
         res = subprocess.run(["claude", "-p", "--model", "haiku", "--permission-mode", "bypassPermissions", "--output-format", "text"],
                              input=ASK.format(prompt=v[0]["prompt"], items="\n".join(items)), capture_output=True, text=True)
         open(f"{out}/{pid}.json", "w").write(res.stdout)
+
+    with ThreadPoolExecutor(WORKERS) as pool:
+        list(pool.map(lambda kv: one(*kv), by_prompt(path).items()))
 
 
 def score(path, out):
