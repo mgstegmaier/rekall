@@ -83,12 +83,13 @@ Runs when the Fathom pipeline finds a new meeting note or `wiki/raw/` file, or w
    - Concept pages: ideas, patterns, methodologies, principles
    - Summary pages: source-specific summaries -- for NON-MEETING sources only (long/raw/external docs where the compiled summary is the artifact). NEVER create a per-meeting summary page: the meeting note is already Fathom's summary; merge meeting content into entity/project/concept pages citing the meeting note (Mike, 2026-08-25)
    - Project entity pages capture: current state, members, decisions, next steps
-4. **Set relation fields** on `project`, `system`, or `pipeline` pages: set or extend `owner`, `people`, `maintainers`, `depends_on` from evidence in the source you're ingesting -- see wiki/CLAUDE.md's "Page frontmatter" for the field table and the writers' rule (evidence only, add to lists, never remove without a source). When choosing a type for a new page, use `system` or `pipeline` where they fit before falling back to `entity`.
-5. **Cite every factual claim** with `(source: filename)` after the claim
-6. **Note contradictions** explicitly when new source disagrees with existing wiki pages
-7. **Flag unverified claims** with `[unverified]` when source reliability is uncertain
-8. **Regenerate `wiki/index.md`** -- the index is generated from page frontmatter (each page's `description` is its index hook). Run `python3 ~/github_repos/personal_projects/rekall/scripts/wiki-index.py`; never hand-edit index entries
-9. **Append to `wiki/log.md`** with entry: `## [YYYY-MM-DD] ingest | {source-name}\n\nPages created/updated: [[page-1]], [[page-2]], ...` -- ALWAYS at the END of the file, dated with today's date, even when the source material is older. The log is append-only run order, not subject-date order; inserting a backdated block mid-file breaks the ordering contract (lint check 7 catches it)
+4. **Set relation fields** on `project`, `system`, or `pipeline` pages: set or extend `owner`, `people`, `maintainers`, `depends_on`, `part_of` from evidence in the source you're ingesting, and for `pipeline` pages also `runs_on`, `reads_from`, `writes_to` -- see wiki/CLAUDE.md's "Page frontmatter" for the field table and the writers' rule (evidence only, add to lists, never remove without a source). When choosing a type for a new page, use `system` or `pipeline` where they fit before falling back to `entity`.
+5. **Write `about` on the source note** you just ingested (meeting note, session, or plan in the vault): the list of page slugs you created or updated from it. Skip when the source is in `raw/` (read-only).
+6. **Cite every factual claim** with `(source: filename)` after the claim
+7. **Note contradictions** explicitly when new source disagrees with existing wiki pages
+8. **Flag unverified claims** with `[unverified]` when source reliability is uncertain
+9. **Regenerate `wiki/index.md`** -- the index is generated from page frontmatter (each page's `description` is its index hook). Run `python3 ~/github_repos/personal_projects/rekall/scripts/wiki-index.py`; never hand-edit index entries
+10. **Append to `wiki/log.md`** with entry: `## [YYYY-MM-DD] ingest | {source-name}\n\nPages created/updated: [[page-1]], [[page-2]], ...` -- ALWAYS at the END of the file, dated with today's date, even when the source material is older. The log is append-only run order, not subject-date order; inserting a backdated block mid-file breaks the ordering contract (lint check 7 catches it)
 
 ### Example Ingest
 
@@ -135,7 +136,7 @@ session ends with a plan worth keeping.
 **Where:** `wiki/plans/{YYYY-MM-DD}-{slug}.md`. Slug rules match pages (lowercase, hyphens, under 50
 chars). Plans are not in `index.md`; the project page and recall are how they are found.
 
-**Frontmatter** (all required):
+**Frontmatter** (all required except `about`):
 
 ```yaml
 ---
@@ -145,6 +146,7 @@ status: draft            # draft | approved | complete | abandoned
 project: "[[doc-extraction]]"
 source: Claude Code plan-mode session 2026-09-07, UCG.DataEngineering.Snowflake
 tags: [upland, plan]     # plus project tags
+about: [page-slug, ...]  # optional -- see wiki/CLAUDE.md's relation fields
 ---
 ```
 
