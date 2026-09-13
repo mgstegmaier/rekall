@@ -66,6 +66,7 @@ with tempfile.TemporaryDirectory() as tmp:
             ("e_seed", "Widget Project", "project", "", "pages/widget-project.md"),
             ("e_owner", "Alice", "person", "", "pages/alice.md"),
             ("e_other", "Other Page", "entity", "", "pages/other-page.md"),
+            ("e_far", "Far Project", "project", "", "pages/far-project.md"),
         ],
     )
     db.executemany(
@@ -73,6 +74,9 @@ with tempfile.TemporaryDirectory() as tmp:
         [
             ("e_owner", "e_seed", "owns", "pages/widget-project.md"),
             ("e_seed", "e_other", "mentions", "pages/widget-project.md"),
+            # Alice also owns an unrelated project. She is a person reached at hop 1,
+            # so the walk must not expand through her: Far Project stays out.
+            ("e_owner", "e_far", "owns", "pages/far-project.md"),
         ],
     )
     db.commit()

@@ -256,3 +256,13 @@ of 15 times. Coverage is the structural limit: 7 of 100 real prompts both name a
 about-notes. Reverted; `about` stays for `/prep` and `/wiki`, which ask the question it answers.
 Eval scripts checked in at `graph-memory/eval/` (`sample_hits.py`, `judge.py`); sampled prompts and
 labels stay local.
+
+### Hub fix (2026-09-13)
+
+The two-hop walk no longer expands through `person` entities unless the person is the seed, and
+edges rank by (touches a seed, depth of the farther end, predicate). Before: a RefPoint prompt
+reached "Michael Stegmaier" at hop 1 and every project he owns at hop 2, ranked level with the
+RefPoint edges. After: the six edges touching RefPoint come first. `pages/me.md` keeps the slug
+`me` (a two-letter word that must never seed) and gets the title "Michael Stegmaier" so triples
+read as a name. Test: the hook fixture carries an owns edge from the owner to an unrelated project
+and asserts it does not surface.

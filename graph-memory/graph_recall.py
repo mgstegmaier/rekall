@@ -26,17 +26,24 @@ WITH RECURSIVE walk(entity_id, depth) AS (
          w.depth + 1
   FROM relations r JOIN walk w
     ON w.entity_id IN (r.source_id, r.target_id)
+  JOIN entities e ON e.id = w.entity_id
   WHERE w.depth < ?
+    AND (w.depth = 0 OR e.type != 'person')  -- people are reached, not expanded: the
+                                              -- owner's page links every project he has
 )
 SELECT e1.name, r.predicate, e2.name, r.source_doc,
        MIN((SELECT MIN(depth) FROM walk WHERE entity_id = r.source_id),
-           (SELECT MIN(depth) FROM walk WHERE entity_id = r.target_id)) AS near
+           (SELECT MIN(depth) FROM walk WHERE entity_id = r.target_id)) AS near,
+       MAX((SELECT MIN(depth) FROM walk WHERE entity_id = r.source_id),
+           (SELECT MIN(depth) FROM walk WHERE entity_id = r.target_id)) AS far
+       -- near 0 = the edge touches a seed; far = how deep its other end sits.
+       -- Seed edges first, then edges among hop-1 neighbours, then hop 2.
 FROM relations r
 JOIN entities e1 ON e1.id = r.source_id
 JOIN entities e2 ON e2.id = r.target_id
 WHERE r.source_id IN (SELECT entity_id FROM walk)
   AND r.target_id IN (SELECT entity_id FROM walk)
-ORDER BY near
+ORDER BY near, far
 """
 
 
@@ -80,8 +87,8 @@ def recall(question, hops=2, top_k=8, skip=()):
             return Facts([], (time.perf_counter() - t0) * 1000)
         marks = ",".join("?" * len(seeds))
         rows = db.execute(WALK.format(seeds=marks), (*seeds, hops)).fetchall()
-        rows = sorted((r for r in rows if r[1] not in skip), key=lambda r: (r[4], PRIORITY.get(r[1], 9)))
-        triples = [(s, p, t, doc) for s, p, t, doc, _ in rows[:top_k]]
+        rows = sorted((r for r in rows if r[1] not in skip), key=lambda r: (r[4], r[5], PRIORITY.get(r[1], 9)))
+        triples = [(s, p, t, doc) for s, p, t, doc, _, _ in rows[:top_k]]
         return Facts(triples, (time.perf_counter() - t0) * 1000)
     finally:
         db.close()
