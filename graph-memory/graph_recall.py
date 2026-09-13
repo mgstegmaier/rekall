@@ -66,7 +66,8 @@ def _seeds(db, question):
     return list(found)
 
 
-PRIORITY = {"owns": 0, "maintains": 1, "depends_on": 2, "member_of": 3, "attended": 4}  # within a hop level; mentions last
+PRIORITY = {"owns": 0, "maintains": 1, "part_of": 2, "depends_on": 3, "runs_on": 4,
+            "reads_from": 5, "writes_to": 6, "about": 7, "member_of": 8, "attended": 9}  # within a hop level; mentions last
 
 
 def recall(question, hops=2, top_k=8, skip=()):

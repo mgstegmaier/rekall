@@ -177,3 +177,82 @@ rule.
 0 is independent and ships first. 1 before 2 and 3 (lint must accept the new types and fields).
 2 before 3 (backfill targets need correct types). 4 can run in parallel with 2 and 3. 5 after 1.
 6 after everything, once the hourly reindex has picked up the backfilled pages.
+
+## Pass 2: fill the new fields (planned 2026-09-13)
+
+Same pattern as phases 2 and 3: a subagent proposes with rationale, Michael marks up the proposal in
+`wiki/plans/`, the applier writes with backups, lint and a graph rebuild verify. Educated guesses
+are allowed this time where Michael said so, each tagged with a confidence so he reads the low ones
+first.
+
+### 2a. `maintainers` on project, system, and pipeline pages
+
+No code needed; the field shipped 2026-09-13. Proposal: `wiki/plans/2026-09-13-typed-graph-maintainers-proposal.md`.
+Guess rules: personal projects and homelab are maintained by Michael alone; the data platform and
+its ingestion pipelines by Michael and Matt Brink; vendor-run SaaS pages get none; a coworker's tool
+gets that coworker only when the page says so. The proposal also collects `part_of` candidates as a
+side list for 2b.
+
+### 2b. `about` and `part_of`
+
+- Schema: `about` on meeting notes, sessions, summaries, and plans (list of page slugs, "the
+  principal subject"), emitting `about` (note → page). `part_of` on project, system, and pipeline
+  pages (list of page slugs), emitting `part_of` (child → parent). Priority in `graph_recall`:
+  owns, maintains, part_of, depends_on, about, member_of, attended.
+- Lint: targets resolve; `part_of` target is a project or system; a page is not `part_of` itself.
+- Builder: two more entries in `RELATION_FIELDS` and `relation_edges`, one test case each.
+- Writers: the `/wiki` ingest step writes `about` on the note it is ingesting, listing the pages it
+  created or updated from that note. That is a byproduct of a decision the writer already makes,
+  so the field costs nothing to keep current. `part_of` follows the same evidence rule as the others.
+- Backfill `about` deterministically: pages already carry `sources: [meeting-file, ...]`. Invert it.
+  Meeting note X is `about` page P when P's `sources` lists X. One script, no model, then a spot
+  check. Sessions and plans: leave for the writers; no backfill.
+- Backfill `part_of`: from the 2a side list, marked up by Michael.
+
+### 2c. Pipeline flow fields on the 14 pipeline pages
+
+- Schema: `runs_on` (systems), `reads_from`, `writes_to` (systems or dataset pages), all emitting
+  edges of the same name (pipeline → target). `depends_on` stays for requirements these three do
+  not express; reading from Snowflake is not also a `depends_on: snowflake`.
+- Proposal from page bodies. The DAG code in the Airflow repo is the authoritative source if the
+  pages are thin; that read goes through the `astro-cli` agent if it happens.
+- Lint: `runs_on` targets are `system` pages.
+
+### 2d. Measure again
+
+Rerun the 100-prompt eval after 2b. `about` is the one edge type that points from a prompt's
+entity to a passage-bearing note, so it is the edge most likely to move the hook number. Record
+the result on the wiki `rekall` page next to the 0.10 baseline.
+
+### Order
+
+2a now (proposal in flight). 2b schema and builder next, then the `about` inversion script, then
+the `part_of` markup. 2c after 2b. 2d last.
+
+### 2d result (2026-09-13)
+
+Same 100 frozen prompts, same judge. Graph-leg precision in the hook slice (positions 1 to 8):
+`mentions` 0.03, typed pass 1 0.10, typed pass 2 0.16. Prompts with at least one helpful triple in the
+slice went 7, 3, 6. By predicate in the slice: maintains 0.39, part_of 0.14, owns 0.13, depends_on
+0.09, about 0.00 (0 of 45 at any position), reads_from 0.00. Graph after pass 2: 731 entities, 6,394
+edges, 2,889 typed. Two observations for the next discussion: (1) `about` edges carry a meeting
+title and nothing else, so the judge treats "1:1 Gottlieb / Stegmaier -[about]-> Doc Extraction" as
+unhelpful even when the meeting is the right one; the memory leg would need to prefer chunks from
+`about`-linked notes for that edge to pay off. (2) The two-hop walk treats the `me` page as a hub:
+any prompt naming one personal project reaches "Me" at hop 1 and every other thing Me owns at hop 2,
+which fills the slice with unrelated ownership rows. Not expanding through `person` entities at
+hop 2 would remove most of that noise. Neither change is made; both are the next conversation.
+
+### Graph-steered memory leg: tried and reverted (2026-09-13)
+
+Hypothesis: use `about` edges to steer the memory leg, adding chunks from notes about the seeded
+entity as a third fusion leg. Passing check was memory top-4 precision of 0.75 or better on steered
+prompts (baseline 0.58 on prompts that seed an entity). Two variants on the same 100 prompts: steer to
+the entity page plus its about-notes, 0.54 on 21 steered prompts; about-notes only, 0.68 on 7 steered
+prompts. Prompts the leg never touched drifted 0.33 to 0.41 across runs on identical hits, so the
+judge's noise floor is about 5 points and both deltas sit inside it. Where the graph vote agreed with
+another leg the hit was already found; where it was the only vote the judge called it unhelpful 12
+of 15 times. Coverage is the structural limit: 7 of 100 real prompts both name an entity and have
+about-notes. Reverted; `about` stays for `/prep` and `/wiki`, which ask the question it answers.
+Eval scripts checked in at `graph-memory/eval/` (`sample_hits.py`, `judge.py`); sampled prompts and
+labels stay local.

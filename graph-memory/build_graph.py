@@ -41,7 +41,8 @@ TYPE_BY_FOLDER = {  # pages/ is flat since 2026-09-04: its pages carry `type` in
 }
 
 
-RELATION_FIELDS = ("owner", "people", "maintainers", "depends_on", "attendees", "aliases")
+RELATION_FIELDS = ("owner", "people", "maintainers", "depends_on", "attendees", "aliases",
+                   "about", "part_of", "runs_on", "reads_from", "writes_to")
 
 
 def page_meta(fm_lines):
@@ -159,6 +160,13 @@ def relation_edges(rows, by_slug, by_name, aliases, ident_by_rel):
                 edges.add((src, tid, "depends_on", rel))
             else:
                 print(f"unresolved depends_on '{dep}' in {rel}", file=sys.stderr)
+        for field in ("about", "part_of", "runs_on", "reads_from", "writes_to"):
+            for target in relations.get(field, []):
+                tid = resolve_slug(by_slug, by_name, aliases, target)
+                if tid:
+                    edges.add((src, tid, field, rel))
+                else:
+                    print(f"unresolved {field} '{target}' in {rel}", file=sys.stderr)
         if kind == "meeting":
             for att in relations.get("attendees", []):
                 tid = resolve_slug(by_slug, by_name, aliases, att)

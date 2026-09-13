@@ -330,17 +330,23 @@ def check_lifecycle(r):
 
 
 def check_relations(r):
-    """owner (string), people (list), depends_on (list): every value must be an existing pages/
-    slug (11), and owner/people targets must be `type: person` pages (12). `attendees` on meeting
-    notes is intentionally not validated here (plan phase 1: names may lack pages)."""
+    """owner (string), people (list), depends_on/about/part_of/runs_on/reads_from/writes_to (list):
+    every value must be an existing pages/ slug (11), owner/people/maintainers targets must be
+    `type: person` pages (12), and part_of/runs_on targets must be the right page type with no
+    self-reference (13). `attendees` on meeting notes is intentionally not validated here (plan
+    phase 1: names may lack pages); `about` on meeting notes is checked below since meeting notes
+    live in wiki/meetings/, not pages/."""
     page_type_by_slug = {p.stem: page_type(p) for p in (WIKI / "pages").glob("*.md")}
-    unresolved, wrong_type = [], []
+    unresolved, wrong_type, structure = [], [], []
     for f in sorted((WIKI / "pages").glob("*.md")):
         fm = frontmatter_text(f.read_text(encoding="utf-8", errors="replace"))
         rel = f.relative_to(WIKI)
         owner = fm_field(fm, "owner")
         fields = [("owner", [owner] if owner else []), ("people", fm_list(fm, "people")), ("maintainers", fm_list(fm, "maintainers"))]
-        for field, values in fields + [("depends_on", fm_list(fm, "depends_on"))]:
+        resolve_only = [("depends_on", fm_list(fm, "depends_on")), ("about", fm_list(fm, "about")),
+                        ("part_of", fm_list(fm, "part_of")), ("runs_on", fm_list(fm, "runs_on")),
+                        ("reads_from", fm_list(fm, "reads_from")), ("writes_to", fm_list(fm, "writes_to"))]
+        for field, values in fields + resolve_only:
             for v in values:
                 if v not in page_type_by_slug:
                     unresolved.append(f"{rel}: {field} -> {v} (no such page)")
@@ -348,8 +354,25 @@ def check_relations(r):
             for v in values:
                 if v in page_type_by_slug and page_type_by_slug[v] != "person":
                     wrong_type.append(f"{rel}: {field} -> {v} (type: {page_type_by_slug[v]}, not person)")
-    r.section("relations_unresolved", "11. Relation targets (owner/people/maintainers/depends_on resolve to a page)", unresolved)
+        for v in fm_list(fm, "part_of"):
+            if v == f.stem:
+                structure.append(f"{rel}: part_of -> itself")
+            elif v in page_type_by_slug and page_type_by_slug[v] not in ("project", "system", "pipeline"):
+                structure.append(f"{rel}: part_of -> {v} (type: {page_type_by_slug[v]}, not project/system/pipeline)")
+        for v in fm_list(fm, "runs_on"):
+            if v in page_type_by_slug and page_type_by_slug[v] != "system":
+                structure.append(f"{rel}: runs_on -> {v} (type: {page_type_by_slug[v]}, not system)")
+    for f in sorted((WIKI / "meetings").glob("*.md")):
+        fm = frontmatter_text(f.read_text(encoding="utf-8", errors="replace"))
+        rel = f.relative_to(WIKI)
+        for v in fm_list(fm, "about"):
+            if v not in page_type_by_slug:
+                unresolved.append(f"{rel}: about -> {v} (no such page)")
+    r.section("relations_unresolved",
+              "11. Relation targets (owner/people/maintainers/depends_on/about/part_of/runs_on/reads_from/writes_to resolve to a page)",
+              unresolved)
     r.section("relations_type", "12. Relation targets are person pages (owner/people/maintainers)", wrong_type)
+    r.section("relations_structure", "13. part_of/runs_on structure (project/system/pipeline parent, system runtime, no self-reference)", structure)
 
 
 def check_owner_warning(r):

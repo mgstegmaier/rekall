@@ -29,6 +29,9 @@ by_slug = {
     "bob": "id-bob",
     "widget-service": "id-widget",
     "widget-project": "id-page",
+    "some-page": "id-some-page",
+    "parent-project": "id-parent",
+    "some-system": "id-system",
 }
 ident_by_rel = {"pages/widget-project.md": "id-page"}
 rows = [
@@ -38,7 +41,9 @@ rows = [
         "project",
         {},
         "",
-        {"owner": ["alice"], "people": ["alice", "bob"], "maintainers": ["bob"], "depends_on": ["widget-service", "ghost"]},
+        {"owner": ["alice"], "people": ["alice", "bob"], "maintainers": ["bob"],
+         "depends_on": ["widget-service", "ghost"], "about": ["some-page"],
+         "part_of": ["parent-project"], "runs_on": ["some-system"]},
     )
 ]
 by_name = {}
@@ -50,6 +55,9 @@ assert edges == {
     ("id-bob", "id-page", "member_of", "pages/widget-project.md"),
     ("id-bob", "id-page", "maintains", "pages/widget-project.md"),
     ("id-page", "id-widget", "depends_on", "pages/widget-project.md"),
+    ("id-page", "id-some-page", "about", "pages/widget-project.md"),
+    ("id-page", "id-parent", "part_of", "pages/widget-project.md"),
+    ("id-page", "id-system", "runs_on", "pages/widget-project.md"),
 }, edges  # "ghost" is unresolved and skipped, no edge for it
 
 # attendees only apply to meeting pages
