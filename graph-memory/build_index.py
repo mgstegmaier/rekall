@@ -177,6 +177,32 @@ def file_hash(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()[:16]
 
 
+NO_PREFIX = False   # eval knobs, set by --no-prefix / --no-context: build the index the
+NO_CONTEXT = False  # way it was before an option so the eval can compare configurations
+
+
+def load_contexts(db):
+    """(file, section, text_hash) -> context sentence, from contextualize.py's table.
+    Empty when the contextualizer has never run: the index never waits on a model."""
+    if NO_CONTEXT:
+        return {}
+    try:
+        return {(f, sec, h): c for f, sec, h, c in
+                db.execute("SELECT file, section, text_hash, context FROM contexts")}
+    except sqlite3.OperationalError:
+        return {}
+
+
+def with_context(embed_text, row, contexts):
+    """Swap the deterministic title/description prefix for the model-written context
+    when one exists for this exact chunk text (docs/plans/2026-09-13-contextual-retrieval.md)."""
+    rel, section, _, _, text, kind = row
+    if kind != "chunk":
+        return embed_text
+    ctx = contexts.get((rel, section, hashlib.sha256(text.encode("utf-8")).hexdigest()))
+    return f"[{rel} § {section}]\n{ctx}\n{text}" if ctx else embed_text
+
+
 def file_docs(rel, path):
     """(embed_text, row) docs for one corpus file."""
     meta, chunks = chunk_file(path)
@@ -189,7 +215,7 @@ def file_docs(rel, path):
     # contextual retrieval, deterministic form: every chunk embeds and full-text
     # indexes with its page's title and description in front, so a "Next steps"
     # section still knows which page it belongs to (docs/plans/2026-09-13-contextual-retrieval.md)
-    context = f"{meta.get('title') or path.stem}: {meta['description']}\n" if meta.get("description") else ""
+    context = f"{meta.get('title') or path.stem}: {meta['description']}\n" if meta.get("description") and not NO_PREFIX else ""
     for section, s, e, text in chunks:
         docs.append((f"[{rel} § {section}]\n" + context + text,
                      (rel, section, s, e, text, "chunk")))
@@ -234,7 +260,11 @@ def main():
                     help="extra folder to index (digests outside the corpus; in-wiki sessions/ needs no flag)")
     ap.add_argument("--full", action="store_true",
                     help="drop and rebuild everything; required after an embedding-model change")
+    ap.add_argument("--no-prefix", action="store_true", help="eval: skip the title/description prefix")
+    ap.add_argument("--no-context", action="store_true", help="eval: ignore the contexts table")
     args = ap.parse_args()
+    global NO_PREFIX, NO_CONTEXT
+    NO_PREFIX, NO_CONTEXT = args.no_prefix, args.no_context
     corpus = Path(args.corpus)
 
     db = sqlite3.connect(DB)
@@ -286,6 +316,7 @@ def main():
         purge(db, key, tracked[key][1])
 
     # new or changed: (re)chunk, (re)embed
+    contexts = load_contexts(db)
     docs, dropped, changed = [], 0, 0  # docs: (embed_text, row, files_row)
     for key, path, digest in on_disk:
         if key in tracked and tracked[key][0] == digest:
@@ -306,7 +337,7 @@ def main():
         else:
             fdocs = file_docs(key, path)
             for embed_text, row in fdocs:
-                docs.append((embed_text, row, (key, digest, None)))
+                docs.append((with_context(embed_text, row, contexts), row, (key, digest, None)))
             if not fdocs:  # e.g. an empty note still gets tracked so it doesn't rescan
                 db.execute("INSERT OR REPLACE INTO files VALUES (?,?,?)", (key, digest, None))
 
@@ -338,6 +369,7 @@ def main():
                 norm = sum(x * x for x in vec) ** 0.5 or 1.0
                 blob = struct.pack(f"{len(vec)}f", *(x / norm for x in vec))
                 db.execute("INSERT INTO vectors (id, vec) VALUES (?,?)", (rowid, blob))
+            db.execute("INSERT OR REPLACE INTO meta VALUES ('model', ?)", (model.model_name,))
             model_line = f"model {model.model_name} ({len(vecs[0])}d) + keyword sqlite fts5"
         except ImportError:
             pass

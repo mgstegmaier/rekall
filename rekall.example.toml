@@ -20,6 +20,12 @@ path = "~/rekall-data"
 # files into. Out of the index, lint and search; wikilinks to them keep resolving.
 archive = "archive"
 
+[index]
+# fastembed model for the meaning leg. Default is the pinned local model in fetch_model.sh;
+# "BAAI/bge-base-en-v1.5" is a larger, more accurate alternative (slower to embed, downloaded
+# and cached by fastembed on first use). Changing this requires build_index.py --full.
+embedding_model = "BAAI/bge-small-en-v1.5"
+
 [monday]
 # Optional. Only used when MONDAY_API_TOKEN is set in .env.
 board = 0

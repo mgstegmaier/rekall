@@ -1,6 +1,6 @@
 """Label sampled hits with a headless Claude judge.
-Usage: python judge.py hits.csv outdir   -> one JSON per prompt in outdir
-       python judge.py --score hits.csv outdir  -> precision by leg, position, predicate
+Usage: python judge.py hits.csv outdir            -> one JSON per prompt in outdir
+       python judge.py --score hits.csv out1 [out2 ...]  -> precision per row, averaged over label dirs
 Run sample_hits.py first (it freezes prompts to prompts_fixed.json so runs compare)."""
 import collections, csv, glob, json, os, re, subprocess, sys
 from concurrent.futures import ThreadPoolExecutor
@@ -36,33 +36,42 @@ def label(path, out):
         list(pool.map(lambda kv: one(*kv), by_prompt(path).items()))
 
 
-def score(path, out):
+def labels(out):
     lab = {}
     for f in glob.glob(f"{out}/*.json"):
         m = re.search(r"\{.*\}", open(f).read(), re.S)
         if m:
             lab[os.path.basename(f)[:-5]] = json.loads(m.group())
+    return lab
+
+
+def score(path, outs):
+    """Precision by row, averaged over one or more label dirs (judge the same hits
+    twice and pass both dirs: the judge's own noise is about 5 points per run)."""
+    labs = [labels(o) for o in outs]
     rows = [r for v in by_prompt(path).values() for r in v]
     for r in rows:
-        r["rel"] = lab.get(r["prompt_id"], {}).get(("M" if r["leg_type"] == "memory" else "G") + r["pos"])
+        key = ("M" if r["leg_type"] == "memory" else "G") + r["pos"]
+        votes = [lab.get(r["prompt_id"], {}).get(key) for lab in labs]
+        votes = [v for v in votes if v is not None]
+        r["rel"] = sum(votes) / len(votes) if votes else None
     rows = [r for r in rows if r["rel"] is not None]
 
     def prec(rs):
-        return f"{sum(r['rel'] for r in rs)}/{len(rs)} = {sum(r['rel'] for r in rs) / max(len(rs), 1):.2f}"
+        return f"{sum(r['rel'] for r in rs) / max(len(rs), 1):.3f} (n={len(rs)})"
     mem = [r for r in rows if r["leg_type"] == "memory"]
+    print("memory  top4:", prec([r for r in mem if int(r["pos"]) <= 4]),
+          " pos1:", prec([r for r in mem if int(r["pos"]) == 1]),
+          " keyword-only:", prec([r for r in mem if r["legs"] == "keyword"]),
+          " meaning-only:", prec([r for r in mem if r["legs"] == "meaning"]),
+          " both:", prec([r for r in mem if r["legs"] == "keyword+meaning"]))
     gr = [r for r in rows if r["leg_type"] == "graph"]
-    print("memory top4:", prec([r for r in mem if int(r["pos"]) <= 4]), " both-legs:", prec([r for r in mem if "+" in r["legs"]]))
-    print("graph hook slice (pos 1-8):", prec([r for r in gr if int(r["pos"]) <= 8]))
-    preds = collections.defaultdict(list)
-    for r in gr:
-        if int(r["pos"]) <= 8:
-            preds[r["excerpt"].split("-[")[1].split("]")[0]].append(r)
-    for p, rs in sorted(preds.items()):
-        print(f"  {p:11} {prec(rs)}")
+    if gr:
+        print("graph hook slice (pos 1-8):", prec([r for r in gr if int(r["pos"]) <= 8]))
 
 
 if __name__ == "__main__":
     if sys.argv[1] == "--score":
-        score(sys.argv[2], sys.argv[3])
+        score(sys.argv[2], sys.argv[3:])
     else:
         label(sys.argv[1], sys.argv[2])

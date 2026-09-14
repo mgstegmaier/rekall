@@ -6,14 +6,15 @@ Prints the top hits with the lines around them, and which leg found each.
 
 import re
 import sqlite3
-import struct
 import sys
 from pathlib import Path
+
+import numpy as np
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
-from paths import DB, MODEL_DIR  # noqa: E402
+from paths import DB, EMBEDDING_MODEL, MODEL_DIR  # noqa: E402
 K = 60  # rank fusion smoothing constant
 TOP = 3
 CONTEXT_LINES = 6
@@ -45,12 +46,16 @@ def keyword_leg(db, query):
 
 
 def embedding_model():
-    """BGE-small from the local model/ dir, or the hub download as fallback."""
+    """The configured model: the pinned local dir when it's BGE-small (the
+    only model fetch_model.sh pins), else fastembed downloads/caches it by name."""
     from fastembed import TextEmbedding
 
-    if MODEL_DIR.is_dir():
+    if MODEL_DIR.is_dir() and EMBEDDING_MODEL == "BAAI/bge-small-en-v1.5":
         return TextEmbedding(specific_model_path=str(MODEL_DIR))
-    return TextEmbedding()  # default: BAAI/bge-small-en-v1.5
+    try:  # cached copy first: the hub check alone costs ~1.3 s per hook call
+        return TextEmbedding(model_name=EMBEDDING_MODEL, local_files_only=True)
+    except Exception:
+        return TextEmbedding(model_name=EMBEDDING_MODEL)  # first run downloads
 
 
 def meaning_leg(db, query):
@@ -61,16 +66,19 @@ def meaning_leg(db, query):
     rows = db.execute("SELECT id, vec FROM vectors").fetchall()
     if not rows:
         return None
+    stored_model = db.execute("SELECT value FROM meta WHERE key='model'").fetchone()
+    if stored_model and stored_model[0] != EMBEDDING_MODEL:
+        print(f"warning: index built with {stored_model[0]!r}, config wants "
+              f"{EMBEDDING_MODEL!r} — vectors are stale until build_index.py --full runs",
+              file=sys.stderr)
     model = embedding_model()
-    q = list(model.embed([QUERY_PREFIX + query]))[0]
-    qnorm = sum(x * x for x in q) ** 0.5 or 1.0
-    q = [x / qnorm for x in q]
-    scored = []
-    for rowid, blob in rows:
-        vec = struct.unpack(f"{len(blob) // 4}f", blob)
-        scored.append((sum(a * b for a, b in zip(q, vec)), rowid))
-    scored.sort(reverse=True)
-    return [rowid for _, rowid in scored[:10]]
+    q = np.array(list(model.embed([QUERY_PREFIX + query]))[0], dtype=np.float32)
+    q /= np.linalg.norm(q) or 1.0
+    ids = [rowid for rowid, _ in rows]
+    # stored vectors are already unit-normalized by build_index
+    matrix = np.vstack([np.frombuffer(blob, dtype=np.float32) for _, blob in rows])
+    top = np.argsort(-(matrix @ q))[:10]
+    return [ids[i] for i in top]
 
 
 def fuse(legs):

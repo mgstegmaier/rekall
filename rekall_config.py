@@ -29,8 +29,9 @@ DATA = Path(_cfg["data"]["path"]).expanduser()
 STATE_DIR = Path(_cfg["data"].get("state", "~/.config/rekall")).expanduser()
 MONDAY_BOARD = int(_cfg.get("monday", {}).get("board", 0))
 MONDAY_GROUP = _cfg.get("monday", {}).get("group", "Auto-Capture")
+EMBEDDING_MODEL = _cfg.get("index", {}).get("embedding_model", "BAAI/bge-small-en-v1.5")
 
 if __name__ == "__main__":
-    names = sys.argv[1:] or ["USER_NAME", "TIMEZONE", "VAULT", "WIKI", "SESSIONS", "ARCHIVE", "DATA", "STATE_DIR", "MONDAY_BOARD", "MONDAY_GROUP"]
+    names = sys.argv[1:] or ["USER_NAME", "TIMEZONE", "VAULT", "WIKI", "SESSIONS", "ARCHIVE", "DATA", "STATE_DIR", "MONDAY_BOARD", "MONDAY_GROUP", "EMBEDDING_MODEL"]
     for n in names:
         print(globals()[n] if len(names) == 1 else f"{n}={globals()[n]}")

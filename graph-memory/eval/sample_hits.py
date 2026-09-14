@@ -8,7 +8,7 @@ from search import fuse, keyword_leg, meaning_leg, query_terms
 from recall_hook import DB, excerpt
 from graph_recall import recall, _seeds
 
-N, TOPN, DAYS = 100, 10, 21
+N, TOPN, DAYS = int(os.environ.get("EVAL_N", 100)), 10, int(os.environ.get("EVAL_DAYS", 21))
 random.seed(7)
 since = datetime.now() - timedelta(days=DAYS)
 
@@ -36,8 +36,9 @@ for f in glob.glob(os.path.expanduser("~/.claude/projects/*/*.jsonl")):
 
 prompts = list(dict.fromkeys(prompts))
 import os.path
-if os.path.exists("prompts_fixed.json"):
-    sample = json.load(open("prompts_fixed.json"))
+FROZEN = os.environ.get("EVAL_PROMPTS", "prompts_fixed.json")
+if os.path.exists(FROZEN):
+    sample = json.load(open(FROZEN))
     print("using frozen prompts", len(sample), file=sys.stderr)
 else:
     sample = None

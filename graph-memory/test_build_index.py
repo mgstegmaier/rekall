@@ -6,7 +6,9 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from build_index import file_docs  # noqa: E402
+import hashlib
+
+from build_index import file_docs, with_context  # noqa: E402
 
 with tempfile.TemporaryDirectory() as tmp:
     p = Path(tmp) / "widget-project.md"
@@ -26,5 +28,16 @@ with tempfile.TemporaryDirectory() as tmp:
     q.write_text("# Bare\n\nno frontmatter here\n")
     (embed, row), = file_docs("pages/bare.md", q)
     assert embed == "[pages/bare.md § Bare]\n# Bare\n\nno frontmatter here", embed
+
+# with_context: a model-written sentence for this exact chunk text replaces the
+# title/description prefix; a stale hash (edited chunk) or a description row does not.
+row = ("pages/widget-project.md", "Next steps", 5, 7, "## Next steps\n\n- ship the thing", "chunk")
+h = hashlib.sha256(row[4].encode("utf-8")).hexdigest()
+plain = "[pages/widget-project.md § Next steps]\nWidget Project: Builds widgets.\n" + row[4]
+got = with_context(plain, row, {("pages/widget-project.md", "Next steps", h): "Widget Project's remaining work: shipping."})
+assert got == "[pages/widget-project.md § Next steps]\nWidget Project's remaining work: shipping.\n" + row[4], got
+assert with_context(plain, row, {("pages/widget-project.md", "Next steps", "stale"): "old"}) == plain
+desc = ("pages/widget-project.md", "description", 0, 0, "Widget Project: Builds widgets.", "description")
+assert with_context("x", desc, {}) == "x"
 
 print("ok")

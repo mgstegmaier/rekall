@@ -91,3 +91,53 @@ exactly: the title and description words now match in FTS, while BGE-small's vec
 in any measurable way. Kept because it costs one line and nothing at query time. The entity-prompt
 subset is not comparable across the two runs (the sampler's seed count changed between them), so it
 is not reported.
+
+### Option 2 (2026-09-13): measured, not kept
+
+BGE-base-en-v1.5 on top of option 1, same 100 prompts. Top 4 0.42 to 0.46 (+4). Position 1 0.55 to
+0.59 (+4). Both-legs 0.70 to 0.75 (+5). Meaning-only flat at 0.25. Every delta is inside the 5-point
+noise floor. The operational cost is not: the full rebuild took 1 h 54 min and held 13 GB of memory,
+paging the machine, against about 15 min for BGE-small; the weekly Sunday self-heal rebuild and the
+Windows install both rule that out. Query-side the model is fine once loaded from the local cache
+(hook 0.66 s end to end). Kept from this option: the `[index] embedding_model` config key, the numpy
+scan in `meaning_leg` (0.30 s to 0.07 s on the small model), `local_files_only` model loading, and
+the model name recorded in `meta`. Config returns to BGE-small with the option 3 rebuild.
+
+### Option 3 (2026-09-13): measured, no win
+
+Backfill: 857 files, 8,096 contexts in 62 min at 8 workers, 570 chunks skipped on malformed JSON
+replies (they keep the option 1 prefix). Same 100 prompts, BGE-small, contexts replacing the prefix
+where present. Against option 1: top 4 0.42 to 0.43, position 1 0.55 to 0.52, keyword-only 0.35 to
+0.34, meaning-only 0.26 to 0.21, both-legs 0.70 to 0.74. Every row inside the noise floor, and the
+embedding leg moved the wrong way: a sentence that names three people and two projects pulls the
+vector toward the names and away from the section's subject. The sentences read well (example on
+`pages/doc-extraction.md § Next steps`: "Doc Extraction's remaining work includes ... Phase 2 POC
+design and pilot plan ..."), but the title-and-description prefix already carried the part the
+retriever needed. Cost of keeping it would be one headless call per changed page per night plus the
+one-time hour. Decision pending Michael: disable (remove the `reindex.sh` line, leave `with_context`
+inert by dropping the table), or keep running for `/wiki` query mode, which can show the sentence
+as a chunk summary even if retrieval does not gain.
+
+## Summary across the four runs
+
+| Run | Top 4 | Pos 1 | Keyword-only | Meaning-only | Both legs | Cost |
+|-----|-------|-------|--------------|--------------|-----------|------|
+| baseline | 0.38 | 0.45 | 0.26 | 0.27 | 0.66 | |
+| 1 title+description prefix | 0.42 | 0.55 | 0.35 | 0.26 | 0.70 | one line, kept |
+| 2 BGE-base (on 1) | 0.46 | 0.59 | 0.30 | 0.25 | 0.75 | 1 h 54 min rebuild, 13 GB; not kept |
+| 3 Haiku sentence (on 1) | 0.43 | 0.52 | 0.34 | 0.21 | 0.74 | 62 min once + nightly calls; pending |
+
+What moved retrieval was cheap and deterministic. Both model-side options landed inside the judge's
+noise. The remaining lever the paper offers is a reranker (option 4), and the both-legs row at 0.70
+to 0.75 says the candidates are there; a cross-encoder over the fused top 20 is what would promote them.
+
+## Measurement upgrade (2026-09-13, evening)
+
+Michael's read of the four-run table: the numbers went up every time, so "inside the noise" undersold
+three same-direction moves. Fair. The judge is too coarse for 4-point effects, so before deciding
+option 3 or starting option 4 the measurement gets both fixes at once: the frozen prompt set grows
+from 100 to 300 (the original 100 kept as the first 100), and every configuration is judged twice
+with the two label sets averaged (`judge.py --score hits.csv judge_a judge_b`). Three
+configurations, each rebuilt with the new `build_index.py --no-prefix / --no-context` knobs:
+baseline, option 1, option 3. Option 2 stays out on rebuild cost regardless of its number. Option 3
+stays in `reindex.sh` while this runs. Chain and logs: `~/.config/rekall/eval/2026-09-13-n300/`.
