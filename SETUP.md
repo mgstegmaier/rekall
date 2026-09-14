@@ -39,8 +39,8 @@ fails. Never skip a failed step and never overwrite a file that already exists.
    step in it, not in PowerShell.
 2. Ask me where my wiki should live. If I have no vault, ask for a folder (suggest
    ~/rekall-vault) and copy the contents of vault-template/ into it. If I already have an
-   Obsidian vault, ask for its path and copy vault-template/wiki/ and
-   vault-template/memory/ into it, skipping anything already there. In the copied
+   Obsidian vault, ask for its path and copy vault-template/wiki/ into it, skipping
+   anything already there. In the copied
    wiki/CLAUDE.md, replace REKALL_REPO with the rekall folder's absolute path.
 3. Ask me for my name, the email address Fathom knows me by, and my timezone. Write
    rekall.toml from rekall.example.toml with those and the vault path.
@@ -61,7 +61,8 @@ fails. Never skip a failed step and never overwrite a file that already exists.
 7. First build: run graph-memory/reindex.sh and show me the counts it prints.
 8. Backfill: run scripts/fathom-pipeline.py --since <30 days ago> --no-monday in the
    background, with the venv interpreter (graph-memory/.venv/bin/python on macOS,
-   graph-memory/.venv/Scripts/python.exe on Windows) so it sees tzdata. It ingests five
+   graph-memory/.venv/Scripts/python.exe on Windows). The system python lacks certifi on
+   macOS and tzdata on Windows, and the venv has both. It ingests five
    meetings per Claude call and a month of meetings takes about an hour, so carry on with
    the steps below while it runs. When it finishes, tell me how many meeting notes landed
    in wiki/meetings/ and how many wiki pages it wrote.
@@ -86,8 +87,8 @@ On a company laptop whose security proxy re-signs HTTPS, Python's `urllib` rejec
 certificate. On Windows this usually does not happen, because Python there reads the system
 certificate store, which already trusts the proxy. If step 6 does fail on Windows with
 `CERTIFICATE_VERIFY_FAILED`, find the proxy root with `certutil -store Root`, export it to
-`~/.config/rekall/corp-ca.pem`, and build the same combined bundle as below with
-`certifi`'s path in place of the macOS command.
+`~/.config/rekall/corp-ca.pem`, and build the same combined bundle as below, using
+graph-memory/.venv/Scripts/python.exe in the `cat` line.
 
 The macOS recipe. The fix is a combined CA bundle that the pipeline picks up automatically
 when it exists. Replace `PROXY_CA_NAME` with the name of the proxy's root certificate as it appears
@@ -96,8 +97,11 @@ in Keychain Access under System > Certificates:
 ```bash
 mkdir -p ~/.config/rekall
 security find-certificate -a -c "PROXY_CA_NAME" -p /Library/Keychains/System.keychain > ~/.config/rekall/corp-ca.pem
-cat "$(python3 -c 'import certifi; print(certifi.where())')" ~/.config/rekall/corp-ca.pem > ~/.config/rekall/ca-bundle.pem
+cat "$(graph-memory/.venv/bin/python -c 'import certifi; print(certifi.where())')" ~/.config/rekall/corp-ca.pem > ~/.config/rekall/ca-bundle.pem
 ```
+
+Run the `cat` line from the rekall folder. It uses the venv's python because the system
+python3 usually has no certifi, and the pipeline runs under the venv anyway.
 
 If step 6 fails with `CERTIFICATE_VERIFY_FAILED`, run this, then retry the step.
 
