@@ -19,18 +19,19 @@ https://github.com/mgstegmaier/rekall (fresh single-commit history since 2026-09
   Claude Code runs inside the rekall folder). `docs/obsidian-vault-cli.md` —
   vault CLI reference; read before any vault write. Wiki structure rules: vault `wiki/CLAUDE.md`.
 
-## Current state (2026-09-13)
+## Current state (2026-09-14)
 
-Typed wiki graph shipped 2026-09-12 and 2026-09-13 (`be95515`, `755e727`, `3f2ddd5` on main): relation
-frontmatter (`owner`, `people`, `maintainers`, `depends_on`, `part_of`, `about`, pipeline flow fields,
-`attendees`, `aliases`), `system` and `pipeline` page types, typed edges in `build_graph.py`, lint checks
-11 to 13, and a recall walk that skips `mentions` and does not expand through person pages. Plan, every
-measurement, and what was tried and reverted: `docs/plans/2026-09-12-typed-wiki-graph.md`. Eval harness:
-`graph-memory/eval/`. Backfill applier: `scripts/wiki-apply-props.py`.
+Typed wiki graph shipped 2026-09-12/13 (`be95515`, `755e727`, `3f2ddd5`): relation frontmatter, `system`
+and `pipeline` page types, typed edges, lint checks 11 to 13, a recall walk that skips `mentions` and
+does not expand through person pages. Contextual retrieval measured 2026-09-13/14 (`5c0cffb`, `4d1c81d`,
+next commit): title/description prefix kept, BGE-base and Haiku chunk contexts measured flat and not
+kept, `[index] embedding_model` key, numpy scan, eval harness in `graph-memory/eval/`. Plans with every
+number: `docs/plans/2026-09-12-typed-wiki-graph.md`, `docs/plans/2026-09-13-contextual-retrieval.md`.
 
-Open: Windows cold test still unverified (`docs/plans/2026-09-03-windows-install.md`); existing-vault
-install designed only (memory `existing-vault-install-design.md`); plugin packaging parked; one active
-project page without an owner by decision (`loss-run-roots-project`).
+Open: the eval's prompt set is contaminated by the sessions that built it (84 of 200 recent prompts
+are about rekall itself) and the Haiku judge is uncalibrated; Windows cold test still unverified
+(`docs/plans/2026-09-03-windows-install.md`); existing-vault install designed only; plugin packaging
+parked; `loss-run-roots-project` ownerless by decision.
 
-Next action: `/prep` and `/wiki` query should read the typed graph (`owns`, `maintains`, `about`), the
-consumers the graph was built for; the hook already does.
+Next action: a frozen prompt set drawn from sessions outside the rekall repo plus a 50-prompt set
+Michael labels by hand, so the judge can be calibrated before any further retrieval change.

@@ -1,6 +1,10 @@
 # Contextual retrieval for the memory leg
 
-**Status:** planned 2026-09-13, approved by Michael the same day. Option 1 in progress.
+**Status:** closed 2026-09-14. Options 1, 2, 3 built and measured; none changed retrieval in a way the
+eval can see at 300 prompts judged twice. Kept: option 1 (one line, free), the config key, numpy scan,
+cached model load, and the eval harness. Parked: `contextualize.py`. Not kept: BGE-base (rebuild cost).
+Next on retrieval is the measurement, not the retriever: a prompt set from outside the rekall repo and
+a small human-labelled set to calibrate the judge. Option 4 (reranker) waits for that.
 
 ## Why
 
@@ -141,3 +145,27 @@ with the two label sets averaged (`judge.py --score hits.csv judge_a judge_b`). 
 configurations, each rebuilt with the new `build_index.py --no-prefix / --no-context` knobs:
 baseline, option 1, option 3. Option 2 stays out on rebuild cost regardless of its number. Option 3
 stays in `reindex.sh` while this runs. Chain and logs: `~/.config/rekall/eval/2026-09-13-n300/`.
+
+### Result at 300 prompts, judged twice (2026-09-14, 01:28)
+
+| Configuration | Top 4 | Pos 1 | Keyword-only | Meaning-only | Both legs |
+|---------------|-------|-------|--------------|--------------|-----------|
+| baseline | 0.352 | 0.427 | 0.232 | 0.241 | 0.576 |
+| option 1 | 0.343 | 0.408 | 0.239 | 0.243 | 0.574 |
+| option 3 | 0.345 | 0.395 | 0.243 | 0.230 | 0.561 |
+
+Flat. Every difference is under 2 points on 1,200 judged top-4 rows per configuration with two label
+passes averaged. The 100-prompt single-pass runs that read 0.38, 0.42, 0.43 were the judge's own
+variance; the "three same-direction moves" were not a trend. Neither the title/description prefix
+nor the model-written context sentence changes what the memory leg returns in a way this judge can
+see. Caveat on the prompt set: 200 of the 300 prompts come from the last 28 days, which include the
+sessions that built this graph, so 84 of the 200 new prompts name rekall, the wiki, the graph, or the eval itself (7 of the
+original 100 did). The comparison between configurations is still fair, since all three saw the same
+prompts and judge, but the absolute numbers describe a week of building this tool more than normal
+use, and the graph slice reads 0.03 here against 0.16 on the earlier 100 for the same reason. Next
+prompt set should exclude sessions run inside the rekall repo.
+
+### Decision (Michael, 2026-09-14)
+
+Option 3 out of `reindex.sh`, `contexts` table dropped, `contextualize.py` kept in the repo as a
+parked tool with a header saying so. Option 1 stays. Index rebuilt on the prefix alone.

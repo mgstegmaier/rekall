@@ -11,10 +11,6 @@ export PATH="$HOME/.local/bin:$PATH"  # launchd's PATH lacks claude
 # wiki page never surfaced (decided 2026-09-03).
 "$PY" "$HERE/distil.py" "$WIKI" --under meetings --no-rebuild
 "$PY" "$HERE/distil.py" "$WIKI" --under raw --no-rebuild
-# one context sentence per new or changed chunk, written by a headless claude call
-# per page (contextualize.py); any failure leaves the chunk on the title/description
-# prefix, so the index below never waits on a model
-"$PY" "$HERE/contextualize.py" --corpus "$WIKI" --workers 4
 # incremental by default; build_index.py promotes the first Sunday run each week
 # to a full rebuild on its own (last_full in rag.db's meta table)
 "$PY" "$HERE/build_index.py" --corpus "$WIKI"

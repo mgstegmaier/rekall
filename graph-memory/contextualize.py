@@ -14,6 +14,11 @@ chunk body. build_index.py's schema does not know about it, so a --full rebuild
 leaves it alone: an unchanged chunk keeps its context forever, a changed one is
 written again. Nothing here raises past main(); a page that fails keeps the
 deterministic title-and-description prefix build_index already puts in front.
+
+PARKED (2026-09-14): measured on 300 prompts judged twice, the sentences changed nothing the
+eval could see (docs/plans/2026-09-13-contextual-retrieval.md). Not in reindex.sh. build_index
+still reads a `contexts` table if one exists, so this can be turned back on by running it and
+rebuilding with --full.
 """
 
 import argparse
