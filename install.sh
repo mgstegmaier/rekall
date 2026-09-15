@@ -20,6 +20,8 @@ LOGS="$HOME/.config/rekall/logs"
 VENV="$REPO/graph-memory/.venv"
 DOMAIN="gui/$(id -u)"
 LABELS="com.rekall.fathom-pipeline com.rekall.wiki-lint com.rekall.wiki-reindex"
+GRANOLA="com.rekall.granola-sweep"   # optional: --with-granola schedules it; --uninstall always removes it
+case " $* " in *" --with-granola "*) LABELS="$LABELS $GRANOLA" ;; esac
 
 case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) WIN=1 ;; *) WIN= ;; esac
 if [ -n "$WIN" ]; then
@@ -92,6 +94,7 @@ render() {
 }
 
 uninstall() {
+  LABELS="$LABELS $GRANOLA"
   if [ -n "$WIN" ]; then
     for l in $LABELS; do
       powershell.exe -NoProfile -Command \
