@@ -1,0 +1,317 @@
+{
+  "schema_version": 1,
+  "diagram_type": "dataflow",
+  "meta": {
+    "title": "Rekall Data Flow",
+    "quality_profile": "showcase",
+    "viewBox": [
+      1080,
+      520
+    ]
+  },
+  "stages": [
+    {
+      "label": "Sources"
+    },
+    {
+      "label": "Capture"
+    },
+    {
+      "label": "Vault"
+    },
+    {
+      "label": "Index and lint"
+    },
+    {
+      "label": "Consume"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "fathom",
+      "type": "external",
+      "label": "Fathom API",
+      "sublabel": "meetings I attended",
+      "stage": 0,
+      "row": 0,
+      "tag": "FATHOM_API_KEY"
+    },
+    {
+      "id": "rawdrop",
+      "type": "frontend",
+      "label": "wiki/raw/",
+      "sublabel": "files Mike drops in",
+      "stage": 0,
+      "row": 1,
+      "tag": "user-curated"
+    },
+    {
+      "id": "session",
+      "type": "frontend",
+      "label": "Claude session",
+      "sublabel": "Claude Code SessionEnd",
+      "stage": 0,
+      "row": 2,
+      "tag": "transcript"
+    },
+    {
+      "id": "pipeline",
+      "type": "backend",
+      "label": "fathom-pipeline.py",
+      "sublabel": "hourly 07:15 to 19:15",
+      "stage": 1,
+      "row": 0,
+      "tag": "launchd"
+    },
+    {
+      "id": "digest",
+      "type": "backend",
+      "label": "session_end.py",
+      "sublabel": "detached claude -p",
+      "stage": 1,
+      "row": 2,
+      "tag": "skips under 5 turns"
+    },
+    {
+      "id": "ingest",
+      "type": "backend",
+      "label": "Wiki ingest",
+      "sublabel": "claude -p, per batch",
+      "stage": 1,
+      "row": 1,
+      "tag": "sonnet"
+    },
+    {
+      "id": "monday",
+      "type": "external",
+      "label": "Monday board",
+      "sublabel": "my action items",
+      "stage": 2,
+      "row": 0,
+      "tag": "optional token"
+    },
+    {
+      "id": "vault",
+      "type": "database",
+      "label": "Vault wiki/",
+      "sublabel": "meetings, sessions, pages",
+      "stage": 2,
+      "row": 1,
+      "tag": "content owner",
+      "width": 124
+    },
+    {
+      "id": "ragdb",
+      "type": "database",
+      "label": "rag.db",
+      "sublabel": "build_index + build_graph",
+      "stage": 3,
+      "row": 0,
+      "tag": "hourly, disposable",
+      "width": 124
+    },
+    {
+      "id": "distil",
+      "type": "backend",
+      "label": "distil.py",
+      "sublabel": "claude -p per note",
+      "stage": 3,
+      "row": 1,
+      "tag": "question + quote"
+    },
+    {
+      "id": "lint",
+      "type": "backend",
+      "label": "wiki-lint.py",
+      "sublabel": "then wiki-cleanup.py",
+      "stage": 3,
+      "row": 2,
+      "tag": "nightly 21:30"
+    },
+    {
+      "id": "recall",
+      "type": "backend",
+      "label": "recall_hook.py",
+      "sublabel": "UserPromptSubmit",
+      "stage": 4,
+      "row": 0,
+      "tag": "1500-char cap"
+    }
+  ],
+  "flows": [
+    {
+      "id": "meetings-in",
+      "from": "fathom",
+      "to": "pipeline",
+      "label": "summaries + action items",
+      "classification": "API pull",
+      "variant": "emphasis",
+      "labelAt": [
+        207,
+        114
+      ]
+    },
+    {
+      "id": "raw-in",
+      "from": "rawdrop",
+      "to": "pipeline",
+      "label": "new or changed files",
+      "classification": "hash-checked",
+      "variant": "default"
+    },
+    {
+      "id": "transcript-in",
+      "from": "session",
+      "to": "digest",
+      "label": "transcript",
+      "classification": "hook payload",
+      "variant": "emphasis"
+    },
+    {
+      "id": "ingest-batch",
+      "from": "pipeline",
+      "to": "ingest",
+      "label": "meetings + raw",
+      "classification": "batch",
+      "variant": "emphasis",
+      "labelAt": [
+        315,
+        214
+      ]
+    },
+    {
+      "id": "ingest-pages",
+      "from": "ingest",
+      "to": "vault",
+      "label": "pages + log.md",
+      "classification": "write",
+      "variant": "emphasis",
+      "labelAt": [
+        420,
+        214
+      ]
+    },
+    {
+      "id": "action-items",
+      "from": "pipeline",
+      "to": "monday",
+      "label": "action items",
+      "classification": "API push",
+      "variant": "dashed",
+      "labelAt": [
+        422,
+        114
+      ]
+    },
+    {
+      "id": "session-digest",
+      "from": "digest",
+      "to": "vault",
+      "label": "sessions/<date>.md",
+      "classification": "write",
+      "variant": "emphasis"
+    },
+    {
+      "id": "index-build",
+      "from": "vault",
+      "to": "ragdb",
+      "label": "wiki chunks",
+      "classification": "chunks",
+      "variant": "emphasis",
+      "via": [
+        [
+          612,
+          271
+        ],
+        [
+          612,
+          157
+        ]
+      ],
+      "labelAt": [
+        650,
+        140
+      ]
+    },
+    {
+      "id": "lint-read",
+      "from": "vault",
+      "to": "lint",
+      "label": "pages, links, frontmatter",
+      "classification": "read-only",
+      "variant": "default",
+      "via": [
+        [
+          612,
+          271
+        ],
+        [
+          612,
+          385
+        ]
+      ]
+    },
+    {
+      "id": "distil-read",
+      "from": "vault",
+      "to": "distil",
+      "label": "meetings, raw",
+      "classification": "sha256-gated",
+      "variant": "default",
+      "labelAt": [
+        655,
+        214
+      ]
+    },
+    {
+      "id": "distil-out",
+      "from": "distil",
+      "to": "ragdb",
+      "label": "distilled entries",
+      "classification": "checked quotes",
+      "variant": "dashed",
+      "labelAt": [
+        745,
+        214
+      ]
+    },
+    {
+      "id": "recall-hits",
+      "from": "ragdb",
+      "to": "recall",
+      "label": "top 5 hits + graph triples",
+      "classification": "additionalContext",
+      "variant": "emphasis",
+      "labelAt": [
+        853,
+        114
+      ]
+    }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "Capture in",
+      "items": [
+        "Meeting notes and raw files are compiled into wiki pages by a headless sonnet run, one batch per pipeline pass",
+        "State in ~/.config/rekall keeps every writer idempotent: meeting ids, file hashes, digest retry log"
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "Index and consume",
+      "items": [
+        "distil.py keeps an answer only when its quote appears in the note word for word; the rest is dropped and named",
+        "rag.db is rebuilt hourly and can be deleted at any time; the recall hook fails open"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Nightly health",
+      "items": [
+        "wiki-lint.py only reports; wiki-cleanup.py moves status: archive pages and unlinks hand-deleted ones",
+        "wins-sweep.py appends session wins to the annual-review page each pipeline run"
+      ]
+    }
+  ]
+}
