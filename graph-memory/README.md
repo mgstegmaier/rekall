@@ -28,7 +28,7 @@ Vendored from [Glitch-Cat-Club/graph-memory-starter](https://github.com/Glitch-C
 | Test a query | `.venv/bin/python search.py "what's next on QVal"` |
 | Test graph recall | `.venv/bin/python graph_recall.py "who is involved in QVal"` |
 | Distil new meeting notes | `.venv/bin/python distil.py ~/obsidian-vault/heck-db/wiki --under meetings` |
-| Check the LaunchAgent | `launchctl list \| grep wiki-reindex`; log at `/tmp/wiki-reindex.log` |
+| Check the LaunchAgent | `launchctl list \| grep wiki-reindex`; log at `~/.config/rekall/logs/wiki-reindex.log` |
 | Check digest failures | `cat digest/log/digest.log`; staged retries sit in `digest/pending/` |
 
 The index is disposable. If anything looks wrong, delete `rag.db` and run `./reindex.sh`. The wiki itself is never written — it's a read-only corpus, and it stays on OneDrive safely because only markdown syncs there; the SQLite DB lives here on local disk.
