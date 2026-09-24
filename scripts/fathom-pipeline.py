@@ -471,15 +471,18 @@ def ingest_to_wiki(source_paths, extra=""):
         + "\n".join(f"- {p}" for p in source_paths)
         + "\nDo NOT edit wiki/index.md -- it is regenerated automatically from page frontmatter; "
         "ensure every page you create or update has title and description frontmatter. "
-        "Append ONE log entry at the END of wiki/log.md covering this batch."
+        "Append ONE log entry at the END of wiki/log.md covering this batch. "
+        "There is no shell in this session: use Grep, Glob, and Read to search and inspect, "
+        "and skip any doc step that says to run a script or the obsidian CLI."
         + (f"\nAdditional instructions for this batch: {extra}" if extra else "")
     )
     settings, roots = guard_settings()
-    # ponytail: Bash stays in the tool set -- log grep, tail, wc, and diff account for all 182
-    # Bash calls across a month of logs (checked 2026-09-24); no obsidian CLI use to guard against.
+    # No Bash: the path guard only sees Read/Glob/Grep/Write/Edit, and meeting text is untrusted,
+    # so a shell would let an injected instruction reach outside the vault. The 182 Bash calls in
+    # September's logs were grep/ls/wc/diff/date, which the file tools cover (2026-09-24).
     cmd = ["claude", "-p", prompt, "--model", "sonnet",
            "--permission-mode", "acceptEdits",
-           "--tools", "Read,Glob,Grep,Write,Edit,Bash",
+           "--tools", "Read,Glob,Grep,Write,Edit",
            "--strict-mcp-config",
            "--append-system-prompt-file", str(ingest_system_prompt()),
            "--settings", settings,
