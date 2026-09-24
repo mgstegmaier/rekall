@@ -3,8 +3,10 @@
 <!-- Template. Replace __REPO__ (this repo's absolute path), __HOME__ (your home folder) and
      __PYTHON__ (the absolute path of a python3 that is 3.11 or newer; launchd's PATH is
      minimal and Apple's /usr/bin/python3 is too old), then copy to ~/Library/LaunchAgents/
-     and `launchctl load` it. Runs nightly at 21:30: the lint report, then the lifecycle job
-     that moves `status: archive` files to wiki/archive/. -->
+     and `launchctl load` it. Runs nightly at 21:30: the lint report every night (log
+     truncated to its last 2000 lines once it passes ~1MB, no logrotate config); the
+     lifecycle job that moves `status: archive` files to wiki/archive/ only on Sundays
+     (`date +%u` = 7), since it found nothing to do most weeknights. -->
 <plist version="1.0">
 <dict>
     <key>Label</key>
@@ -13,7 +15,7 @@
     <array>
         <string>/bin/bash</string>
         <string>-c</string>
-        <string>"__PYTHON__" "__REPO__/scripts/wiki-lint.py"; "__PYTHON__" "__REPO__/scripts/wiki-cleanup.py" --execute</string>
+        <string>LOG="__HOME__/.config/rekall/logs/wiki-lint-launchd.log"; [ -f "$LOG" ] &amp;&amp; [ "$(wc -c &lt; "$LOG")" -gt 1000000 ] &amp;&amp; { tail -n 2000 "$LOG" &gt; "$LOG.tmp" &amp;&amp; cat "$LOG.tmp" &gt; "$LOG" &amp;&amp; rm -f "$LOG.tmp"; }; "__PYTHON__" "__REPO__/scripts/wiki-lint.py"; [ "$(date +%u)" = 7 ] &amp;&amp; "__PYTHON__" "__REPO__/scripts/wiki-cleanup.py" --execute; true</string>
     </array>
     <key>StandardErrorPath</key>
     <string>__HOME__/.config/rekall/logs/wiki-lint-launchd.log</string>

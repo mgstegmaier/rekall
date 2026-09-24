@@ -413,6 +413,32 @@ def verify_ingest(source_paths):
     return True, None
 
 
+_SYSTEM_PROMPT_FILE = None
+
+
+def ingest_system_prompt():
+    """The ingest rules (wiki/CLAUDE.md + SKILL.md's Ingest mode), written once to a file and
+    passed via --append-system-prompt-file. Every batch in a run then sends an identical prefix,
+    so Anthropic's prompt cache can serve it instead of the agent re-reading ~30KB of CLAUDE.md +
+    SKILL.md fresh, mid-conversation, on each of a run's several batches."""
+    global _SYSTEM_PROMPT_FILE
+    if _SYSTEM_PROMPT_FILE is None:
+        content = (
+            "You are the automated wiki ingest pipeline (unattended -- no questions, no discussion). "
+            "Follow wiki/CLAUDE.md (below) and ~/.claude/skills/wiki/SKILL.md's Ingest mode (below) "
+            "exactly; CLAUDE.md wins on structure. Never Read wiki/index.md whole -- Grep it (or "
+            "wiki/pages/) for the entity/topic names instead.\n\n"
+            "=== wiki/CLAUDE.md ===\n" + (VAULT / "wiki" / "CLAUDE.md").read_text()
+            + "\n\n=== ~/.claude/skills/wiki/SKILL.md ===\n"
+            + (Path.home() / ".claude" / "skills" / "wiki" / "SKILL.md").read_text()
+        )
+        LOG_DIR.mkdir(parents=True, exist_ok=True)
+        path = LOG_DIR / "ingest-system-prompt.md"
+        path.write_text(content)
+        _SYSTEM_PROMPT_FILE = path
+    return _SYSTEM_PROMPT_FILE
+
+
 def guard_settings():
     """The PreToolUse guard for the headless child, as (settings JSON, roots env value).
 
@@ -438,12 +464,10 @@ def ingest_to_wiki(source_paths, extra=""):
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     logfile = LOG_DIR / f"ingest-{datetime.now().strftime('%Y%m%d-%H%M%S')}.log"
     log_before_mtime = WIKI_LOG.stat().st_mtime if WIKI_LOG.exists() else 0
+    now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     prompt = (
-        "You are the automated wiki ingest pipeline (unattended -- no questions, no discussion). "
-        "Read wiki/CLAUDE.md (structure source of truth) and ~/.claude/skills/wiki/SKILL.md "
-        "(Ingest mode) and follow both exactly; CLAUDE.md wins on structure. "
-        "Every page you create or update includes generated: {by: fathom-pipeline, at: <ISO 8601 "
-        "UTC>} in its frontmatter -- the docs don't know this pipeline is the caller.\nSources:\n"
+        f"Every page you create or update includes generated: {{by: fathom-pipeline, at: {now_iso}}} "
+        "in its frontmatter -- the docs don't know this pipeline is the caller.\nSources:\n"
         + "\n".join(f"- {p}" for p in source_paths)
         + "\nDo NOT edit wiki/index.md -- it is regenerated automatically from page frontmatter; "
         "ensure every page you create or update has title and description frontmatter. "
@@ -451,9 +475,13 @@ def ingest_to_wiki(source_paths, extra=""):
         + (f"\nAdditional instructions for this batch: {extra}" if extra else "")
     )
     settings, roots = guard_settings()
+    # ponytail: Bash stays in the tool set -- log grep, tail, wc, and diff account for all 182
+    # Bash calls across a month of logs (checked 2026-09-24); no obsidian CLI use to guard against.
     cmd = ["claude", "-p", prompt, "--model", "sonnet",
            "--permission-mode", "acceptEdits",
-           "--allowedTools", "Read,Glob,Grep,Write,Edit",
+           "--tools", "Read,Glob,Grep,Write,Edit,Bash",
+           "--strict-mcp-config",
+           "--append-system-prompt-file", str(ingest_system_prompt()),
            "--settings", settings,
            "--output-format", "stream-json", "--verbose"]
     # Doppler injects ANTHROPIC_API_KEY; strip it so claude uses the subscription login, not API billing
@@ -461,6 +489,7 @@ def ingest_to_wiki(source_paths, extra=""):
     clean_env = {k: v for k, v in os.environ.items() if k != "ANTHROPIC_API_KEY"}
     clean_env["REKALL_GUARD_ROOTS"] = roots
     clean_env["REKALL_GUARD_LOG"] = str(LOG_DIR / "guard-denials.log")
+    clean_env["MEMORY_STARTER_CHILD"] = "1"  # this claude -p call is our own child; skip recall hook + session digest for it
     # Stream claude's events into the logfile timestamped and truncated, so after
     # a timeout kill the last line names what the session was doing when it hung.
     proc = subprocess.Popen(cmd, cwd=VAULT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -520,7 +549,13 @@ def main():
         start = now - timedelta(hours=args.hours)
 
     state = load_state()
-    meetings = fetch_meetings(start, now)
+    try:
+        meetings = fetch_meetings(start, now)
+    except urllib.error.HTTPError:
+        raise  # auth/server errors are real failures -- must still fail loudly, not "offline"
+    except (urllib.error.URLError, TimeoutError) as e:
+        log(f"offline, skipping: {type(e).__name__}: {e}")
+        return
     new = [m for m in meetings if m["id"] not in state["meetings"]]
     log(f"{len(meetings)} meetings in window, {len(new)} new")
 

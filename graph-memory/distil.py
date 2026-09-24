@@ -38,11 +38,16 @@ CALL_TIMEOUT = 300  # seconds for one claude -p call
 
 
 def model_name():
-    """The model in digest/config.json, or sonnet when there is no config."""
+    """distil_model from digest/config.json, or haiku when there is no config.
+
+    Its own key, separate from the session digest's "model" (sonnet): a
+    one-question-and-a-quote extraction doesn't need sonnet's cost, and the
+    quote-must-match-word-for-word check in distil_one() guards quality either way.
+    """
     try:
-        return json.loads(CONFIG.read_text(encoding="utf-8")).get("model") or "sonnet"
+        return json.loads(CONFIG.read_text(encoding="utf-8")).get("distil_model") or "haiku"
     except Exception:
-        return "sonnet"
+        return "haiku"
 
 
 def child_env():
@@ -52,8 +57,11 @@ def child_env():
     session. Left in place they tell the child it is nested inside the session
     that started it. MEMORY_STARTER_CHILD goes the other way: it tells our own
     SessionEnd hook that this session is the digest, so it is not digested.
+    ANTHROPIC_API_KEY goes too: a session started under Doppler passes it down, it
+    overrides the subscription login, and the call fails "Invalid API key" (2026-09-24).
     """
-    env = {k: v for k, v in os.environ.items() if not k.startswith("CLAUDE")}
+    env = {k: v for k, v in os.environ.items()
+           if not k.startswith("CLAUDE") and k != "ANTHROPIC_API_KEY"}
     env["MEMORY_STARTER_CHILD"] = "1"
     return env
 
@@ -90,7 +98,7 @@ def ask(model, prompt_text, payload):
             timeout=CALL_TIMEOUT,
         )
     if proc.returncode != 0:
-        raise RuntimeError((proc.stderr or "claude failed").strip()[:200])
+        raise RuntimeError((proc.stderr or "claude failed").strip()[-300:])  # the tail holds the error; the head is warnings
     return proc.stdout
 
 
@@ -122,6 +130,19 @@ def render(rel, entry):
         lines.append(f"rule: {entry['rule']}")
     lines.append(f'quote: "{entry["quote"]}"')
     return "\n".join(lines) + "\n"
+
+
+def record_failure(state, rel, known, digest):
+    """Bump rel's consecutive-failure count, or start it at 1 if the note's
+    hash moved since the last failure. Mirrors fathom-pipeline.py's ingest
+    quarantine: after 2 in a row on the same hash, run() stops calling claude
+    for this note until it changes."""
+    prior = known.get("failures", 0) if known and known.get("sha256") == digest else 0
+    fails = prior + 1
+    state[rel] = {"sha256": digest, "failures": fails}
+    if fails >= 2:
+        print(f"quarantined {rel} after {fails} failures (skipping until it changes)")
+    return fails
 
 
 def distil_one(path, rel, model, prompt_text):
@@ -161,7 +182,11 @@ def run(corpus, paths=None, limit=None, rebuild=True, under=None):
         digest = hashlib.sha256(body).hexdigest()
         known = state.get(rel)
         slug = slug_for(rel)
-        if known and known.get("sha256") == digest and (DISTILLED / slug).is_file():
+        same_hash = bool(known) and known.get("sha256") == digest
+        if same_hash and (DISTILLED / slug).is_file():
+            counts["skipped"] += 1
+            continue
+        if same_hash and known.get("failures", 0) >= 2:
             counts["skipped"] += 1
             continue
         try:
@@ -169,9 +194,12 @@ def run(corpus, paths=None, limit=None, rebuild=True, under=None):
         except Exception as exc:  # one bad note never stops the run
             print(f"dropped {rel}: {type(exc).__name__} {exc}")
             counts["dropped"] += 1
+            # no record_failure here: an exception is usually machine-wide (login,
+            # PATH, outage), and quarantining every note it touched would strand them
             continue
         if text is None:
             counts["dropped"] += 1
+            record_failure(state, rel, known, digest)
             continue
         DISTILLED.mkdir(parents=True, exist_ok=True)
         (DISTILLED / slug).write_text(text, encoding="utf-8")

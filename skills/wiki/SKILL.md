@@ -75,7 +75,7 @@ Runs when the Fathom pipeline finds a new meeting note or `wiki/raw/` file, or w
 ### Workflow
 
 1. **Read the source** via `obsidian read vault="heck-db" path="wiki/raw/{filename}"` (or Read tool for PDFs/images; meeting notes live in `wiki/meetings/`)
-2. **Check for existing pages** via `obsidian search vault="heck-db" query="{concept}"` -- update existing pages rather than creating duplicates
+2. **Check for existing pages** by grepping `wiki/index.md` or `wiki/pages/` for the entity/topic names (or `obsidian search vault="heck-db" query="{concept}"`) -- never Read `wiki/index.md` whole; update existing pages rather than creating duplicates
 3. **Create or update wiki pages** for each major entity, concept, or topic:
    - System pages: named platforms, services, or tools other things run on or call (vendor SaaS, an internal application, a homelab host)
    - Pipeline pages: scheduled or event-driven data flows with a source and a destination
@@ -112,7 +112,7 @@ When the user asks a question about topics covered by the wiki.
 ### Workflow
 
 1. **For cross-cutting questions**, run `obsidian search vault="heck-db" query="{topic}"` (or Grep over `wiki/`) before walking index links -- it catches pages the index's category grouping can miss
-2. **Read `wiki/index.md`** to find relevant pages
+2. **Grep `wiki/index.md`** (or `wiki/pages/`) for the entity/topic names to find relevant pages -- never Read `wiki/index.md` whole
 3. **Read relevant wiki pages** via `obsidian read`
 4. **Synthesize an answer** with citations to both wiki pages and raw sources
 5. **If answer is valuable**, offer: "This answer could be filed as a new wiki page. Want me to save it?"

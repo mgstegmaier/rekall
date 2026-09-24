@@ -19,7 +19,7 @@ https://github.com/mgstegmaier/rekall (fresh single-commit history since 2026-09
   Claude Code runs inside the rekall folder). `docs/obsidian-vault-cli.md` —
   vault CLI reference; read before any vault write. Wiki structure rules: vault `wiki/CLAUDE.md`.
 
-## Current state (2026-09-14)
+## Current state (2026-09-24)
 
 Typed wiki graph shipped 2026-09-12/13 (`be95515`, `755e727`, `3f2ddd5`): relation frontmatter, `system`
 and `pipeline` page types, typed edges, lint checks 11 to 13, a recall walk that skips `mentions` and
@@ -28,10 +28,19 @@ next commit): title/description prefix kept, BGE-base and Haiku chunk contexts m
 kept, `[index] embedding_model` key, numpy scan, eval harness in `graph-memory/eval/`. Plans with every
 number: `docs/plans/2026-09-12-typed-wiki-graph.md`, `docs/plans/2026-09-13-contextual-retrieval.md`.
 
+Cost audit 2026-09-24 (wiki `pages/rekall.md` Updates has every number): schedules unchanged, per-run
+work cut. `distil.py` child env strips `ANTHROPIC_API_KEY` (digests had failed on it); distil on Haiku
+(`distil_model`), digest stays Sonnet. Recall hook: `MEANING_THRESHOLD = 0.68` (BGE-small only),
+`GRAPH_BUDGET`, silent under `MEMORY_STARTER_CHILD`. Ingest: rules via `--append-system-prompt-file`,
+Grep `index.md` never read whole, `--tools` + `--strict-mcp-config`, offline exits 0. `build_index.py`
+reuses vectors by embed-text hash when the stored model matches; Sunday full is seconds, `--full` never
+reuses. Live plists keep `com.heckatron.*` labels; `install.sh` would duplicate them, don't re-run it here.
+
 Open: the eval's prompt set is contaminated by the sessions that built it (84 of 200 recent prompts
 are about rekall itself) and the Haiku judge is uncalibrated; Windows cold test still unverified
 (`docs/plans/2026-09-03-windows-install.md`); existing-vault install designed only; plugin packaging
 parked; `loss-run-roots-project` ownerless by decision.
 
-Next action: a frozen prompt set drawn from sessions outside the rekall repo plus a 50-prompt set
-Michael labels by hand, so the judge can be calibrated before any further retrieval change.
+Next action: read the next real ingest batch's `total_cost_usd` against $1.25 to $3.79. Then a frozen
+prompt set drawn from sessions outside the rekall repo plus a 50-prompt set Michael labels by hand, so
+the judge can be calibrated (and the 0.68 recall cutoff checked) before any further retrieval change.

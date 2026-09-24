@@ -215,13 +215,13 @@ def main():
     digest = []
     for m in ready:
         match = find_fathom_match(m)
+        show_digest = True
         if match:
             note_rel = str(match.relative_to(fp.VAULT))
-            if append_granola_section(match, m):
-                log(f"  appended Granola section to {note_rel}")
-            else:
-                log(f"  Granola section already present: {note_rel}")
-            entry = {"note": note_rel, "merged_into": note_rel, "ingested": False}
+            appended = append_granola_section(match, m)
+            log(f"  {'appended Granola section to' if appended else 'Granola section already present:'} {note_rel}")
+            # already present means an earlier run ingested it; don't pay for a second session
+            entry = {"note": note_rel, "merged_into": note_rel, "ingested": not appended}
             label = " (merged into Fathom note)"
         else:
             note_rel = write_granola_note(m)
@@ -229,11 +229,12 @@ def main():
                 note_rel = f"wiki/meetings/{m['dt'].strftime('%Y-%m-%d')}-{fp.slugify(m['title'])}.md"
                 log(f"  note exists, skipping write: {note_rel}")
                 entry = {"note": note_rel, "merged_into": None, "ingested": True}  # hand-pasted note, already in the wiki
+                show_digest = False
             else:
                 log(f"  wrote {note_rel}")
                 entry = {"note": note_rel, "merged_into": None, "ingested": False}
             label = " (Granola)"
-        if not entry["ingested"]:
+        if show_digest:
             digest.append(fp.digest_entry({**m, "title": m["title"] + label}, note_rel, False))
         state["notes"][m["id"]] = entry
         save_state(state)

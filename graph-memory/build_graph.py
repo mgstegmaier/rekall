@@ -136,8 +136,12 @@ def resolve_slug(by_slug, by_name, aliases, value):
 def relation_edges(rows, by_slug, by_name, aliases, ident_by_rel):
     """(source_id, target_id, predicate, source_doc) edges from the owner/people/
     depends_on/attendees frontmatter fields. Unresolved targets are skipped and
-    logged to stderr (lint already flags them)."""
+    summarized to stderr as one line (lint already flags them individually)."""
     edges = set()
+    # ponytail: same handful of typo'd names recur across hundreds of meeting notes
+    # every hourly run (was one stderr line per miss, 48k lines/log); collect and
+    # print a single summary line instead of reprinting the whole set each run.
+    unresolved = []
     for rel, _, kind, _, _, relations in rows:
         src = ident_by_rel[rel]
         owner = relations.get("owner")
@@ -146,34 +150,42 @@ def relation_edges(rows, by_slug, by_name, aliases, ident_by_rel):
             if tid:
                 edges.add((tid, src, "owns", rel))
             else:
-                print(f"unresolved owner '{owner[0]}' in {rel}", file=sys.stderr)
+                unresolved.append(("owner", owner[0], rel))
         for field, pred in (("people", "member_of"), ("maintainers", "maintains")):
             for person in relations.get(field, []):
                 tid = resolve_slug(by_slug, by_name, aliases, person)
                 if tid:
                     edges.add((tid, src, pred, rel))
                 else:
-                    print(f"unresolved {field} '{person}' in {rel}", file=sys.stderr)
+                    unresolved.append((field, person, rel))
         for dep in relations.get("depends_on", []):
             tid = resolve_slug(by_slug, by_name, aliases, dep)
             if tid:
                 edges.add((src, tid, "depends_on", rel))
             else:
-                print(f"unresolved depends_on '{dep}' in {rel}", file=sys.stderr)
+                unresolved.append(("depends_on", dep, rel))
         for field in ("about", "part_of", "runs_on", "reads_from", "writes_to"):
             for target in relations.get(field, []):
                 tid = resolve_slug(by_slug, by_name, aliases, target)
                 if tid:
                     edges.add((src, tid, field, rel))
                 else:
-                    print(f"unresolved {field} '{target}' in {rel}", file=sys.stderr)
+                    unresolved.append((field, target, rel))
         if kind == "meeting":
             for att in relations.get("attendees", []):
                 tid = resolve_slug(by_slug, by_name, aliases, att)
                 if tid:
                     edges.add((tid, src, "attended", rel))
                 else:
-                    print(f"unresolved attendees '{att}' in {rel}", file=sys.stderr)
+                    unresolved.append(("attendees", att, rel))
+    if unresolved:
+        names = sorted({value for _, value, _ in unresolved})
+        preview = ", ".join(names[:5])
+        more = f", +{len(names) - 5} more" if len(names) > 5 else ""
+        print(
+            f"unresolved relation targets: {len(unresolved)} across {len(names)} distinct names: {preview}{more}",
+            file=sys.stderr,
+        )
     return edges
 
 

@@ -1,5 +1,12 @@
 #!/bin/bash
 # Rebuild the wiki RAG index + graph. Safe to run any time; both are disposable.
+# ponytail: launchd appends to this script's own stdout/stderr log forever with no
+# logrotate on the box; truncate in place (same inode, so launchd's open fd keeps
+# writing to the right file) once it passes ~1MB. Path matches launchd/com.rekall.wiki-reindex.plist.
+LOG="$HOME/.config/rekall/logs/wiki-reindex.log"
+if [ -f "$LOG" ] && [ "$(wc -c < "$LOG")" -gt 1000000 ]; then
+    tail -n 2000 "$LOG" > "$LOG.tmp" && cat "$LOG.tmp" > "$LOG" && rm -f "$LOG.tmp"
+fi
 HERE="$(cd "$(dirname "$0")" && pwd)"
 PY="$HERE/.venv/bin/python"
 [ -x "$PY" ] || PY="$HERE/.venv/Scripts/python.exe"   # Windows venv layout

@@ -58,7 +58,10 @@ def embedding_model():
         return TextEmbedding(model_name=EMBEDDING_MODEL)  # first run downloads
 
 
-def meaning_leg(db, query):
+def meaning_leg(db, query, scores=None):
+    """Top rowids by cosine similarity. When `scores` is a dict, it's filled
+    with {rowid: cosine} for the returned ids so a caller can threshold on
+    the raw similarity instead of just the rank (recall_hook does)."""
     try:
         from fastembed import TextEmbedding  # noqa: F401 — availability check
     except ImportError:
@@ -77,7 +80,10 @@ def meaning_leg(db, query):
     ids = [rowid for rowid, _ in rows]
     # stored vectors are already unit-normalized by build_index
     matrix = np.vstack([np.frombuffer(blob, dtype=np.float32) for _, blob in rows])
-    top = np.argsort(-(matrix @ q))[:10]
+    sims = matrix @ q
+    top = np.argsort(-sims)[:10]
+    if scores is not None:
+        scores.update({ids[i]: float(sims[i]) for i in top})
     return [ids[i] for i in top]
 
 

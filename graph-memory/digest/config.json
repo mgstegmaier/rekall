@@ -4,6 +4,7 @@
   "max_turns": 30,
   "max_chars": 15000,
   "model": "sonnet",
+  "distil_model": "haiku",
   "log_dir": "sessions",
   "distil": false
 }

@@ -24,7 +24,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
-from paths import ARCHIVE, DB, DISTILLED_DIR  # noqa: E402
+from paths import ARCHIVE, DB, DISTILLED_DIR, EMBEDDING_MODEL  # noqa: E402
 CHUNK_BUDGET = 1600  # characters, roughly 400 tokens
 SKIP_DIRS = {".git", "node_modules", "__pycache__", ARCHIVE.name}  # files the owner took out of the wiki
 
@@ -53,8 +53,10 @@ CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 def note_files(corpus):
     """Every markdown file under the corpus, subfolders included.
 
-    Skipped: hidden files and folders, .git, node_modules, __pycache__, and
-    this starter's own folder when it has been cloned inside the notes.
+    Skipped: hidden files and folders, .git, node_modules, __pycache__, this
+    starter's own folder when it has been cloned inside the notes, and a
+    root-level index.md (wiki-index.py's generated page listing — it just
+    duplicates every page's own description row).
     """
     root = Path(corpus).resolve()
     starter = HERE.parent.resolve()
@@ -65,6 +67,8 @@ def note_files(corpus):
     out = []
     for path in sorted(root.rglob("*.md")):
         rel = path.relative_to(root)
+        if rel.parts == ("index.md",):
+            continue
         if any(part.startswith(".") or part in SKIP_DIRS for part in rel.parts):
             continue
         if skip_starter and (starter == path.parent or starter in path.parents):
@@ -177,30 +181,8 @@ def file_hash(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()[:16]
 
 
-NO_PREFIX = False   # eval knobs, set by --no-prefix / --no-context: build the index the
-NO_CONTEXT = False  # way it was before an option so the eval can compare configurations
-
-
-def load_contexts(db):
-    """(file, section, text_hash) -> context sentence, from contextualize.py's table.
-    Empty when the contextualizer has never run: the index never waits on a model."""
-    if NO_CONTEXT:
-        return {}
-    try:
-        return {(f, sec, h): c for f, sec, h, c in
-                db.execute("SELECT file, section, text_hash, context FROM contexts")}
-    except sqlite3.OperationalError:
-        return {}
-
-
-def with_context(embed_text, row, contexts):
-    """Swap the deterministic title/description prefix for the model-written context
-    when one exists for this exact chunk text (docs/plans/2026-09-13-contextual-retrieval.md)."""
-    rel, section, _, _, text, kind = row
-    if kind != "chunk":
-        return embed_text
-    ctx = contexts.get((rel, section, hashlib.sha256(text.encode("utf-8")).hexdigest()))
-    return f"[{rel} § {section}]\n{ctx}\n{text}" if ctx else embed_text
+NO_PREFIX = False  # eval knob, set by --no-prefix: build the index the way it
+                   # was before the title/description prefix, so the eval can compare
 
 
 def file_docs(rel, path):
@@ -239,13 +221,32 @@ def distilled_doc(path, corpus):
     return label + "\n" + body, row, entry["source"]
 
 
+def _purge_where(key, src):
+    if key.startswith("distilled/"):
+        return "c.file = ? AND c.kind = 'distilled'", (src,)
+    return "c.file = ? AND c.kind != 'distilled'", (key,)
+
+
+def old_vectors(db, key, src):
+    """embed-text sha256 -> its already-normalized vector blob, for a key's
+    current rows, read just before purge() deletes them. A changed file's
+    chunk whose embed text didn't move (heading reordered elsewhere, a
+    sibling section edited) reuses its vector instead of paying for a
+    re-embed (chunks_fts.text holds the embed text, not the stored excerpt)."""
+    where, params = _purge_where(key, src)
+    rows = db.execute(
+        f"SELECT cf.text, v.vec FROM chunks c "
+        f"JOIN chunks_fts cf ON cf.rowid = c.id "
+        f"JOIN vectors v ON v.id = c.id WHERE {where}",
+        params,
+    ).fetchall()
+    return {hashlib.sha256(text.encode("utf-8")).hexdigest(): vec for text, vec in rows}
+
+
 def purge(db, key, src):
     """Remove one tracked file's rows from chunks, fts, vectors, and files."""
-    if key.startswith("distilled/"):
-        where, params = "file = ? AND kind = 'distilled'", (src,)
-    else:
-        where, params = "file = ? AND kind != 'distilled'", (key,)
-    ids = [(r[0],) for r in db.execute(f"SELECT id FROM chunks WHERE {where}", params)]
+    where, params = _purge_where(key, src)
+    ids = [(r[0],) for r in db.execute(f"SELECT c.id FROM chunks c WHERE {where}", params)]
     db.executemany("DELETE FROM chunks WHERE id = ?", ids)
     db.executemany("DELETE FROM chunks_fts WHERE rowid = ?", ids)
     db.executemany("DELETE FROM vectors WHERE id = ?", ids)
@@ -261,10 +262,9 @@ def main():
     ap.add_argument("--full", action="store_true",
                     help="drop and rebuild everything; required after an embedding-model change")
     ap.add_argument("--no-prefix", action="store_true", help="eval: skip the title/description prefix")
-    ap.add_argument("--no-context", action="store_true", help="eval: ignore the contexts table")
     args = ap.parse_args()
-    global NO_PREFIX, NO_CONTEXT
-    NO_PREFIX, NO_CONTEXT = args.no_prefix, args.no_context
+    global NO_PREFIX
+    NO_PREFIX = args.no_prefix
     corpus = Path(args.corpus)
 
     db = sqlite3.connect(DB)
@@ -276,6 +276,14 @@ def main():
     # incremental needs a DB built with the files table and a matching corpus;
     # anything else (first run, pre-upgrade DB, corpus moved) forces a full build
     full = args.full
+    weekly_cache = {}
+    # vectors are only reusable when they came from the configured model; after a
+    # model change nothing is reused, so even a skipped --full self-heals on Sunday
+    try:
+        stored_model = db.execute("SELECT value FROM meta WHERE key='model'").fetchone()
+    except sqlite3.OperationalError:  # first run: no meta table yet
+        stored_model = None
+    reuse = bool(stored_model) and stored_model[0] == EMBEDDING_MODEL
     if not full:
         has_files = db.execute("SELECT name FROM sqlite_master WHERE name='files'").fetchone()
         stored = db.execute("SELECT value FROM meta WHERE key='corpus'").fetchone() if has_files else None
@@ -287,6 +295,15 @@ def main():
         today = date.today()
         last_full = db.execute("SELECT value FROM meta WHERE key='last_full'").fetchone()
         full = today.isoweekday() == 7 and (not last_full or last_full[0] != today.isoformat())
+        if full and reuse:
+            # the weekly full re-chunks and re-grounds everything but reuses every
+            # vector whose embed text is unchanged (24 min -> seconds, 2026-09-24).
+            # An explicit --full never reuses: that is the model-change path.
+            weekly_cache = {
+                hashlib.sha256(text.encode("utf-8")).hexdigest(): vec
+                for text, vec in db.execute(
+                    "SELECT cf.text, v.vec FROM chunks_fts cf JOIN vectors v ON v.id = cf.rowid")
+            }
     if full:
         db.executescript(SCHEMA)
         db.execute("INSERT INTO meta VALUES ('corpus', ?)", (str(corpus.resolve()),))
@@ -316,13 +333,16 @@ def main():
         purge(db, key, tracked[key][1])
 
     # new or changed: (re)chunk, (re)embed
-    contexts = load_contexts(db)
+    vector_cache = weekly_cache  # embed-text sha256 -> vector blob, salvaged before rows are purged
     docs, dropped, changed = [], 0, 0  # docs: (embed_text, row, files_row)
     for key, path, digest in on_disk:
         if key in tracked and tracked[key][0] == digest:
             continue
         changed += 1
-        purge(db, key, tracked.get(key, (None, None))[1])
+        src = tracked.get(key, (None, None))[1]
+        if not full and reuse:  # a full rebuild just dropped the tables; nothing to salvage
+            vector_cache.update(old_vectors(db, key, src))
+        purge(db, key, src)
         if key.startswith("distilled/"):
             # ponytail: a source edit can silently unground an already-indexed
             # quote; the weekly --full recheck catches that drift
@@ -337,7 +357,7 @@ def main():
         else:
             fdocs = file_docs(key, path)
             for embed_text, row in fdocs:
-                docs.append((with_context(embed_text, row, contexts), row, (key, digest, None)))
+                docs.append((embed_text, row, (key, digest, None)))
             if not fdocs:  # e.g. an empty note still gets tracked so it doesn't rescan
                 db.execute("INSERT OR REPLACE INTO files VALUES (?,?,?)", (key, digest, None))
 
@@ -364,13 +384,26 @@ def main():
             from search import embedding_model
 
             model = embedding_model()
-            vecs = list(model.embed([t for t, _, _ in docs]))
-            for rowid, vec in zip(ids, vecs):
-                norm = sum(x * x for x in vec) ** 0.5 or 1.0
-                blob = struct.pack(f"{len(vec)}f", *(x / norm for x in vec))
-                db.execute("INSERT INTO vectors (id, vec) VALUES (?,?)", (rowid, blob))
+            to_embed_ids, to_embed_texts, reused, dim = [], [], 0, None
+            for rowid, (embed_text, _row, _files_row) in zip(ids, docs):
+                cached = vector_cache.get(hashlib.sha256(embed_text.encode("utf-8")).hexdigest())
+                if cached is not None:
+                    db.execute("INSERT INTO vectors (id, vec) VALUES (?,?)", (rowid, cached))
+                    reused += 1
+                    dim = dim or len(cached) // 4  # 4 bytes per packed float
+                else:
+                    to_embed_ids.append(rowid)
+                    to_embed_texts.append(embed_text)
+            if to_embed_texts:
+                vecs = list(model.embed(to_embed_texts))
+                dim = dim or len(vecs[0])
+                for rowid, vec in zip(to_embed_ids, vecs):
+                    norm = sum(x * x for x in vec) ** 0.5 or 1.0
+                    blob = struct.pack(f"{len(vec)}f", *(x / norm for x in vec))
+                    db.execute("INSERT INTO vectors (id, vec) VALUES (?,?)", (rowid, blob))
             db.execute("INSERT OR REPLACE INTO meta VALUES ('model', ?)", (model.model_name,))
-            model_line = f"model {model.model_name} ({len(vecs[0])}d) + keyword sqlite fts5"
+            model_line = (f"model {model.model_name} ({dim}d) + keyword sqlite fts5 — "
+                          f"{len(to_embed_texts)} embedded, {reused} reused")
         except ImportError:
             pass
 

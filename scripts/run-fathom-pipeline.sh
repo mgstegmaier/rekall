@@ -2,6 +2,12 @@
 # Trigger for the Fathom pipeline — used by launchd (hourly, 7am-7pm) and manually (/fathom-sync).
 # Secrets come from .env at the repo root when it has them, otherwise from Doppler.
 # Plan: docs/plans/2026-08-21-wiki-revival-fathom-pipeline.md (Phase 4).
+# ponytail: same no-logrotate problem as graph-memory/reindex.sh, hourly job, 13x/weekday.
+# Truncate in place (same inode) so launchd's open log fd keeps writing correctly.
+LOG="$HOME/.config/rekall/logs/launchd.log"
+if [ -f "$LOG" ] && [ "$(wc -c < "$LOG")" -gt 1000000 ]; then
+    tail -n 2000 "$LOG" > "$LOG.tmp" && cat "$LOG.tmp" > "$LOG" && rm -f "$LOG.tmp"
+fi
 export PATH="/opt/homebrew/bin:/usr/local/bin:/Library/Frameworks/Python.framework/Versions/3.13/bin:$HOME/.local/bin:$PATH"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PYTHON="${PYTHON:-$(command -v python3 || command -v python)}"
