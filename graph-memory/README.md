@@ -19,6 +19,28 @@ Vendored from [Glitch-Cat-Club/graph-memory-starter](https://github.com/Glitch-C
 
 `digest/session_end.py` runs on the `SessionEnd` hook: it filters the transcript down to your words and the replies (tool calls, results, and thinking dropped), stages it under `digest/pending/`, and spawns a detached `claude -p` (sonnet) that writes a structured digest (`digest/digest-prompt.md` is the voice) into the vault at `wiki/sessions/YYYY-MM-DD.md`. Sessions under 5 turns are skipped. Failures never block a session close; they land in `digest/log/digest.log` and the staged file stays for retry. The reindex sweeps `wiki/sessions/` with the rest of the corpus, so past sessions become searchable memory. This complements `/wrap-up`, which stays the deliberate close-out.
 
+## MCP server (Claude Desktop)
+
+`mcp_server.py` is a read-only stdio MCP server for clients with no `UserPromptSubmit` hook (Claude Desktop chat). It wraps the recall hook's search and adds no search logic of its own. Two tools:
+
+- `search_wiki(query)`: up to 5 chunks labeled `[file § section]` with full text, plus graph facts as `subject -[predicate]-> object (doc)`.
+- `read_page(name)`: one full note by file name (no `.md`) from anywhere in the vault (wiki pages, `guide/` docs, `today.md`), skipping dot-folders; a candidate list if the name is ambiguous. Path separators and `..` are rejected.
+
+`install.sh` installs `mcp<2` into the venv and writes the `rekall` entry into Claude Desktop's `claude_desktop_config.json` (`~/Library/Application Support/Claude/` on macOS, `%APPDATA%\Claude\` on Windows). It skips that step when Claude Desktop isn't installed, and `install.sh --uninstall` removes the entry. Restart Claude Desktop after either. The entry it writes:
+
+```json
+{
+  "mcpServers": {
+    "rekall": {
+      "command": "/path/to/rekall/graph-memory/.venv/bin/python",
+      "args": ["/path/to/rekall/graph-memory/mcp_server.py"]
+    }
+  }
+}
+```
+
+To check it, run `python3 graph-memory/test_mcp_server.py`, which calls both tools against the live index. In Claude Desktop, the server shows under Settings > Developer; if it reports a failure there, the log is `~/Library/Logs/Claude/mcp-server-rekall.log`.
+
 ## Operations
 
 | Task | Command |

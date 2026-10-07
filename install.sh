@@ -84,6 +84,33 @@ open(path, "a").write("\n")
 EOF
 }
 
+# Registers (or removes) the rekall MCP server in Claude Desktop's config, which has no
+# UserPromptSubmit hook, so chat there reaches the wiki through graph-memory/mcp_server.py.
+# Skipped when Claude Desktop isn't installed. Removal only touches an entry pointing at this repo.
+desktop() {  # $1 = add | remove
+  local cfg_dir py srv
+  if [ -n "$WIN" ]; then
+    cfg_dir="$(cygpath -u "${APPDATA:-}")/Claude"; py="$(cygpath -m "$PY")"; srv="$(cygpath -m "$REPO")/graph-memory/mcp_server.py"
+  else
+    cfg_dir="$HOME/Library/Application Support/Claude"; py="$PY"; srv="$REPO/graph-memory/mcp_server.py"
+  fi
+  [ -d "$cfg_dir" ] || { [ "$1" = add ] && echo "Claude Desktop not found ($cfg_dir); skipped MCP registration."; return 0; }
+  "$PY3" - "$1" "$cfg_dir/claude_desktop_config.json" "$py" "$srv" <<'EOF'
+import json, os, sys
+mode, path, py, srv = sys.argv[1:]
+c = json.load(open(path)) if os.path.exists(path) else {}
+servers = c.setdefault("mcpServers", {})
+if mode == "add":
+    servers["rekall"] = {"command": py, "args": [srv]}
+elif servers.get("rekall", {}).get("args") == [srv]:
+    del servers["rekall"]
+if not servers:
+    del c["mcpServers"]
+json.dump(c, open(path, "w"), indent=2)
+open(path, "a").write("\n")
+EOF
+}
+
 # Copies a skill dir or command file to a temp path with __REPO__ filled in; prints the path.
 render() {
   local out; out="$(mktemp -d)/$(basename "$1")"
@@ -108,12 +135,13 @@ uninstall() {
     done
   fi
   settings remove
+  desktop remove
   # only remove skills/commands that still match what this repo installs; an edited copy stays
   for src in "$REPO"/skills/* "$REPO"/commands/*; do
     dst="$HOME/.claude/${src#"$REPO"/}"
     [ -e "$dst" ] && diff -rq "$(render "$src")" "$dst" >/dev/null && rm -r "$dst"
   done
-  echo "Rekall uninstalled: schedules, hooks, skills and commands removed."
+  echo "Rekall uninstalled: schedules, hooks, skills, commands and the Claude Desktop MCP entry removed."
   echo "Kept: $REPO (with .venv and .env) and your wiki."
   exit 0
 }
@@ -128,6 +156,7 @@ chmod 600 "$REPO/.env" 2>/dev/null || true   # no-op on Windows, where the profi
 # 3. venv, fastembed, embedding model
 [ -x "$PY" ] || "$PY3" -m venv "$VENV"
 "$PY" -c 'import fastembed' 2>/dev/null || "$PY" -m pip install -q fastembed
+"$PY" -c 'import mcp' 2>/dev/null || "$PY" -m pip install -q "mcp<2"   # graph-memory/mcp_server.py (v2 renamed FastMCP)
 # Windows ships no timezone database, so zoneinfo raises without tzdata in the venv
 [ -z "$WIN" ] || "$PY" -c 'import tzdata' 2>/dev/null || "$PY" -m pip install -q tzdata
 MODEL_DIR="$("$PY" "$REPO/rekall_config.py" DATA)/model"
@@ -144,7 +173,10 @@ for src in "$REPO"/skills/* "$REPO"/commands/*; do
   cp -R "$(render "$src")" "$dst"
 done
 
-# 6. schedules
+# 6. MCP server for Claude Desktop
+desktop add
+
+# 7. schedules
 mkdir -p "$LOGS"
 if [ -n "$WIN" ]; then
   # Forward-slash Windows paths throughout: sed treats a backslash in the replacement
@@ -181,6 +213,7 @@ fi
 echo "Installed. python: $PY3 | venv: $VENV | model: $MODEL_DIR"
 echo "Hooks and permission rules merged into $SETTINGS"
 echo "Skills in ~/.claude/skills, commands in ~/.claude/commands, logs in $LOGS"
+echo "MCP server 'rekall' registered for Claude Desktop (if installed); restart Claude Desktop to load it"
 echo "Schedules loaded:"
 if [ -n "$WIN" ]; then
   for l in $LABELS; do schtasks /Query /TN "$l" /FO LIST 2>/dev/null | grep -i "TaskName\|Next Run" || echo "  $l: not registered"; done

@@ -50,7 +50,8 @@ fails. Never skip a failed step and never overwrite a file that already exists.
 5. Install: run `bash install.sh` in the rekall folder and show me its output. It checks
    for python 3.11 or newer, builds graph-memory/.venv, downloads the embedding model,
    merges the hooks into ~/.claude/settings.json, copies the skills and commands into
-   ~/.claude/, and loads the three com.rekall.* schedules (launchd agents on macOS, Task
+   ~/.claude/, registers the rekall MCP server in Claude Desktop's config if Claude Desktop
+   is installed, and loads the three com.rekall.* schedules (launchd agents on macOS, Task
    Scheduler tasks on Windows; on Windows it also adds tzdata to the venv, because Windows
    ships no timezone database). Claude Code will ask me to approve this command; that is
    expected, tell me to approve it. If the script stops on python, tell me how to install
@@ -74,8 +75,9 @@ fails. Never skip a failed step and never overwrite a file that already exists.
     `bash install.sh --uninstall` turns all of it off.
 ```
 
-Then type `/exit` and open Claude Code again so the hooks load. Everything that writes outside
-the rekall folder (hooks, skills, schedules, permission rules) goes through `install.sh`. It is
+Then type `/exit` and open Claude Code again so the hooks load. If you use Claude Desktop, quit
+and reopen it too, so it starts the rekall MCP server. Everything that writes outside
+the rekall folder (hooks, skills, schedules, permission rules, the Claude Desktop MCP entry) goes through `install.sh`. It is
 safe to re-run after a `git pull`, and `bash install.sh --uninstall` removes exactly what it
 added. From here on, meetings land
 in your wiki within the hour, anything you save into `wiki/raw/` gets compiled on the next

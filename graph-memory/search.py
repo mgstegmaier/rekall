@@ -4,6 +4,7 @@ Usage: python search.py "your question"
 Prints the top hits with the lines around them, and which leg found each.
 """
 
+import functools
 import re
 import sqlite3
 import sys
@@ -45,6 +46,7 @@ def keyword_leg(db, query):
     return [r[0] for r in rows]
 
 
+@functools.lru_cache(maxsize=1)  # the MCP server is long-lived; the hook is one process per prompt
 def embedding_model():
     """The configured model: the pinned local dir when it's BGE-small (the
     only model fetch_model.sh pins), else fastembed downloads/caches it by name."""

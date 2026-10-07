@@ -23,6 +23,7 @@ Then open the `rekall` folder in Claude Code and paste the setup message from `S
 - **Wiki** - a headless Claude call compiles those sources into interlinked pages (people, projects, entities, concepts), every claim cited, in Karpathy's LLM Wiki pattern
 - **Index** - a local SQLite index over the wiki: keyword search, embeddings from a 67 MB model on your CPU, and an entity graph built from the wikilinks
 - **Recall** - a hook that runs before every Claude Code prompt and hands Claude the five best hits, so it answers from your notes without being asked to look
+- **MCP server** - Claude Desktop chat has no prompt hook, so `install.sh` registers a read-only MCP server there with two tools, `search_wiki` and `read_page`, over the same index
 
 ## What it is not
 
