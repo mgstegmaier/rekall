@@ -9,6 +9,7 @@ and it prints nothing and exits 0.
 
 import json
 import os
+import re
 import sqlite3
 import sys
 from pathlib import Path
@@ -23,6 +24,14 @@ PER_HIT = 280  # characters of chunk text per hit
 READ_TIMEOUT = 0.25  # seconds; a prompt must never wait on the indexer
 WORD_SNAP = 40  # how far the window may slide to avoid cutting a word
 GRAPH_BUDGET = 600  # characters of graph-triples context in total
+# Canned messages the open-asks pane buttons send (~/.claude/mods/open-asks, SEND table).
+# They answer an ask Claude already has in context, so recall adds nothing but ~0.4 s.
+BUTTON_PROMPT = re.compile(
+    r'^(Approved: |Denied: |Done: |Not doing this, plan around it: |Checked, looks good: '
+    r'|Approved with changes\. Instead of "|For ".*", I pick: |Answer to ".*": '
+    r'|Checked ".*", found issues: |About ".*": )',
+    re.S,
+)
 
 # ponytail: cosine floor on the meaning leg (BGE-small, unit-normalized vectors).
 # Calibrated 2026-09-24 against 15 real prompts named from vault page titles
@@ -157,7 +166,7 @@ def main():
         prompt = json.load(sys.stdin).get("prompt", "")
     except Exception:
         return
-    if not isinstance(prompt, str) or not prompt.strip() or not DB.is_file():
+    if not isinstance(prompt, str) or not prompt.strip() or BUTTON_PROMPT.match(prompt) or not DB.is_file():
         return
     try:
         kept = block(hits(prompt), prompt)

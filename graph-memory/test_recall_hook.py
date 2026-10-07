@@ -156,4 +156,11 @@ try:
 finally:
     del os.environ["MEMORY_STARTER_CHILD"]
 
+# open-asks button prompts skip recall; ordinary prompts that merely start alike don't
+for button in ["Approved: Delete the branch?", 'For "Which board?", I pick: Platform', "Not doing this, plan around it: Run setup.py",
+               'Approved with changes. Instead of "X", do this: Y', 'Answer to "What id?": 42']:
+    assert recall_hook.BUTTON_PROMPT.match(button), button
+for ordinary in ["Approved budget for the DV2 refactor?", "For the EDP pipeline, what broke?", "Done with snowflake, now dbt"]:
+    assert not recall_hook.BUTTON_PROMPT.match(ordinary), ordinary
+
 print("ok")
