@@ -48,8 +48,8 @@ def search_wiki(query: str) -> str:
 def read_page(name: str) -> str:
     """Read one full note from the user's vault by its file name, without .md.
 
-    Covers wiki pages, guide docs (e.g. "doc-extraction-guide"), and the daily
-    files at the vault root ("today", "today-edp", "week"). Call this after
+    Covers every note in the vault, wiki pages and files outside wiki/ alike
+    (e.g. "index", "log"). Call this after
     search_wiki when a hit's label names a page you need in full. If the name
     is ambiguous, returns the candidate paths; call again with the exact name.
     """
