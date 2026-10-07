@@ -76,7 +76,8 @@ fails. Never skip a failed step and never overwrite a file that already exists.
 ```
 
 Then type `/exit` and open Claude Code again so the hooks load. If you use Claude Desktop, quit
-and reopen it too, so it starts the rekall MCP server. Everything that writes outside
+and reopen it too, so it starts the rekall MCP server; "Use your wiki from Claude Desktop chat" in
+`README.md` covers checking it and getting chat to use it. Everything that writes outside
 the rekall folder (hooks, skills, schedules, permission rules, the Claude Desktop MCP entry) goes through `install.sh`. It is
 safe to re-run after a `git pull`, and `bash install.sh --uninstall` removes exactly what it
 added. From here on, meetings land
