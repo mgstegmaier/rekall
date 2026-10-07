@@ -24,7 +24,7 @@ PER_HIT = 280  # characters of chunk text per hit
 READ_TIMEOUT = 0.25  # seconds; a prompt must never wait on the indexer
 WORD_SNAP = 40  # how far the window may slide to avoid cutting a word
 GRAPH_BUDGET = 600  # characters of graph-triples context in total
-# Canned messages the open-asks pane buttons send (~/.claude/mods/open-asks, SEND table).
+# Canned messages the open-asks pane buttons send (UCG.Claude.Plugins plugins/open-asks/hooks/register.tsx, SEND table).
 # They answer an ask Claude already has in context, so recall adds nothing but ~0.4 s.
 BUTTON_PROMPT = re.compile(
     r'^(Approved: |Denied: |Done: |Not doing this, plan around it: |Checked, looks good: '
