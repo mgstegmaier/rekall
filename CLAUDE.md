@@ -19,13 +19,13 @@ https://github.com/mgstegmaier/rekall (fresh single-commit history since 2026-09
   Claude Code runs inside the rekall folder). `docs/obsidian-vault-cli.md` —
   vault CLI reference; read before any vault write. Wiki structure rules: vault `wiki/CLAUDE.md`.
 
-## Current state (2026-09-24)
+## Current state (2026-10-07)
 
-Shipped: typed wiki graph (2026-09-12/13) and contextual retrieval measured flat (2026-09-14), plans in
-`docs/plans/`. Cost audit 2026-09-24 (`7190513`, `eda6799`; every number on wiki `pages/rekall.md`):
-digest auth fix, recall cutoff `MEANING_THRESHOLD = 0.68` (BGE-small only), ingest rules as cached system
-prompt with no Bash (path guard covers every tool), vector reuse in `build_index.py`, distil on Haiku.
+Shipped: MCP server for Claude Desktop chat (`graph-memory/mcp_server.py`, `search_wiki` and `read_page`),
+registered by `install.sh` step 6 (`7f55d1b`, `4e4d84f`, `0dea1ca`). README section "Use your wiki from
+Claude Desktop chat" merged in PR #7. Cost audit 2026-09-24 numbers live on wiki `pages/rekall.md`.
 Live plists keep `com.heckatron.*` labels; `install.sh` would duplicate them, so don't re-run it here.
+Changes go through a PR; never merge into `main` locally.
 
 Open: eval prompt set contaminated and Haiku judge uncalibrated (recheck 0.68 with
 `~/.config/rekall/eval/recall-threshold-calibrate.py`); Windows cold test unverified; existing-vault
