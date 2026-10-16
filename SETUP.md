@@ -84,6 +84,59 @@ added. From here on, meetings land
 in your wiki within the hour, anything you save into `wiki/raw/` gets compiled on the next
 run, and every session you close is written up and indexed by morning.
 
+## Optional: mail and Teams chats into project pages
+
+`scripts/graph-ingest.py` reads your Outlook mail and the Teams chats you pick, through Microsoft
+Graph, and adds new facts and decisions to the matching wiki project pages. It's off until you turn
+it on, and an install that never turns it on behaves exactly as before. It only reads: it never
+sends mail, posts to Teams, or changes anything in your mailbox.
+
+How a message reaches a page:
+
+- An email thread matches a project page when its subject names the project: the page's file name,
+  `title`, an entry in `aliases`, or its `monday_label`. "RE: SignalsAI V2 rollout" matches
+  `signals-ai.md`. A chat matches on its topic and the text of its new messages.
+- A term that two pages share, like a Monday label used by several projects, matches neither.
+- A thread that matches no page is dropped. Its body is never fetched and nothing about it is kept.
+- For a matched thread, one Haiku call through `claude -p` picks out only facts the page doesn't
+  already have. Each lands as one bullet in a dated entry at the top of the page's `## Updates`,
+  citing the email subject or chat name, the sender, and the date. Full messages never reach the
+  vault. Each run adds one line to `wiki/log.md`.
+- A thread read again on the next run adds nothing. Token use per call goes to
+  `~/.config/rekall/logs/graph-usage.jsonl`.
+
+You need a Microsoft Entra app registration with the delegated permissions `User.Read`,
+`Mail.Read`, `Chat.Read`, `Chat.ReadBasic` and `offline_access`, a client secret, and
+`http://localhost:8086` as a "Mobile and desktop applications" redirect URI. Your IT team may have
+to create it.
+
+1. In `.env`, set `MSGRAPH_CLIENT_ID`, `MSGRAPH_CLIENT_SECRET` and `MSGRAPH_TENANT_ID` from the app
+   registration.
+2. Run `python3 scripts/setup-server.py` in the rekall folder and open http://localhost:8086. If
+   your secrets live in Doppler instead of `.env`, run it under `doppler run --` so the page can
+   see them.
+3. On the setup page, check that every secret shows "present". Click **Sign in with Microsoft**.
+   When you come back, the page shows who you're signed in as, and `MSGRAPH_REFRESH_TOKEN` is in
+   `.env`. If sign-in fails with `AADSTS50011`, the redirect URI on the app doesn't match
+   `http://localhost:8086` exactly.
+4. Click **Load my chats** and tick the chats to include. Nothing is read from a chat you don't
+   tick.
+5. Tick **Turn on the Graph ingest** and click **Save to rekall.toml**. Only the `[graph]` section
+   of `rekall.toml` changes. Stop the server with Ctrl-C.
+6. Run a dry run, which prints what it would write for the last 24 hours and writes nothing:
+
+   ```bash
+   bash scripts/run-graph-ingest.sh --dry-run --hours 24
+   ```
+
+7. When the dry run looks right, run it once without `--dry-run`, and read the new entries on the
+   pages it names.
+8. To run it every weekday hour from 07:45 to 17:45, run `bash install.sh --with-graph` (macOS
+   only). `bash install.sh --uninstall` removes it with everything else.
+
+The refresh token expires after 90 days without use. When it does, the job sends a notification
+naming `AADSTS700082`; sign in again from the setup page.
+
 ## Corporate CA note
 
 On a company laptop whose security proxy re-signs HTTPS, Python's `urllib` rejects Fathom's

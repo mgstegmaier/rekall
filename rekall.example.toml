@@ -30,3 +30,12 @@ embedding_model = "BAAI/bge-small-en-v1.5"
 # Optional. Only used when MONDAY_API_TOKEN is set in .env.
 board = 0
 group = "Auto-Capture"
+
+[graph]
+# Optional. Reads your mail and the Teams chats you pick, and writes new project facts and
+# decisions into matching wiki project pages. Off unless enabled = true and the MSGRAPH_*
+# secrets are in .env. scripts/setup-server.py signs you in and writes this section for you.
+enabled = false
+mail_folders = ["inbox", "sentitems"]
+# Only these chats are read. Pick them on the setup page.
+chats = []
