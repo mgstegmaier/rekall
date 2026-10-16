@@ -64,13 +64,11 @@ def h(s):
 
 def graph_token():
     """Access token from the refresh token. Raises urllib.error.HTTPError on refusal."""
-    body = urlencode({
-        "client_id": fp.env("MSGRAPH_CLIENT_ID"),
-        "client_secret": fp.env("MSGRAPH_CLIENT_SECRET"),
-        "refresh_token": fp.env("MSGRAPH_REFRESH_TOKEN"),
-        "grant_type": "refresh_token",
-        "scope": SCOPE,
-    }).encode()
+    form = {"client_id": fp.env("MSGRAPH_CLIENT_ID"), "refresh_token": fp.env("MSGRAPH_REFRESH_TOKEN"),
+            "grant_type": "refresh_token", "scope": SCOPE}
+    if fp.env("MSGRAPH_CLIENT_SECRET"):  # blank for a public-client app (device-code sign-in)
+        form["client_secret"] = fp.env("MSGRAPH_CLIENT_SECRET")
+    body = urlencode(form).encode()
     url = f"https://login.microsoftonline.com/{fp.env('MSGRAPH_TENANT_ID')}/oauth2/v2.0/token"
     req = fp.urllib.request.Request(url, data=body, headers={"Content-Type": "application/x-www-form-urlencoded"})
     with fp.urllib.request.urlopen(req, timeout=30, context=fp.SSL_CTX) as resp:
@@ -379,7 +377,7 @@ def main():
     if not GRAPH.get("enabled"):
         log("graph ingest is off ([graph] enabled is not true in rekall.toml)")
         return
-    missing = [k for k in ("MSGRAPH_CLIENT_ID", "MSGRAPH_CLIENT_SECRET", "MSGRAPH_TENANT_ID", "MSGRAPH_REFRESH_TOKEN") if not fp.env(k)]
+    missing = [k for k in ("MSGRAPH_CLIENT_ID", "MSGRAPH_TENANT_ID", "MSGRAPH_REFRESH_TOKEN") if not fp.env(k)]
     if missing:
         log(f"graph ingest is off: missing {', '.join(missing)} (run scripts/setup-server.py)")
         return

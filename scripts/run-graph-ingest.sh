@@ -11,7 +11,10 @@ if [ -f "$ENV_FILE" ]; then
 fi
 # Ask Doppler only for what .env left blank, so a token the setup page wrote to .env wins.
 NEED=""
-for k in MSGRAPH_CLIENT_ID MSGRAPH_CLIENT_SECRET MSGRAPH_TENANT_ID MSGRAPH_REFRESH_TOKEN; do
+# The secret is asked for only alongside a missing client ID: a public-client app in .env has none.
+KEYS="MSGRAPH_CLIENT_ID MSGRAPH_TENANT_ID MSGRAPH_REFRESH_TOKEN"
+[ -z "$MSGRAPH_CLIENT_ID" ] && KEYS="$KEYS MSGRAPH_CLIENT_SECRET"
+for k in $KEYS; do
   [ -z "${!k}" ] && NEED="$NEED,$k"
 done
 if [ -z "$NEED" ] || ! command -v doppler >/dev/null; then

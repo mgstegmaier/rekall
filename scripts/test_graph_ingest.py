@@ -141,6 +141,34 @@ def test_setup_writes_only_graph_section():
     assert "enabled = false" in ss.CONFIG.read_text() and ss.CONFIG.read_text().count("[graph]") == 1
 
 
+def test_device_code_signin():
+    spec = importlib.util.spec_from_file_location("setup_server2", Path(__file__).parent / "setup-server.py")
+    ss = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ss)
+    ss.ENV_FILE = TMP / ".env"
+    ss.ENV_FILE.write_text("FATHOM_API_KEY=keep\n")
+    os.environ.update(MSGRAPH_CLIENT_ID="cid", MSGRAPH_TENANT_ID="tid")
+    os.environ.pop("MSGRAPH_CLIENT_SECRET", None)
+    replies = [(200, {"device_code": "dc", "user_code": "ABCD-EFGH", "verification_uri": "https://microsoft.com/devicelogin",
+                      "interval": 0, "expires_in": 900}),
+               (400, {"error": "authorization_pending"}), (400, {"error": "slow_down"}),
+               (200, {"refresh_token": "rt-new", "access_token": "at"})]
+    sent = []
+    ss.token_post = lambda form: (sent.append(form), replies.pop(0))[1]
+    started = ss.device_start()
+    assert started["user_code"] == "ABCD-EFGH" and "client_secret" not in sent[0]
+    assert ss.device_poll() == {"pending": True}
+    assert ss.device_poll() == {"pending": True} and ss.DEVICE["interval"] == 5, "slow_down must back off"
+    ss.DEVICE["next"] = 0
+    assert ss.device_poll() == {"ok": True}
+    assert ss.ENV_FILE.read_text() == "FATHOM_API_KEY=keep\nMSGRAPH_REFRESH_TOKEN=rt-new\n"
+    assert ss.device_poll() == {"error": "No sign-in in progress. Start again."}
+    os.environ["MSGRAPH_CLIENT_SECRET"] = "s"
+    assert ss.device_start() == {"redirect": "/signin"}, "an app with a secret uses the redirect flow"
+    for k in ("MSGRAPH_CLIENT_ID", "MSGRAPH_TENANT_ID", "MSGRAPH_CLIENT_SECRET", "MSGRAPH_REFRESH_TOKEN"):
+        os.environ.pop(k, None)
+
+
 def main():
     projects = gi.load_projects(projects_dir())
     assert set(projects) == {"nova-link", "report-builder"}, projects
@@ -149,6 +177,7 @@ def main():
     test_dedupe_and_validation(projects)
     test_updates_section_created()
     test_calendar_notices_skipped()
+    test_device_code_signin()
     test_setup_writes_only_graph_section()
     print("ok")
 

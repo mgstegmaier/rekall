@@ -106,18 +106,30 @@ How a message reaches a page:
   `~/.config/rekall/logs/graph-usage.jsonl`.
 
 You need a Microsoft Entra app registration with the delegated permissions `User.Read`,
-`Mail.Read`, `Chat.Read`, `Chat.ReadBasic` and `offline_access`, a client secret, and
-`http://localhost:8086` as a "Mobile and desktop applications" redirect URI. Your IT team may have
-to create it.
+`Mail.Read`, `Chat.Read`, `Chat.ReadBasic` and `offline_access`. Your IT team may already have one
+for your group. Ask for its client ID and tenant ID, and whether "Allow public client flows" is on.
 
-1. In `.env`, set `MSGRAPH_CLIENT_ID`, `MSGRAPH_CLIENT_SECRET` and `MSGRAPH_TENANT_ID` from the app
-   registration.
+- If public client flows are on, you need no client secret. The settings page signs you in with a
+  device code.
+- If they're off, you also need a client secret, and the app must list `http://localhost:8086` as a
+  "Mobile and desktop applications" redirect URI.
+
+1. In `.env`, set `MSGRAPH_CLIENT_ID` and `MSGRAPH_TENANT_ID` from the app registration. Set
+   `MSGRAPH_CLIENT_SECRET` only if the app has public client flows turned off. If another tool
+   already signed you in to the same app and can export these values, it can write them for you,
+   refresh token included, and you can skip step 3's sign-in.
 2. Run `python3 scripts/setup-server.py` in the rekall folder and open http://localhost:8086. If
    your secrets live in Doppler instead of `.env`, run it under `doppler run --` so the page can
    see them.
-3. On the setup page, check that every secret shows "present". Click **Sign in with Microsoft**.
-   When you come back, the page shows who you're signed in as, and `MSGRAPH_REFRESH_TOKEN` is in
-   `.env`. If sign-in fails with `AADSTS50011`, the redirect URI on the app doesn't match
+3. On the settings page, check that every required secret shows "Present". Click **Sign in with
+   Microsoft**.
+   - With no client secret, the page shows a code and a Microsoft link. Open the link, enter the
+     code, and sign in. The page notices within a few seconds.
+   - With a client secret, the browser goes to Microsoft and comes back.
+
+   Either way, the page then shows who you're signed in as, and `MSGRAPH_REFRESH_TOKEN` is in
+   `.env`. If sign-in fails with `AADSTS7000218`, the app needs a client secret (public client
+   flows are off). If it fails with `AADSTS50011`, the redirect URI on the app doesn't match
    `http://localhost:8086` exactly.
 4. Click **Load my chats** and tick the chats to include. Nothing is read from a chat you don't
    tick.
