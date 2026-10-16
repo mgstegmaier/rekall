@@ -22,8 +22,13 @@ DOMAIN="gui/$(id -u)"
 LABELS="com.rekall.fathom-pipeline com.rekall.wiki-lint com.rekall.wiki-reindex"
 GRANOLA="com.rekall.granola-sweep"   # optional: --with-granola schedules it; --uninstall always removes it
 case " $* " in *" --with-granola "*) LABELS="$LABELS $GRANOLA" ;; esac
+GRAPH_INGEST="com.rekall.graph-ingest"  # optional, macOS only: --with-graph schedules it; --uninstall always removes it
 
 case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) WIN=1 ;; *) WIN= ;; esac
+case " $* " in *" --with-graph "*)
+  if [ -n "$WIN" ]; then echo "--with-graph: the Graph ingest schedule is macOS-only; skipping it"
+  else LABELS="$LABELS $GRAPH_INGEST"; fi ;;
+esac
 if [ -n "$WIN" ]; then
   PY="$VENV/Scripts/python.exe"          # Windows venv layout
   LIST_RULE="Bash(schtasks /Query:*)"
@@ -122,6 +127,7 @@ render() {
 
 uninstall() {
   LABELS="$LABELS $GRANOLA"
+  [ -z "$WIN" ] && LABELS="$LABELS $GRAPH_INGEST"
   if [ -n "$WIN" ]; then
     for l in $LABELS; do
       powershell.exe -NoProfile -Command \

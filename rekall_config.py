@@ -30,6 +30,8 @@ STATE_DIR = Path(_cfg["data"].get("state", "~/.config/rekall")).expanduser()
 MONDAY_BOARD = int(_cfg.get("monday", {}).get("board", 0))
 MONDAY_GROUP = _cfg.get("monday", {}).get("group", "Auto-Capture")
 EMBEDDING_MODEL = _cfg.get("index", {}).get("embedding_model", "BAAI/bge-small-en-v1.5")
+# Optional Microsoft Graph ingest (scripts/graph-ingest.py); off unless enabled = true.
+GRAPH = _cfg.get("graph", {})
 
 if __name__ == "__main__":
     names = sys.argv[1:] or ["USER_NAME", "TIMEZONE", "VAULT", "WIKI", "SESSIONS", "ARCHIVE", "DATA", "STATE_DIR", "MONDAY_BOARD", "MONDAY_GROUP", "EMBEDDING_MODEL"]
