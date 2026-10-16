@@ -130,8 +130,8 @@ wiki pages, and a schema document (source: karpathy-llm-wiki.md).
 ## Mode: Plan
 
 Files a Claude Code plan or scope in the wiki so it is recall-indexed and linked from its project
-page. Trigger: Mike says "send this plan to Obsidian", "file the plan in the wiki", or a plan-mode
-session ends with a plan worth keeping.
+page. Trigger: Mike says "send this plan to Obsidian" or "file the plan in the wiki". Only on request:
+plans live in the repo's `docs/plans/` by default (Mike, 2026-10-16).
 
 **Where:** `wiki/plans/{YYYY-MM-DD}-{slug}.md`. Slug rules match pages (lowercase, hyphens, under 50
 chars). Plans are not in `index.md`; the project page and recall are how they are found.
