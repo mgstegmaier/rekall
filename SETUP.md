@@ -94,8 +94,8 @@ sends mail, posts to Teams, or changes anything in your mailbox.
 How a message reaches a page:
 
 - An email thread matches a project page when its subject names the project: the page's file name,
-  `title`, an entry in `aliases`, or its `monday_label`. "RE: SignalsAI V2 rollout" matches
-  `signals-ai.md`. A chat matches on its topic and the text of its new messages.
+  `title`, an entry in `aliases`, or its `monday_label`. "RE: Apollo launch plan" matches
+  `apollo.md`. A chat matches on its topic and the text of its new messages.
 - A term that two pages share, like a Monday label used by several projects, matches neither.
 - A thread that matches no page is dropped. Its body is never fetched and nothing about it is kept.
 - For a matched thread, one Haiku call through `claude -p` picks out only facts the page doesn't

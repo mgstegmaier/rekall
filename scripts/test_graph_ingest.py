@@ -18,11 +18,11 @@ _spec.loader.exec_module(gi)
 PAGE = """---
 type: project
 status: active
-title: SignalsAI
-description: Document parsing for underwriters.
-monday_label: AI Platform
+title: NovaLink
+description: Customer data sync.
+monday_label: Core Platform
 ---
-# SignalsAI
+# NovaLink
 
 ## State
 
@@ -47,35 +47,35 @@ def page(d, name, fm, body="## State\n\nx\n"):
 def projects_dir():
     d = TMP / "pages"
     d.mkdir(exist_ok=True)
-    (d / "signals-ai.md").write_text(PAGE)
-    page(d, "doc-extraction", "type: project\nstatus: active\ntitle: Document Extraction\nmonday_label: AI Platform\n"
-                              "aliases:\n  - Doc Extraction\n  - smarter reading")
+    (d / "nova-link.md").write_text(PAGE)
+    page(d, "report-builder", "type: project\nstatus: active\ntitle: Report Builder\nmonday_label: Core Platform\n"
+                              "aliases:\n  - Report Engine\n  - reports v2")
     page(d, "radar", "type: project\nstatus: retired\ntitle: Radar")
-    page(d, "jeffrey-gottlieb", "type: person\nstatus: active\ntitle: Jeffrey Gottlieb")
+    page(d, "ana-lopez", "type: person\nstatus: active\ntitle: Ana Lopez")
     return d
 
 
-def email(subject, ids, body="We decided to run V2 on all 30k documents."):
+def email(subject, ids, body="We decided to run V2 on all 30k records."):
     return {"key": "mail:conv1", "kind": "email", "name": gi.clean_subject(subject),
-            "msgs": [{"id": i, "from": "Jeff Gottlieb", "date": "2026-10-16T15:00:00Z", "to": ["Mike"], "body": body} for i in ids]}
+            "msgs": [{"id": i, "from": "Ana Lopez", "date": "2026-10-16T15:00:00Z", "to": ["Mike"], "body": body} for i in ids]}
 
 
 def test_matcher(projects):
     m = lambda s: gi.match(gi.clean_subject(s), projects)
-    assert m("RE: SignalsAI V2 rollout") == ["signals-ai"]
-    assert m("Signals AI weekly sync") == ["signals-ai"]
-    assert m("fw: signals-ai: excel converter") == ["signals-ai"]
-    assert m("Doc extraction benchmark list") == ["doc-extraction"]
-    assert m("Smarter reading POC") == ["doc-extraction"]
-    assert m("AI Platform roadmap") == [], "a Monday label two pages share must not match"
+    assert m("RE: NovaLink rollout plan") == ["nova-link"]
+    assert m("Nova Link weekly sync") == ["nova-link"]
+    assert m("fw: nova-link: retry fix") == ["nova-link"]
+    assert m("Report Engine benchmark") == ["report-builder"]
+    assert m("Reports v2 POC") == ["report-builder"]
+    assert m("Core Platform roadmap") == [], "a Monday label two pages share must not match"
     assert m("Radar dashboard") == [], "retired pages are not targets"
-    assert m("Jeffrey Gottlieb 1:1") == [], "only project pages are targets"
-    assert m("Signalsaid nothing") == [], "terms match whole words only"
+    assert m("Ana Lopez 1:1") == [], "only project pages are targets"
+    assert m("Novalinked nothing") == [], "terms match whole words only"
 
 
 def test_unmatched_dropped(projects):
     state, calls = {"threads": {}}, []
-    t = email("Lunch on Friday?", ["a1"], body="SignalsAI is great")  # body never read for mail matching
+    t = email("Lunch on Friday?", ["a1"], body="NovaLink is great")  # body never read for mail matching
     assert gi.plan_thread(t, projects, state, None, ask=lambda p, k: calls.append(p) or []) is None
     assert calls == [] and state == {"threads": {}}, "unmatched thread called the model or left state"
 
@@ -85,15 +85,15 @@ def test_dedupe_and_validation(projects):
 
     def ask(prompt, key):
         calls.append(prompt)
-        return [{"page": "signals-ai", "kind": "decision", "text": "Run V2 on all 30k documents [[x]]", "msg": "m1"},
-                {"page": "signals-ai", "kind": "update", "text": "made up", "msg": "m9"},       # hallucinated id
+        return [{"page": "nova-link", "kind": "decision", "text": "Run V2 on all 30k records [[x]]", "msg": "m1"},
+                {"page": "nova-link", "kind": "update", "text": "made up", "msg": "m9"},       # hallucinated id
                 {"page": "radar", "kind": "update", "text": "wrong page", "msg": "m1"}]         # not a candidate
 
-    t = email("RE: SignalsAI V2 rollout", ["a1"])
+    t = email("RE: NovaLink rollout plan", ["a1"])
     facts, msgs, ph = gi.plan_thread(t, projects, state, None, ask=ask)
-    assert len(facts) == 1 and facts[0]["from"] == "Jeff Gottlieb" and facts[0]["date"] == "2026-10-16"
+    assert len(facts) == 1 and facts[0]["from"] == "Ana Lopez" and facts[0]["date"] == "2026-10-16"
     b = gi.bullet(t, facts[0])
-    assert b == '- Decision: Run V2 on all 30k documents x (source: email "SignalsAI V2 rollout" from Jeff Gottlieb, 2026-10-16).', b
+    assert b == '- Decision: Run V2 on all 30k records x (source: email "NovaLink rollout plan" from Ana Lopez, 2026-10-16).', b
 
     head = gi.heading(t, "2026-10-16")
     once = gi.insert_update(PAGE, head, [b])
@@ -103,11 +103,11 @@ def test_dedupe_and_validation(projects):
     gi.mark_seen(state, t, msgs, ph)
 
     assert gi.plan_thread(t, projects, state, None, ask=ask) is None, "re-read thread added something"
-    moved = email("RE: SignalsAI V2 rollout", ["a1-moved"])  # same content, new id (folder move)
+    moved = email("RE: NovaLink rollout plan", ["a1-moved"])  # same content, new id (folder move)
     facts2, _, _ = gi.plan_thread(moved, projects, state, None, ask=ask)
     assert facts2 == [] and len(calls) == 1, "unchanged input hash must skip the model call"
 
-    b2 = "- A later fact (source: email \"SignalsAI V2 rollout\" from Mike, 2026-10-16)."
+    b2 = "- A later fact (source: email \"NovaLink rollout plan\" from Mike, 2026-10-16)."
     twice = gi.insert_update(once, head, [b, b2])
     assert twice.count(head) == 1 and twice.index(b) < twice.index(b2) < twice.index("### 2026-10-15")
 
@@ -124,9 +124,9 @@ def test_setup_writes_only_graph_section():
     spec.loader.exec_module(ss)
     before = ss.CONFIG.read_text()
     saved = ss.save_config({"enabled": True, "folders": ["inbox", "bad folder!"],
-                            "chats": [{"id": "19:abc@thread.v2", "name": 'Jeff "J" Gottlieb 🚀'}, {"id": "not-a-chat", "name": "x"}]})
+                            "chats": [{"id": "19:abc@thread.v2", "name": 'Ana "A" Lopez 🚀'}, {"id": "not-a-chat", "name": "x"}]})
     assert saved["enabled"] is True and saved["mail_folders"] == ["inbox"]
-    assert saved["chats"] == [{"id": "19:abc@thread.v2", "name": 'Jeff "J" Gottlieb 🚀'}]
+    assert saved["chats"] == [{"id": "19:abc@thread.v2", "name": 'Ana "A" Lopez 🚀'}]
     after = ss.CONFIG.read_text()
     assert after.count("[graph]") == 1 and after.split("[graph]")[0].rstrip() == before.split("[graph]")[0].rstrip(), "other sections changed"
     ss.save_config({"enabled": False, "folders": [], "chats": []})
@@ -135,7 +135,7 @@ def test_setup_writes_only_graph_section():
 
 def main():
     projects = gi.load_projects(projects_dir())
-    assert set(projects) == {"signals-ai", "doc-extraction"}, projects
+    assert set(projects) == {"nova-link", "report-builder"}, projects
     test_matcher(projects)
     test_unmatched_dropped(projects)
     test_dedupe_and_validation(projects)
