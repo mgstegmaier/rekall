@@ -131,7 +131,9 @@ to create it.
 
 7. When the dry run looks right, run it once without `--dry-run`, and read the new entries on the
    pages it names.
-8. To run it every weekday hour from 07:45 to 17:45, run `bash install.sh --with-graph` (macOS
+8. To change any of this later, run `python3 scripts/setup-server.py` again. The page reads
+   `rekall.toml` and `.env` fresh each time it loads.
+9. To run it every weekday hour from 07:45 to 17:45, run `bash install.sh --with-graph` (macOS
    only). `bash install.sh --uninstall` removes it with everything else.
 
 The refresh token expires after 90 days without use. When it does, the job sends a notification
