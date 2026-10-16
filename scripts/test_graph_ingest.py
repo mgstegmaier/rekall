@@ -112,6 +112,14 @@ def test_dedupe_and_validation(projects):
     assert twice.count(head) == 1 and twice.index(b) < twice.index(b2) < twice.index("### 2026-10-15")
 
 
+def test_calendar_notices_skipped():
+    for subj in ["Invitation: Rekall meeting @ Mon Oct 19", "Accepted: Nova Link Board - Setting Tasks",
+                 "Canceled: Nova Link chat", "Declined: sync", "Updated invitation: Review", "Tentative: Demo"]:
+        assert gi.CALENDAR_NOTICE.match(subj), subj
+    for subj in ["RE: Nova Link rollout plan", "Accepted proposal for Nova Link", "Fwd: Invitation list for the offsite"]:
+        assert not gi.CALENDAR_NOTICE.match(subj), subj
+
+
 def test_updates_section_created():
     text = "---\ntype: project\n---\n# P\n\n## State\n\nx\n\n## Related pages\n\n- [[a]]\n"
     out = gi.insert_update(text, "### 2026-10-16 Email: P", ["- f (source: email \"P\" from A, 2026-10-16)."])
@@ -140,6 +148,7 @@ def main():
     test_unmatched_dropped(projects)
     test_dedupe_and_validation(projects)
     test_updates_section_created()
+    test_calendar_notices_skipped()
     test_setup_writes_only_graph_section()
     print("ok")
 

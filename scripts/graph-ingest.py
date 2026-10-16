@@ -107,6 +107,11 @@ def strip_html(s):
     return re.sub(r"[ \t]+", " ", html.unescape(re.sub(r"<[^>]+>", " ", s))).strip()
 
 
+# Outlook's meeting notices: they name a project but never carry a fact, so they'd only spend a call.
+CALENDAR_NOTICE = re.compile(r"^\s*(invitation|updated invitation|accepted|tentative|declined|canceled|cancelled|"
+                             r"new time proposed|meeting forward notification)\s*:", re.I)
+
+
 def clean_subject(s):
     return re.sub(r"^\s*((re|fw|fwd)\s*:\s*)+", "", s or "", flags=re.I).strip() or "(no subject)"
 
@@ -118,6 +123,8 @@ def fetch_mail(tok, since_iso, folders):
     for folder in folders:
         q = urlencode({"$filter": f"receivedDateTime ge {since_iso}", "$select": sel, "$top": 50})
         for m in safe_pages(f"/me/mailFolders/{quote(folder)}/messages?{q}", tok, f"mail folder {folder}"):
+            if CALENDAR_NOTICE.match(m.get("subject") or ""):
+                continue
             t = threads.setdefault(m["conversationId"], {"key": "mail:" + m["conversationId"], "kind": "email",
                                                           "name": clean_subject(m.get("subject")), "msgs": []})
             people = [r["emailAddress"].get("name") for r in (m.get("toRecipients") or []) + (m.get("ccRecipients") or [])]
