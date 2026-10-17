@@ -9,10 +9,13 @@ reads rekall.toml and .env fresh on every load. The page shows:
 - your Teams chats with a checkbox each, the mail folders, and the on/off switch;
 - Save, which rewrites only the [graph] section of rekall.toml.
 
-Sign-in uses the same Entra app and auth-code flow as cos-desk's msgraph-auth.py: it needs
-MSGRAPH_CLIENT_ID, MSGRAPH_CLIENT_SECRET and MSGRAPH_TENANT_ID, and the app must list
-http://localhost:8086 as a "Mobile and desktop applications" redirect URI. The new refresh token
-goes into .env (mode 600). Doppler users: start it under `doppler run -- python3 scripts/setup-server.py`.
+Sign-in needs MSGRAPH_CLIENT_ID and MSGRAPH_TENANT_ID for an Entra app with read-only delegated
+permissions. Either way the new refresh token goes into .env (mode 600):
+- No MSGRAPH_CLIENT_SECRET (the app allows public client flows): device-code sign-in. The page
+  shows a code; you enter it at Microsoft's sign-in page.
+- With MSGRAPH_CLIENT_SECRET: the auth-code flow cos-desk's msgraph-auth.py uses, which needs
+  http://localhost:8086 as a "Mobile and desktop applications" redirect URI on the app.
+Doppler users: start it under `doppler run -- python3 scripts/setup-server.py`.
 
 Local only, with Radar's /setup guards: binds 127.0.0.1, rejects any Host but localhost:8086 or
 127.0.0.1:8086, every POST needs a matching Origin and `X-Rekall-Setup: 1`, and the OAuth callback
@@ -26,6 +29,7 @@ import re
 import secrets
 import shutil
 import sys
+import time
 import tomllib
 from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urlparse
@@ -42,9 +46,11 @@ PORT = 8086  # the redirect URI registered on the Entra app, shared with cos-des
 REDIRECT = f"http://localhost:{PORT}"
 SIGNIN_SCOPE = "offline_access User.Read Mail.Read Chat.ReadBasic Chat.Read"
 HOSTS = {f"localhost:{PORT}", f"127.0.0.1:{PORT}"}
-SECRETS = ["FATHOM_API_KEY", "WORK_EMAIL", "MSGRAPH_CLIENT_ID", "MSGRAPH_CLIENT_SECRET",
-           "MSGRAPH_TENANT_ID", "MSGRAPH_REFRESH_TOKEN"]
+SECRETS = ["FATHOM_API_KEY", "WORK_EMAIL", "MSGRAPH_CLIENT_ID", "MSGRAPH_TENANT_ID", "MSGRAPH_REFRESH_TOKEN"]
+OPTIONAL = ["MSGRAPH_CLIENT_SECRET"]  # only for an app without public client flows
+GRAPH_NEEDS = ["MSGRAPH_CLIENT_ID", "MSGRAPH_TENANT_ID"]
 STATES = set()  # one-time OAuth state values
+DEVICE = {}     # the pending device-code sign-in: device_code, interval, next poll time
 
 
 def load_env_file():
@@ -110,7 +116,7 @@ def save_config(data):
 
 
 def graph_status():
-    if not all(os.environ.get(k) for k in SECRETS[2:]):
+    if not all(os.environ.get(k) for k in GRAPH_NEEDS + ["MSGRAPH_REFRESH_TOKEN"]):
         return {"ok": False, "error": "One or more MSGRAPH_* secrets are missing."}
     try:
         tok = gi.graph_token()
@@ -136,9 +142,68 @@ def list_chats():
     return sorted(out, key=lambda c: c["updated"], reverse=True)
 
 
+def token_post(form):
+    """(http status, json) from the tenant's token or devicecode endpoint; never raises on 4xx."""
+    path = "devicecode" if "grant_type" not in form else "token"
+    req = fp.urllib.request.Request(
+        f"https://login.microsoftonline.com/{os.environ['MSGRAPH_TENANT_ID']}/oauth2/v2.0/{path}",
+        data=urlencode(form).encode(), headers={"Content-Type": "application/x-www-form-urlencoded"})
+    try:
+        with fp.urllib.request.urlopen(req, timeout=30, context=fp.SSL_CTX) as resp:
+            return resp.status, json.loads(resp.read().decode())
+    except fp.urllib.error.HTTPError as e:
+        try:
+            return e.code, json.loads(e.read().decode())
+        except ValueError:
+            return e.code, {"error": f"HTTP {e.code}"}
+
+
+def device_start():
+    """Start a device-code sign-in, or tell the page to use the redirect flow when a secret is set."""
+    missing = [k for k in GRAPH_NEEDS if not os.environ.get(k)]
+    if missing:
+        return {"error": f"Missing {', '.join(missing)}. Add them to .env first."}
+    if os.environ.get("MSGRAPH_CLIENT_SECRET"):
+        return {"redirect": "/signin"}
+    code, out = token_post({"client_id": os.environ["MSGRAPH_CLIENT_ID"], "scope": SIGNIN_SCOPE})
+    if code != 200:
+        return {"error": out.get("error_description", out.get("error", f"HTTP {code}"))[:300]}
+    DEVICE.clear()
+    DEVICE.update(device_code=out["device_code"], interval=int(out.get("interval", 5)),
+                  expires=time.time() + int(out.get("expires_in", 900)), next=0)
+    return {"user_code": out["user_code"], "verification_uri": out["verification_uri"], "interval": DEVICE["interval"]}
+
+
+def device_poll():
+    """One poll of the pending device-code sign-in. Writes the refresh token to .env on success."""
+    if not DEVICE:
+        return {"error": "No sign-in in progress. Start again."}
+    if time.time() > DEVICE["expires"]:
+        DEVICE.clear()
+        return {"error": "The code expired. Start again."}
+    if time.time() < DEVICE["next"]:  # Microsoft asks for at least `interval` seconds between polls
+        return {"pending": True}
+    DEVICE["next"] = time.time() + DEVICE["interval"]
+    code, out = token_post({"client_id": os.environ["MSGRAPH_CLIENT_ID"], "device_code": DEVICE["device_code"],
+                            "grant_type": "urn:ietf:params:oauth:grant-type:device_code"})
+    if code == 200 and out.get("refresh_token"):
+        DEVICE.clear()
+        set_env_var("MSGRAPH_REFRESH_TOKEN", out["refresh_token"])
+        return {"ok": True}
+    err = out.get("error")
+    if err == "slow_down":
+        DEVICE["interval"] += 5
+    if err in ("authorization_pending", "slow_down"):
+        return {"pending": True}
+    DEVICE.clear()
+    if code == 200:
+        return {"error": "Microsoft returned no refresh token (offline_access missing?)."}
+    return {"error": out.get("error_description", err or f"HTTP {code}")[:300]}
+
+
 def status():
     cfg = tomllib.loads(CONFIG.read_text(encoding="utf-8")).get("graph", {})
-    return {"secrets": [{"name": k, "present": bool(os.environ.get(k))} for k in SECRETS],
+    return {"secrets": [{"name": k, "present": bool(os.environ.get(k)), "optional": k in OPTIONAL} for k in SECRETS + OPTIONAL],
             "claude": bool(shutil.which("claude")), "graph": graph_status(),
             "config": {"enabled": bool(cfg.get("enabled")), "folders": cfg.get("mail_folders", ["inbox", "sentitems"]),
                        "chats": cfg.get("chats", [])},
@@ -178,7 +243,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if url.path == "/":
             return self.send(200, PAGE, "text/html")
         if url.path == "/signin":
-            missing = [k for k in SECRETS[2:5] if not os.environ.get(k)]
+            missing = [k for k in GRAPH_NEEDS + OPTIONAL if not os.environ.get(k)]
             if missing:
                 return self.send(400, f"Missing {', '.join(missing)}. Add them to .env first.", "text/plain")
             state = secrets.token_urlsafe(24)
@@ -227,12 +292,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
         n = int(self.headers.get("Content-Length") or 0)
         if n > 64_000:
             return self.send(413, {"error": "too large"})
-        if urlparse(self.path).path != "/api/config":
-            return self.send(404, {"error": "not found"})
+        path = urlparse(self.path).path
         try:
-            return self.send(200, {"saved": save_config(json.loads(self.rfile.read(n) or b"{}"))})
+            if path == "/api/config":
+                return self.send(200, {"saved": save_config(json.loads(self.rfile.read(n) or b"{}"))})
+            if path == "/api/device/start":
+                return self.send(200, device_start())
+            if path == "/api/device/poll":
+                return self.send(200, device_poll())
         except Exception as e:
             return self.send(400, {"error": f"{type(e).__name__}: {e}"[:200]})
+        return self.send(404, {"error": "not found"})
 
 
 PAGE = """<!doctype html>
@@ -284,6 +354,11 @@ td:last-child, th:last-child { text-align: right; }
 .tag { display: inline-block; font: 600 0.75rem/1 var(--font-heading); color: var(--ink); padding: 5px 10px; border-radius: 999px; }
 .tag.ok { background: color-mix(in srgb, var(--olive) var(--tint), var(--surface)); }
 .tag.bad { background: color-mix(in srgb, var(--accent) var(--tint), var(--surface)); }
+.tag.neutral { background: var(--surface-2); }
+.device { margin-top: var(--space-lg); background: var(--surface-2); border-radius: var(--radius-sm); padding: var(--space-lg); }
+.device[hidden] { display: none; }
+.device p { margin: 0; }
+.device .code { font: 600 1.5rem/1.2 var(--font-mono); letter-spacing: 0.12em; margin: var(--space-sm) 0; user-select: all; }
 .account { display: flex; align-items: center; justify-content: space-between; gap: var(--space-lg); flex-wrap: wrap; }
 .account p { margin: 0; }
 .account .who { font-family: var(--font-heading); font-weight: 500; }
@@ -330,8 +405,9 @@ footer { font: 500 0.75rem/1.5 var(--font-heading); letter-spacing: 0.08em; text
 
 <section aria-labelledby="h-account">
   <h2 id="h-account">Microsoft account</h2>
-  <p class="hint">Sign-in uses your Entra app. The new token goes into <code>.env</code>.</p>
-  <div class="account"><div id="graph"><p class="sub">Checking...</p></div><a class="btn btn-secondary" href="/signin" id="signin">Sign in with Microsoft</a></div>
+  <p class="hint">Sign-in uses your Entra app, with a device code when <code>MSGRAPH_CLIENT_SECRET</code> is blank. The new token goes into <code>.env</code>.</p>
+  <div class="account"><div id="graph"><p class="sub">Checking...</p></div><button class="btn btn-secondary" id="signin" type="button">Sign in with Microsoft</button></div>
+  <div class="device" id="device" hidden><p id="device-intro">Open <a id="device-link" target="_blank" rel="noopener"></a> and enter this code:</p><p class="code" id="device-code"></p><p class="sub" id="device-msg" role="status">Waiting for you to finish signing in...</p></div>
 </section>
 
 <section aria-labelledby="h-chats">
@@ -367,7 +443,7 @@ const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":
 const tag = (ok, yes, no) => `<span class="tag ${ok ? "ok" : "bad"}">${ok ? yes : no}</span>`;
 async function refresh() {
   const s = await (await fetch("/api/status")).json();
-  $("secrets").innerHTML = s.secrets.map(x => `<tr><td><code>${x.name}</code></td><td>${tag(x.present, "Present", "Missing")}</td></tr>`).join("")
+  $("secrets").innerHTML = s.secrets.map(x => `<tr><td><code>${x.name}</code>${x.optional ? ` <span class="sub">only if your app doesn't allow public client flows</span>` : ""}</td><td>${x.optional && !x.present ? '<span class="tag neutral">Not set</span>' : tag(x.present, "Present", "Missing")}</td></tr>`).join("")
     + `<tr><td><code>claude</code> on PATH</td><td>${tag(s.claude, "Found", "Missing")}</td></tr>`;
   $("graph").innerHTML = s.graph.ok
     ? `<p class="who">${esc(s.graph.user)}</p><p class="sub">${esc(s.graph.mail)}</p>`
@@ -388,6 +464,25 @@ function renderChats(list, picked) {
     <span>${esc(c.name)}</span>${c.type ? `<span class="type">${c.type === "oneOnOne" ? "1:1" : c.type === "group" ? "Group" : esc(c.type)}</span>` : ""}</label>`).join("");
   count();
 }
+const post = async (path, body) => (await fetch(path, {method: "POST", headers: {"Content-Type": "application/json", "X-Rekall-Setup": "1"}, body: JSON.stringify(body || {})})).json();
+$("signin").onclick = async () => {
+  const r = await post("/api/device/start");
+  if (r.redirect) { location.href = r.redirect; return; }
+  $("device").hidden = false;
+  $("device-intro").hidden = $("device-code").hidden = !!r.error;
+  if (r.error) { $("device-msg").textContent = r.error; return; }
+  $("device-link").href = r.verification_uri; $("device-link").textContent = r.verification_uri;
+  $("device-code").textContent = r.user_code;
+  $("device-msg").textContent = "Waiting for you to finish signing in...";
+  const timer = setInterval(async () => {
+    const p = await post("/api/device/poll");
+    if (p.pending) return;
+    clearInterval(timer);
+    $("device-msg").textContent = p.ok ? "Signed in." : p.error;
+    if (!p.ok) $("device-intro").hidden = $("device-code").hidden = true;
+    if (p.ok) { $("device").hidden = true; refresh(); }
+  }, Math.max(3, r.interval) * 1000);
+};
 $("chats").addEventListener("change", count);
 $("filter").addEventListener("input", e => {
   const q = e.target.value.toLowerCase();
@@ -406,8 +501,7 @@ $("load").onclick = async () => {
 $("save").onclick = async () => {
   const chats = [...document.querySelectorAll("#chats input:checked")].map(i => ({id: i.value, name: i.dataset.name}));
   const folders = $("folders").value.split(",").map(s => s.trim()).filter(Boolean);
-  const r = await (await fetch("/api/config", {method: "POST", headers: {"Content-Type": "application/json", "X-Rekall-Setup": "1"},
-    body: JSON.stringify({enabled: $("enabled").checked, folders, chats})})).json();
+  const r = await post("/api/config", {enabled: $("enabled").checked, folders, chats});
   $("msg").textContent = r.error ? r.error : `Saved. Ingest ${r.saved.enabled ? "on" : "off"}, ${r.saved.chats.length} chats, folders: ${r.saved.mail_folders.join(", ")}.`;
   if (!r.error) saved = r.saved.chats;
 };
