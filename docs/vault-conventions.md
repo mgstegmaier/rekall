@@ -11,40 +11,48 @@ wiki/
 ├── index.md          # content catalog; GENERATED from page frontmatter, never hand-edit entries
 ├── log.md            # operations log; append-only, headings are bare ISO dates (## YYYY-MM-DD)
 ├── CLAUDE.md         # the schema file (this document, adapted to your vault)
-├── people/           # person entity pages
-├── projects/         # project pages (state, members, decisions, next steps)
-├── entities/         # other entities: servers, tools, orgs, places, products
-├── concepts/         # ideas, patterns, methodologies, fundamentals
-├── summaries/        # per-source summary pages
+├── pages/            # every compiled page, at pages/TYPE/SLUG.md; the folder name is the page's `type`
+│   ├── person/       # people
+│   ├── project/      # initiatives (state, members, decisions, next steps)
+│   ├── system/       # platforms, services, and hosts other things run on or call
+│   ├── pipeline/     # scheduled or event-driven data flows
+│   ├── entity/       # other things that exist: documents, orgs, places, products
+│   ├── concept/      # ideas, patterns, methodologies, fundamentals
+│   └── summary/      # per-source summary pages
 ├── meetings/         # meeting notes; SOURCE layer, immutable once written
 └── raw/              # curator-managed sources; writers never touch these
 ```
 
-Three layers, per the LLM Wiki pattern: `raw/` and `meetings/` are immutable sources, the type directories are the wiki, and the schema file governs the writers.
+Three layers, per the LLM Wiki pattern: `raw/` and `meetings/` are immutable sources, `pages/` is the wiki, and the schema file governs the writers.
 
 ## Placement (mechanical, never a judgment call)
 
-- Person → `people/`
-- Project → `projects/`
-- Any other entity → `entities/`
-- Concept → `concepts/`
-- Summary → `summaries/`, for NON-MEETING sources only (long, raw, or external documents where the compiled summary is the artifact). Never create a per-meeting summary page: a meeting note is already a summary, so meeting content flows directly into entity, project, and concept pages that cite the note.
-- One level deep, never deeper. If a page could go two places, it goes in `entities/`.
+`type` in frontmatter is the taxonomy, and a page lives at `pages/TYPE/SLUG.md`, so its folder always equals its `type`. Pick the type and the path follows:
+
+- Person → `type: person`, `pages/person/`
+- Project → `type: project`, `pages/project/`
+- Platform, service, or host → `type: system`, `pages/system/`
+- Data flow with a source and a destination → `type: pipeline`, `pages/pipeline/`
+- Any other entity → `type: entity`, `pages/entity/`
+- Concept → `type: concept`, `pages/concept/`
+- Summary → `type: summary`, `pages/summary/`, for NON-MEETING sources only (long, raw, or external documents where the compiled summary is the artifact). Never create a per-meeting summary page: a meeting note is already a summary, so meeting content flows directly into entity, project, and concept pages that cite the note.
+- One level under `pages/`, never deeper. If a page could be two types, it is `type: entity`.
+- Changing a page's `type` means moving it to the matching folder. The rekall script `scripts/wiki-type-folders.py` moves misfiled pages, and `wiki-lint.py` warns about them.
 - Basenames are unique across the whole wiki, because wikilinks resolve by basename.
 - Page names: lowercase, hyphen-separated, max 50 characters.
 
 ## Project catalog (curated)
 
-`projects/` holds every initiative the wiki knows about, not only the curator's own. Rules for writers:
+`pages/project/` holds every initiative the wiki knows about, not only the curator's own. Rules for writers:
 
-- Match new content to an EXISTING project page first. Check the `projects/` listing and page titles before creating anything.
+- Match new content to an EXISTING project page first. Check the `pages/project/` listing and page titles before creating anything.
 - When a genuinely new project page is unavoidable, tag it `needs-review` in frontmatter so the curator's triage view surfaces it. The curator blesses, renames, merges, or retires it later.
 - Frontmatter fields the curator maintains by hand (for example a `resource:` link to an external task board) are never removed or overwritten by a writer.
 
 ## Page frontmatter
 
 ```yaml
-type: entity|person|project|concept|summary   # meetings: type: meeting. The only taxonomy field (wiki-type retired 2026-09-04).
+type: entity|person|project|system|pipeline|concept|summary   # meetings: type: meeting. The only taxonomy field (wiki-type retired 2026-09-04).
 status: active           # active | retired | archive, on every page and meeting note
 title: "Human Readable Title"
 description: One sentence. This is the index hook.

@@ -15,12 +15,13 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from rekall_config import VAULT  # noqa: E402
 SESSIONS = VAULT / "wiki" / "sessions"
-PAGE = VAULT / "wiki" / "pages" / "annual-review-2026-accomplishments.md"
+# found by basename: pages/ nests by type, so the folder is whatever the page's `type` says
+PAGE = next((VAULT / "wiki" / "pages").rglob("annual-review-2026-accomplishments.md"), None)
 HEADING = "## Running log (auto)"
 
 
 def main():
-    if not PAGE.exists() or not SESSIONS.is_dir():
+    if PAGE is None or not SESSIONS.is_dir():
         return 0
     page = PAGE.read_text(encoding="utf-8")
     new = []

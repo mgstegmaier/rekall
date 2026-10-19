@@ -68,8 +68,13 @@ def vault_md():
             yield p
 
 
+def dir_md(d):
+    """pages/ nests by type (pages/<type>/x.md); meetings/ and raw/ are read flat."""
+    return (WIKI / d).rglob("*.md") if d == "pages" else (WIKI / d).glob("*.md")
+
+
 def find_marked():
-    return sorted(p for d in MARKABLE_DIRS for p in (WIKI / d).glob("*.md")
+    return sorted(p for d in MARKABLE_DIRS for p in dir_md(d)
                   if status_of(p.read_text(encoding="utf-8", errors="replace")) == "archive")
 
 
@@ -77,7 +82,7 @@ def would_orphan(archived):
     """pages/ files whose every inbound wikilink comes from the files being archived."""
     gone = {p.stem for p in archived}
     inbound = {}
-    for p in (WIKI / "pages").glob("*.md"):
+    for p in (WIKI / "pages").rglob("*.md"):
         inbound.setdefault(p.stem, set())
     for p in vault_md():
         if ARCHIVE.name in p.parts or p.name in ("index.md", "log.md", "CLAUDE.md"):
@@ -124,7 +129,7 @@ def append_log(title, body):
 def stamp():
     todo, skipped = [], []
     for d in STAMPED_DIRS:
-        for p in sorted((WIKI / d).glob("*.md")):
+        for p in sorted(dir_md(d)):
             text = p.read_text(encoding="utf-8", errors="replace")
             fm = frontmatter(text)
             if fm is None:

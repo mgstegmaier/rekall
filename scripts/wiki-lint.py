@@ -26,7 +26,8 @@ from rekall_config import ARCHIVE, STATE_DIR, VAULT, WIKI  # noqa: E402
 RAW = WIKI / "raw"
 TYPED_DIRS = ["pages"]
 REQUIRED_FIELDS = ["type", "title", "description", "date"]
-PAGE_TYPES = {"person", "project", "entity", "concept", "summary", "system", "pipeline"}  # `type` is the taxonomy; pages/ is flat
+PAGE_TYPES = {"person", "project", "entity", "concept", "summary", "system", "pipeline",
+              "note", "decision", "context"}  # `type` is the taxonomy; a page lives in pages/<type>/
 STATUSES = {"active", "retired", "archive"}
 STATE_FILE = STATE_DIR / "wiki-lint-state.json"
 PIPELINE_STATE = STATE_DIR / "fathom-pipeline-state.json"
@@ -40,6 +41,11 @@ def page_type(path):
     m = FRONTMATTER_RE.match(path.read_text(encoding="utf-8", errors="replace"))
     t = re.search(r"(?m)^type:\s*(\S+)", m.group(1)) if m else None
     return t.group(1) if t else None
+
+
+def dir_md(d):
+    """pages/ nests by type (pages/<type>/x.md); meetings/ is flat and its distilled/ is source material."""
+    return (WIKI / d).rglob("*.md") if d in TYPED_DIRS else (WIKI / d).glob("*.md")
 LIMIT = 10
 
 
@@ -179,7 +185,7 @@ def check_frontmatter(r):
     missing_by_field = {field: [] for field in REQUIRED_FIELDS}
     type_mismatch = []
     for d in TYPED_DIRS:
-        for f in (WIKI / d).glob("*.md"):
+        for f in (WIKI / d).rglob("*.md"):
             fm = frontmatter_text(f.read_text(encoding="utf-8", errors="replace"))
             for field in REQUIRED_FIELDS:
                 if not re.search(rf"(?m)^{re.escape(field)}:", fm):
@@ -210,7 +216,7 @@ def check_frontmatter(r):
 def check_naming(r):
     violations = []
     for d in TYPED_DIRS + ["meetings"]:
-        for f in (WIKI / d).glob("*.md"):
+        for f in dir_md(d):
             if f.name == "CLAUDE.md":
                 continue
             if " " in f.stem or f.stem != f.stem.lower():
@@ -224,7 +230,7 @@ def check_index_sync(r, basenames):
 
     typed_pages = set()
     for d in TYPED_DIRS:
-        typed_pages |= {p.stem for p in (WIKI / d).glob("*.md")}
+        typed_pages |= {p.stem for p in (WIKI / d).rglob("*.md")}
     meeting_stems = {p.stem for p in (WIKI / "meetings").glob("*.md")}
 
     missing_from_index = sorted(typed_pages - index_links)
@@ -249,7 +255,7 @@ def check_index_sync(r, basenames):
 def check_project_sections(r):
     required = ["## State", "## Members", "## Next steps"]
     issues = []
-    for f in sorted(f for f in (WIKI / "pages").glob("*.md") if page_type(f) == "project"):
+    for f in sorted(f for f in (WIKI / "pages").rglob("*.md") if page_type(f) == "project"):
         lines = set(f.read_text(encoding="utf-8", errors="replace").splitlines())
         for heading in required:
             if heading not in lines:
@@ -297,7 +303,7 @@ def check_page_order(r):
 
     issues = []
     for d in TYPED_DIRS:
-        for f in sorted((WIKI / d).glob("*.md")):
+        for f in sorted((WIKI / d).rglob("*.md")):
             rel = f.relative_to(WIKI)
             lines = f.read_text(encoding="utf-8", errors="replace").splitlines()
             h2 = [ln for ln in lines if ln.startswith("## ")]
@@ -319,7 +325,7 @@ def check_lifecycle(r):
     'Page lifecycle'). Fix missing ones with scripts/wiki-cleanup.py --stamp."""
     issues = []
     for d in TYPED_DIRS + ["meetings"]:
-        for f in sorted((WIKI / d).glob("*.md")):
+        for f in sorted(dir_md(d)):
             fm = frontmatter_text(f.read_text(encoding="utf-8", errors="replace"))
             m = re.search(r"(?m)^status:\s*(\S+)", fm)
             if not m:
@@ -336,9 +342,9 @@ def check_relations(r):
     self-reference (13). `attendees` on meeting notes is intentionally not validated here (plan
     phase 1: names may lack pages); `about` on meeting notes is checked below since meeting notes
     live in wiki/meetings/, not pages/."""
-    page_type_by_slug = {p.stem: page_type(p) for p in (WIKI / "pages").glob("*.md")}
+    page_type_by_slug = {p.stem: page_type(p) for p in (WIKI / "pages").rglob("*.md")}
     unresolved, wrong_type, structure = [], [], []
-    for f in sorted((WIKI / "pages").glob("*.md")):
+    for f in sorted((WIKI / "pages").rglob("*.md")):
         fm = frontmatter_text(f.read_text(encoding="utf-8", errors="replace"))
         rel = f.relative_to(WIKI)
         owner = fm_field(fm, "owner")
@@ -378,13 +384,23 @@ def check_relations(r):
 def check_owner_warning(r):
     """Active project pages with no `owner` -- warning tier, not an error (plan phase 1)."""
     issues = []
-    for f in sorted((WIKI / "pages").glob("*.md")):
+    for f in sorted((WIKI / "pages").rglob("*.md")):
         fm = frontmatter_text(f.read_text(encoding="utf-8", errors="replace"))
         t = re.search(r"(?m)^type:\s*(\S+)", fm)
         s = re.search(r"(?m)^status:\s*(\S+)", fm)
         if t and t.group(1) == "project" and s and s.group(1) == "active" and not fm_field(fm, "owner"):
             issues.append(str(f.relative_to(WIKI)))
     r.section("owner_missing", "Active project pages missing `owner`", issues, warn=True)
+
+
+def check_type_folder(r):
+    """A page sits in pages/<its type>/ (wiki/CLAUDE.md 'Placement'). Move with scripts/wiki-type-folders.py."""
+    issues = []
+    for f in sorted((WIKI / "pages").rglob("*.md")):
+        t = page_type(f)
+        if f.parent != WIKI / "pages" / str(t):
+            issues.append(f"{f.relative_to(WIKI)} (type: {t})")
+    r.section("type_folder", "Pages outside pages/<type>/", issues, warn=True)
 
 
 # ── Main ────────────────────────────────────────────────────
@@ -420,6 +436,7 @@ def main():
     check_lifecycle(r)
     check_relations(r)
     check_owner_warning(r)
+    check_type_folder(r)
 
     total = sum(r.counts.values())
     r.out(f"\nLINT: {total} issues across {len(r.counts)} checks")

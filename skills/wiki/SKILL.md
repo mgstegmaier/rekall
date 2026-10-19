@@ -36,7 +36,7 @@ heck-db/
 
 **Three layers:**
 1. Sources -- `wiki/raw/` (user drops files; Claude reads but NEVER modifies; Mike curates it himself, so files may appear and disappear) and `wiki/meetings/` (one note per meeting, written by the Fathom pipeline, then treated as immutable source material).
-2. `wiki/` -- Claude creates/updates interlinked markdown pages in `wiki/pages/` (flat; `type` frontmatter is the taxonomy) per wiki/CLAUDE.md's placement rules.
+2. `wiki/` -- Claude creates/updates interlinked markdown pages in `wiki/pages/<type>/<slug>.md` (the folder name is the page's `type` frontmatter) per wiki/CLAUDE.md's placement rules.
 3. Schema -- **`wiki/CLAUDE.md` in the vault is the source of truth for structure** (layout, placement, page format, hard rules); it loads automatically for any session touching wiki files. This skill file owns the workflows (ingest/query/lint). Layout follows Google's Open Knowledge Format idiom (see `docs/research/2026-08-22-okf-for-obsidian-wiki.md`); only `type` frontmatter is required for OKF conformance.
 
 **Automated ingest:** the Fathom pipeline (see `docs/plans/2026-08-21-wiki-revival-fathom-pipeline.md`) runs unattended: it writes meeting notes to `wiki/meetings/`, ingests them and anything in `wiki/raw/` into the wiki, and logs everything. It has standing permission to create and update pages anywhere in `wiki/`, including `index.md` and `log.md`. Review happens after the fact -- by reading pages and `wiki/log.md` -- not by pre-approval.
@@ -75,7 +75,7 @@ Runs when the Fathom pipeline finds a new meeting note or `wiki/raw/` file, or w
 ### Workflow
 
 1. **Read the source** via `obsidian read vault="heck-db" path="wiki/raw/{filename}"` (or Read tool for PDFs/images; meeting notes live in `wiki/meetings/`)
-2. **Check for existing pages** by grepping `wiki/index.md` or `wiki/pages/` for the entity/topic names (or `obsidian search vault="heck-db" query="{concept}"`) -- never Read `wiki/index.md` whole; update existing pages rather than creating duplicates
+2. **Check for existing pages** by grepping `wiki/index.md` or `wiki/pages/` (recursively) for the entity/topic names (or `obsidian search vault="heck-db" query="{concept}"`) -- never Read `wiki/index.md` whole; update existing pages rather than creating duplicates
 3. **Create or update wiki pages** for each major entity, concept, or topic:
    - System pages: named platforms, services, or tools other things run on or call (vendor SaaS, an internal application, a homelab host)
    - Pipeline pages: scheduled or event-driven data flows with a source and a destination
@@ -97,10 +97,10 @@ User drops `wiki/raw/karpathy-llm-wiki.md` and says "ingest this" (or the pipeli
 
 1. Read the source
 2. Create pages:
-   - `wiki/pages/llm-wiki-pattern.md`
-   - `wiki/pages/rag-vs-compiled-knowledge.md`
-   - `wiki/pages/andrej-karpathy.md`
-   - `wiki/pages/karpathy-llm-wiki-summary.md`
+   - `wiki/pages/concept/llm-wiki-pattern.md`
+   - `wiki/pages/concept/rag-vs-compiled-knowledge.md`
+   - `wiki/pages/person/andrej-karpathy.md`
+   - `wiki/pages/summary/karpathy-llm-wiki-summary.md`
 3. Regenerate index.md (wiki-index.py) and append to log.md (append-only, at the END)
 
 ---
@@ -112,7 +112,7 @@ When the user asks a question about topics covered by the wiki.
 ### Workflow
 
 1. **For cross-cutting questions**, run `obsidian search vault="heck-db" query="{topic}"` (or Grep over `wiki/`) before walking index links -- it catches pages the index's category grouping can miss
-2. **Grep `wiki/index.md`** (or `wiki/pages/`) for the entity/topic names to find relevant pages -- never Read `wiki/index.md` whole
+2. **Grep `wiki/index.md`** (or `wiki/pages/`, recursively) for the entity/topic names to find relevant pages -- never Read `wiki/index.md` whole
 3. **Read relevant wiki pages** via `obsidian read`
 4. **Synthesize an answer** with citations to both wiki pages and raw sources
 5. **If answer is valuable**, offer: "This answer could be filed as a new wiki page. Want me to save it?"
@@ -220,11 +220,11 @@ Set via `obsidian property:set` after creating each wiki page. See wiki/CLAUDE.m
 ### Example Property Commands
 
 ```bash
-# After creating wiki/pages/llm-wiki-pattern.md
-obsidian property:set vault="heck-db" path="wiki/pages/llm-wiki-pattern.md" name="type" value="concept" type=text
-obsidian property:set vault="heck-db" path="wiki/pages/llm-wiki-pattern.md" name="date" value="2026-04-14" type=date
-obsidian property:set vault="heck-db" path="wiki/pages/llm-wiki-pattern.md" name="tags" value="knowledge-management,ai,patterns" type=list
-obsidian property:set vault="heck-db" path="wiki/pages/llm-wiki-pattern.md" name="sources" value="karpathy-llm-wiki.md" type=list
+# After creating wiki/pages/concept/llm-wiki-pattern.md
+obsidian property:set vault="heck-db" path="wiki/pages/concept/llm-wiki-pattern.md" name="type" value="concept" type=text
+obsidian property:set vault="heck-db" path="wiki/pages/concept/llm-wiki-pattern.md" name="date" value="2026-04-14" type=date
+obsidian property:set vault="heck-db" path="wiki/pages/concept/llm-wiki-pattern.md" name="tags" value="knowledge-management,ai,patterns" type=list
+obsidian property:set vault="heck-db" path="wiki/pages/concept/llm-wiki-pattern.md" name="sources" value="karpathy-llm-wiki.md" type=list
 ```
 
 ---
