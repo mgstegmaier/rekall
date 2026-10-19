@@ -17,27 +17,30 @@ wiki/
 ├── log.md            # operations log; headings are bare ISO dates (## YYYY-MM-DD)
 ├── CLAUDE.md         # this file
 ├── *.base            # one Obsidian Base per type (people, projects, entities, concepts, summaries, meetings) — the human browsing surface
-├── pages/            # every compiled page, flat; `type` in frontmatter says what it is (person, project, entity, concept, summary)
+├── pages/            # every compiled page, at pages/<type>/<slug>.md; the folder name is the page's `type` (person, project, entity, system, pipeline, concept, summary)
 ├── meetings/         # meeting notes written by the Fathom pipeline — SOURCE layer, immutable once written
 ├── raw/              # user-curated sources — IMMUTABLE to Claude; the wiki owner adds and removes files
 └── archive/          # files marked `status: archive`, moved here by the lifecycle job; out of the wiki, links still resolve
 ```
 
-One flat `pages/` folder, not type folders: folders do nothing for retrieval (wikilinks resolve by basename; the index, recall hook, and Bases read frontmatter) and stop being browsable past ~50 files. Humans browse through the Bases and index.md; the LLM finds pages through the index, wikilinks, and grep.
+`pages/` has one subfolder per type, and a page's folder always equals its `type`, so placement stays mechanical. Wikilinks resolve by basename, so a page's folder never appears in a link. Humans browse through the Bases, index.md, and the type folders; the LLM finds pages through the index, wikilinks, and grep (search `pages/` recursively). `scripts/wiki-type-folders.py` in the rekall repo moves misfiled pages, and `wiki-lint.py` warns about any page outside `pages/<type>/`.
 
 `wiki/sessions/` holds the session digests the SessionEnd hook writes (one file per day). They are indexed for recall and graphed as `session` entities, and wiki pages cite them, but they are not compiled pages: no frontmatter, never edited, not in index.md.
 
 ## Placement (mechanical, never a judgment call)
 
-`type` in frontmatter is the taxonomy. Every compiled page goes in `pages/`; pick the type and nothing else:
+`type` in frontmatter is the taxonomy. Pick the type, then write the page to `pages/<type>/<slug>.md` (for example `pages/person/jane-doe.md`); create the folder if it doesn't exist yet:
 
 - `type: person` — a human
 - `type: project` — an initiative with state, members, decisions, next steps
-- `type: entity` — anything else that exists: servers, tools, orgs, places, products
+- `type: system` — a named platform, service, or tool that other things run on or call: vendor SaaS, an internal application, a host
+- `type: pipeline` — a scheduled or event-driven data flow with a source and a destination
+- `type: entity` — anything else that exists: documents, orgs, places, products
 - `type: concept` — ideas, patterns, methodologies, fundamentals
 - `type: summary` — NON-MEETING sources only (long, raw, or external documents where the compiled summary is the artifact). Never create a per-meeting summary page: a meeting note is already Fathom's summary, so meeting content flows directly into entity/project/concept pages citing the meeting note.
 - `type: meeting` → `meetings/`, the one folder split: meetings are the source layer.
 - Could be two types → `type: entity`.
+- Changing a page's `type` means moving it to the matching folder.
 - Basenames are unique across the whole wiki (wikilinks resolve by basename).
 - Page names: lowercase, hyphen-separated, max 50 chars.
 
@@ -51,7 +54,7 @@ Project pages (`type: project`) hold every initiative the wiki knows about, not 
 ## Page frontmatter
 
 ```yaml
-type: entity|person|project|concept|summary   # meetings: type: meeting; log.md: type: log
+type: entity|person|project|system|pipeline|concept|summary   # meetings: type: meeting; log.md: type: log
 status: active           # active | retired | archive — see "Page lifecycle"; on every page and meeting note
 title: "Human Readable Title"
 description: One sentence.

@@ -193,16 +193,16 @@ def section(text, name):
 
 
 def load_projects(pages_dir=PAGES):
-    """slug -> {title, description, state, keys}. keys are compacted terms no other page shares."""
+    """slug -> {path, title, description, state, keys}. keys are compacted terms no other page shares."""
     projects = {}
-    for p in sorted(Path(pages_dir).glob("*.md")):
+    for p in sorted(Path(pages_dir).rglob("*.md")):
         text = p.read_text(encoding="utf-8")
         fm = frontmatter(text)
         if fm.get("type") != "project" or fm.get("status", "active") != "active":
             continue
         aliases = fm.get("aliases") if isinstance(fm.get("aliases"), list) else []
         terms = {p.stem, fm.get("title"), fm.get("monday_label"), *aliases}
-        projects[p.stem] = {"title": fm.get("title") or p.stem, "description": fm.get("description", ""),
+        projects[p.stem] = {"path": p, "title": fm.get("title") or p.stem, "description": fm.get("description", ""),
                             "state": section(text, "State")[:STATE_CAP],
                             "terms": {compact(t) for t in terms if t and len(compact(t)) >= 3}}
     owners = defaultdict(set)
@@ -426,9 +426,9 @@ def main():
         for page, bullets in by_page.items():
             head = heading(t, entry_day)
             if args.dry_run:
-                print(f"\nwiki/pages/{page}.md\n{head}\n" + "\n".join(bullets))
+                print(f"\n{projects[page]['path'].relative_to(fp.VAULT)}\n{head}\n" + "\n".join(bullets))
                 continue
-            path = PAGES / f"{page}.md"
+            path = projects[page]["path"]
             updated = insert_update(path.read_text(encoding="utf-8"), head, bullets)
             if updated is not None:
                 path.write_text(updated, encoding="utf-8")

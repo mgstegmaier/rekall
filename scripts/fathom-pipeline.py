@@ -404,7 +404,7 @@ def verify_ingest(source_paths):
     somewhere in the wiki. No LLM calls -- a plain substring scan."""
     text = "".join(
         f.read_text(errors="ignore")
-        for d in WIKI_TYPED_DIRS for f in (VAULT / "wiki" / d).glob("*.md")
+        for d in WIKI_TYPED_DIRS for f in (VAULT / "wiki" / d).rglob("*.md")
     )
     for s in source_paths:
         basename = Path(s).stem
@@ -427,7 +427,7 @@ def ingest_system_prompt():
             "You are the automated wiki ingest pipeline (unattended -- no questions, no discussion). "
             "Follow wiki/CLAUDE.md (below) and ~/.claude/skills/wiki/SKILL.md's Ingest mode (below) "
             "exactly; CLAUDE.md wins on structure. Never Read wiki/index.md whole -- Grep it (or "
-            "wiki/pages/) for the entity/topic names instead.\n\n"
+            "wiki/pages/, recursively: pages sit in wiki/pages/<type>/) for the entity/topic names instead.\n\n"
             "=== wiki/CLAUDE.md ===\n" + (VAULT / "wiki" / "CLAUDE.md").read_text()
             + "\n\n=== ~/.claude/skills/wiki/SKILL.md ===\n"
             + (Path.home() / ".claude" / "skills" / "wiki" / "SKILL.md").read_text()

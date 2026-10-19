@@ -34,7 +34,7 @@ CREATE TABLE relations (source_id TEXT, target_id TEXT,
 CREATE TABLE aliases   (entity_id TEXT, alias TEXT);
 """
 
-TYPE_BY_FOLDER = {  # pages/ is flat since 2026-09-04: its pages carry `type` in frontmatter
+TYPE_BY_FOLDER = {  # top-level folder; pages/ (nested by type) takes `type` from frontmatter
     "pages": None,
     "meetings": "meeting",
     "sessions": "session",  # SessionEnd digests; moved in from memory/sessions 2026-09-04

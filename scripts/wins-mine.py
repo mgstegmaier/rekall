@@ -78,7 +78,7 @@ def frontmatter(text):
 
 def project_pages():
     pages = []
-    for f in sorted((WIKI / "pages").glob("*.md")):
+    for f in sorted((WIKI / "pages").rglob("*.md")):
         text = f.read_text(errors="ignore")
         fm = frontmatter(text)
         if "type: project" not in fm:
