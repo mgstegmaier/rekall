@@ -42,7 +42,8 @@ CREATE TABLE chunks (
     start_line INTEGER NOT NULL,
     end_line INTEGER NOT NULL,
     text TEXT NOT NULL,
-    kind TEXT NOT NULL DEFAULT 'chunk'
+    kind TEXT NOT NULL DEFAULT 'chunk',
+    date TEXT  -- YYYY-MM-DD the chunk's content is from, for recency ranking; NULL = undated
 );
 CREATE VIRTUAL TABLE chunks_fts USING fts5(text, file, section);
 CREATE TABLE vectors (id INTEGER PRIMARY KEY, vec BLOB NOT NULL);
@@ -90,7 +91,7 @@ def sections(lines):
     return [(h, s, e) for h, s, e in out if any(l.strip() for l in lines[s:e])]
 
 
-FM_KEYS = ("title", "description")
+FM_KEYS = ("title", "description", "date")
 
 
 def frontmatter(lines):
@@ -185,6 +186,29 @@ NO_PREFIX = False  # eval knob, set by --no-prefix: build the index the way it
                    # was before the title/description prefix, so the eval can compare
 
 
+ISO_DATE = r"\d{4}-\d{2}-\d{2}"
+
+
+def chunk_date(text, rel, meta, today=None):
+    """The date a chunk's content is from, for recency ranking, or None.
+
+    The newest of the chunk's [[YYYY-MM-DD...]] citations and a YYYY-MM-DD
+    filename prefix (a section citing a 2026-10 session is fresh even on a page
+    first written in August; a digest linking an old meeting stays as new as
+    the digest), else the frontmatter date. File mtime is never used: bulk
+    ingests reset it.
+    """
+    today = (today or date.today()).isoformat()
+    dates = [d for d in re.findall(r"\[\[(" + ISO_DATE + ")", text) if d <= today]
+    m = re.match(ISO_DATE, Path(rel).name)
+    if m:
+        dates.append(m.group(0))
+    if dates:
+        return max(dates)
+    m = re.fullmatch(ISO_DATE, meta.get("date", "").strip("'\""))
+    return m.group(0) if m else None
+
+
 def file_docs(rel, path):
     """(embed_text, row) docs for one corpus file."""
     meta, chunks = chunk_file(path)
@@ -193,14 +217,14 @@ def file_docs(rel, path):
         # one page-level row from the curated frontmatter hook
         text = f"{meta.get('title') or path.stem}: {meta['description']}"
         docs.append((f"[{rel} § description]\n" + text,
-                     (rel, "description", 0, 0, text, "description")))
+                     (rel, "description", 0, 0, text, "description", chunk_date("", rel, meta))))
     # contextual retrieval, deterministic form: every chunk embeds and full-text
     # indexes with its page's title and description in front, so a "Next steps"
     # section still knows which page it belongs to (docs/plans/2026-09-13-contextual-retrieval.md)
     context = f"{meta.get('title') or path.stem}: {meta['description']}\n" if meta.get("description") and not NO_PREFIX else ""
     for section, s, e, text in chunks:
         docs.append((f"[{rel} § {section}]\n" + context + text,
-                     (rel, section, s, e, text, "chunk")))
+                     (rel, section, s, e, text, "chunk", chunk_date(text, rel, meta))))
     return docs
 
 
@@ -217,7 +241,7 @@ def distilled_doc(path, corpus):
         + [entry.get("summary", ""), entry.get("rule", ""), quote]
     ).strip()
     label = f"[{entry['source']} § distilled]"
-    row = (entry["source"], "distilled", 0, 0, body, "distilled")
+    row = (entry["source"], "distilled", 0, 0, body, "distilled", chunk_date("", entry["source"], {}))
     return label + "\n" + body, row, entry["source"]
 
 
@@ -295,6 +319,9 @@ def main():
         today = date.today()
         last_full = db.execute("SELECT value FROM meta WHERE key='last_full'").fetchone()
         full = today.isoweekday() == 7 and (not last_full or last_full[0] != today.isoformat())
+        # a DB from before chunks.date existed rebuilds once to backfill it,
+        # reusing vectors like the weekly full does
+        full = full or not any(r[1] == "date" for r in db.execute("PRAGMA table_info(chunks)"))
         if full and reuse:
             # the weekly full re-chunks and re-grounds everything but reuses every
             # vector whose embed text is unchanged (24 min -> seconds, 2026-09-24).
@@ -364,7 +391,7 @@ def main():
     ids = []
     for embed_text, row, files_row in docs:
         cur = db.execute(
-            "INSERT INTO chunks (file, section, start_line, end_line, text, kind) VALUES (?,?,?,?,?,?)",
+            "INSERT INTO chunks (file, section, start_line, end_line, text, kind, date) VALUES (?,?,?,?,?,?,?)",
             row,
         )
         ids.append(cur.lastrowid)

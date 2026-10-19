@@ -8,6 +8,7 @@ import functools
 import re
 import sqlite3
 import sys
+from datetime import date
 from pathlib import Path
 
 import numpy as np
@@ -17,6 +18,15 @@ sys.path.insert(0, str(HERE))
 
 from paths import DB, EMBEDDING_MODEL, MODEL_DIR  # noqa: E402
 K = 60  # rank fusion smoothing constant
+# recency: a chunk's fused score is scaled by FLOOR + (1-FLOOR) * 0.5**(age/HALF_LIFE),
+# so today's chunk keeps 100%, a 90-day-old one 95%, and nothing drops below 90%.
+# The floor is high because RRF scores are compressed (rank 0 = 1/60, rank 9 =
+# 1/69): 0.9 costs an old chunk at most ~7 ranks in one leg, so recency breaks
+# near-ties instead of becoming the sort. A 0.5 floor changed top-4 membership
+# on 153 of 231 frozen eval prompts with hits; 0.9 changed it on 57 (2026-10-18).
+# Undated chunks are left alone. Dates come from build_index.chunk_date.
+HALF_LIFE_DAYS = 90
+RECENCY_FLOOR = 0.9
 TOP = 3
 CONTEXT_LINES = 6
 QUERY_PREFIX = "Represent this sentence for searching relevant passages: "  # bge query instruction
@@ -89,12 +99,39 @@ def meaning_leg(db, query, scores=None):
     return [ids[i] for i in top]
 
 
-def fuse(legs):
+def recency(chunk_date, today):
+    """The multiplier for a chunk dated chunk_date (YYYY-MM-DD) as of today."""
+    age = max(0, (today - date.fromisoformat(chunk_date)).days)
+    return RECENCY_FLOOR + (1 - RECENCY_FLOOR) * 0.5 ** (age / HALF_LIFE_DAYS)
+
+
+def chunk_dates(db, rowids):
+    """{rowid: date} for the dated ones; {} on an index built before chunks.date."""
+    if not rowids:
+        return {}
+    marks = ",".join("?" * len(rowids))
+    try:
+        rows = db.execute(f"SELECT id, date FROM chunks WHERE id IN ({marks}) AND date IS NOT NULL",
+                          list(rowids)).fetchall()
+    except sqlite3.OperationalError:  # pre-upgrade index: no date column until the next build
+        return {}
+    return dict(rows)
+
+
+def fuse(legs, db=None, today=None):
+    """Rank fusion over the legs; with db, each score is scaled by recency."""
     scores, found_by = {}, {}
     for name, ids in legs.items():
         for rank, rowid in enumerate(ids):
             scores[rowid] = scores.get(rowid, 0.0) + 1.0 / (K + rank)
             found_by.setdefault(rowid, []).append(name)
+    if db is not None:
+        today = today or date.today()
+        for rowid, d in chunk_dates(db, scores).items():
+            try:
+                scores[rowid] *= recency(d, today)
+            except ValueError:  # malformed date: leave the score alone
+                pass
     ranked = sorted(scores, key=scores.get, reverse=True)
     return ranked, found_by
 
@@ -154,7 +191,7 @@ def main():
     else:
         legs["meaning"] = meaning
 
-    ranked, found_by = fuse(legs)
+    ranked, found_by = fuse(legs, db)
     if not ranked:
         print("no matches")
         return
