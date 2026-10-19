@@ -542,6 +542,8 @@ def main():
     # the OS releases it automatically on process exit.
 
     now = datetime.now(timezone.utc)
+    if not MONDAY_BOARD:  # no [monday] board in rekall.toml: meeting to-dos reach Monday from the cos desk's Ticket button instead
+        args.no_monday = True
     if not args.no_monday and not env("MONDAY_API_TOKEN"):
         log("no MONDAY_API_TOKEN set; skipping the Monday push")
         args.no_monday = True
