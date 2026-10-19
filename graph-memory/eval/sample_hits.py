@@ -58,7 +58,8 @@ for i, p in enumerate(sample):
     if m is not None:
         legs["meaning"] = m
     seeds = _seeds(db, p)
-    ranked, found_by = fuse(legs)
+    # EVAL_NO_RECENCY=1 ranks the way the hook did before recency weighting, for an A/B
+    ranked, found_by = fuse(legs, None if os.environ.get("EVAL_NO_RECENCY") else db)
     scores = {}
     for name, ids in legs.items():
         for rank, rid in enumerate(ids):

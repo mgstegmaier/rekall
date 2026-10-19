@@ -64,7 +64,7 @@ def hits(query):
         meaning = meaning_leg(db, query, scores=scores)
         if meaning is not None:
             legs["meaning"] = meaning
-        ranked, _ = fuse(legs)
+        ranked, _ = fuse(legs, db)
         out = []
         for rowid in ranked:
             if meaning is not None and scores.get(rowid, 0.0) < MEANING_THRESHOLD:
