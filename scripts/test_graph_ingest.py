@@ -145,8 +145,8 @@ def test_device_code_signin():
     spec = importlib.util.spec_from_file_location("setup_server2", Path(__file__).parent / "setup-server.py")
     ss = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(ss)
-    ss.ENV_FILE = TMP / ".env"
-    ss.ENV_FILE.write_text("FATHOM_API_KEY=keep\n")
+    stored = {}
+    ss.set_secret = lambda k, v: stored.update({k: v})
     os.environ.update(MSGRAPH_CLIENT_ID="cid", MSGRAPH_TENANT_ID="tid")
     os.environ.pop("MSGRAPH_CLIENT_SECRET", None)
     replies = [(200, {"device_code": "dc", "user_code": "ABCD-EFGH", "verification_uri": "https://microsoft.com/devicelogin",
@@ -161,7 +161,7 @@ def test_device_code_signin():
     assert ss.device_poll() == {"pending": True} and ss.DEVICE["interval"] == 5, "slow_down must back off"
     ss.DEVICE["next"] = 0
     assert ss.device_poll() == {"ok": True}
-    assert ss.ENV_FILE.read_text() == "FATHOM_API_KEY=keep\nMSGRAPH_REFRESH_TOKEN=rt-new\n"
+    assert stored == {"MSGRAPH_REFRESH_TOKEN": "rt-new"}
     assert ss.device_poll() == {"error": "No sign-in in progress. Start again."}
     os.environ["MSGRAPH_CLIENT_SECRET"] = "s"
     assert ss.device_start() == {"redirect": "/signin"}, "an app with a secret uses the redirect flow"

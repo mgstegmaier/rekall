@@ -10,8 +10,8 @@ Each run:
 4. Ingest new meeting notes + new raw/ files into the flat wiki via headless claude
 5. Track processed meeting IDs in ~/.config/rekall/fathom-pipeline-state.json (idempotent)
 
-Paths and settings: rekall.toml at the repo root. Secrets: .env at the repo root, or Doppler
-(run-fathom-pipeline.sh picks whichever exists).
+Paths and settings: rekall.toml at the repo root. Secrets: environment, OS keyring, or .env
+(rekall_config.get_secret); [secrets] run_prefix wraps the job in a secrets manager.
 Flags: --hours N (default 26) | --since YYYY-MM-DD (backfill) | --no-monday | --no-wiki | --dry-run
 """
 
@@ -32,7 +32,7 @@ from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from rekall_config import MONDAY_BOARD, MONDAY_GROUP, STATE_DIR, TIMEZONE, VAULT  # noqa: E402
+from rekall_config import find_secret, MONDAY_BOARD, MONDAY_GROUP, STATE_DIR, TIMEZONE, VAULT  # noqa: E402
 
 MEETINGS = VAULT / "wiki" / "meetings"
 RAW = VAULT / "wiki" / "raw"
@@ -82,7 +82,7 @@ def acquire_lock(path):
 
 
 def env(key, fallback=None):
-    return os.environ.get(key) or (os.environ.get(fallback) if fallback else None)
+    return find_secret(key) or (find_secret(fallback) if fallback else None)
 
 
 # A corporate security proxy that re-signs TLS breaks urllib's verification; the combined
@@ -358,7 +358,7 @@ def append_digest(entries):
 def monday_gql(query, variables=None):
     token = env("MONDAY_API_TOKEN")
     if not token:
-        sys.exit("Missing MONDAY_API_TOKEN (set it in .env or run under doppler)")
+        sys.exit("Missing MONDAY_API_TOKEN (save it on the settings page or set [secrets] run_prefix)")
     data = http_json("https://api.monday.com/v2", {"Authorization": token, "API-Version": "2024-10"},
                      {"query": query, "variables": variables or {}})
     if data.get("errors"):
