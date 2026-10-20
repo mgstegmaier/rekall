@@ -1,7 +1,7 @@
 """Rekall settings, read from rekall.toml at the repo root.
 
-Copy rekall.example.toml to rekall.toml and edit it. Secrets never go here; they
-live in .env (see .env.example). Every script imports its paths from this module,
+Copy rekall.example.toml to rekall.toml and edit it. Secrets never go here; get_secret()
+below reads them from the environment, the OS keyring, or a legacy .env. Every script imports its paths from this module,
 and shell scripts ask it for one value: `python3 rekall_config.py VAULT`.
 Set REKALL_CONFIG=/path/to/other.toml to run everything against a different vault.
 """
@@ -32,6 +32,43 @@ MONDAY_GROUP = _cfg.get("monday", {}).get("group", "Auto-Capture")
 EMBEDDING_MODEL = _cfg.get("index", {}).get("embedding_model", "BAAI/bge-small-en-v1.5")
 # Optional Microsoft Graph ingest (scripts/graph-ingest.py); off unless enabled = true.
 GRAPH = _cfg.get("graph", {})
+# Optional command the launchers put in front of each job, e.g. "doppler run --project p --config c --".
+RUN_PREFIX = _cfg.get("secrets", {}).get("run_prefix", "")
+
+ENV_FILE = ROOT / ".env"  # legacy store, checked last so existing installs keep working
+KEYRING_SERVICE = "rekall"
+
+
+def find_secret(name):
+    """Value for name from the environment, then the OS keyring, then .env; None when all are empty."""
+    if os.environ.get(name):
+        return os.environ[name]
+    try:  # a missing package or a broken backend falls through to .env
+        import keyring
+        value = keyring.get_password(KEYRING_SERVICE, name)
+        if value:
+            return value
+    except Exception:
+        pass
+    if ENV_FILE.exists():
+        for line in ENV_FILE.read_text(encoding="utf-8").splitlines():
+            k, sep, v = line.partition("=")
+            if sep and k.strip() == name and v.strip():
+                return v.strip().strip("\"'")
+    return None
+
+
+def get_secret(name):
+    value = find_secret(name)
+    if value is None:
+        raise KeyError(f"{name} not in environment, keyring (service {KEYRING_SERVICE!r}), or {ENV_FILE}")
+    return value
+
+
+def set_secret(name, value):
+    import keyring
+    keyring.set_password(KEYRING_SERVICE, name, value)
+
 
 if __name__ == "__main__":
     names = sys.argv[1:] or ["USER_NAME", "TIMEZONE", "VAULT", "WIKI", "SESSIONS", "ARCHIVE", "DATA", "STATE_DIR", "MONDAY_BOARD", "MONDAY_GROUP", "EMBEDDING_MODEL"]

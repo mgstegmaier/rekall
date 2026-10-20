@@ -44,9 +44,14 @@ fails. Never skip a failed step and never overwrite a file that already exists.
    wiki/CLAUDE.md, replace REKALL_REPO with the rekall folder's absolute path.
 3. Ask me for my name, the email address Fathom knows me by, and my timezone. Write
    rekall.toml from rekall.example.toml with those and the vault path.
-4. Secrets: copy .env.example to .env and set its mode to 600. Ask whether I have a
-   Fathom API key. If not, tell me where in Fathom to create one and wait for me. Write
-   FATHOM_API_KEY and WORK_EMAIL into .env and leave the Monday and Jira lines blank.
+4. Secrets: they go in the system keychain (macOS Keychain, Windows Credential Manager), not a
+   file. Don't create a .env. If graph-memory/.venv doesn't exist yet, create it and run
+   `pip install keyring` in it (install.sh in step 5 reuses it). Then start
+   `scripts/setup-server.py` with the venv interpreter (the same one step 8 uses), open
+   http://localhost:8086 for me, and ask whether I have a Fathom API key. If not, tell me
+   where in Fathom to create one (Settings, Integrations, API) and wait for me. I paste
+   FATHOM_API_KEY and WORK_EMAIL into the page and click Save keys. Wait until the page shows
+   both as Present, then stop the server. Leave Monday and Jira alone.
 5. Install: run `bash install.sh` in the rekall folder and show me its output. It checks
    for python 3.11 or newer, builds graph-memory/.venv, downloads the embedding model,
    merges the hooks into ~/.claude/settings.json, copies the skills and commands into
@@ -114,13 +119,15 @@ for your group. Ask for its client ID and tenant ID, and whether "Allow public c
 - If they're off, you also need a client secret, and the app must list `http://localhost:8086` as a
   "Mobile and desktop applications" redirect URI.
 
-1. In `.env`, set `MSGRAPH_CLIENT_ID` and `MSGRAPH_TENANT_ID` from the app registration. Set
-   `MSGRAPH_CLIENT_SECRET` only if the app has public client flows turned off. If another tool
-   already signed you in to the same app and can export these values, it can write them for you,
-   refresh token included, and you can skip step 3's sign-in.
+1. Save `MSGRAPH_CLIENT_ID` and `MSGRAPH_TENANT_ID` from the app registration to the keychain.
+   Save `MSGRAPH_CLIENT_SECRET` only if the app has public client flows turned off. The settings
+   page has no fields for these, so run this once per value with the venv interpreter:
+   `python3 -c "import rekall_config as r; r.set_secret('MSGRAPH_CLIENT_ID', 'the-value')"`.
+   If another tool already signed you in to the same app and can export these values, it can
+   write them for you, refresh token included, and you can skip step 3's sign-in.
 2. Run `python3 scripts/setup-server.py` in the rekall folder and open http://localhost:8086. If
-   your secrets live in Doppler instead of `.env`, run it under `doppler run --` so the page can
-   see them.
+   you use a secrets manager (see "Power users" below), run it under the manager's command, such
+   as `doppler run --`, so the page can see the values.
 3. On the settings page, check that every required secret shows "Present". Click **Sign in with
    Microsoft**.
    - With no client secret, the page shows a code and a Microsoft link. Open the link, enter the
@@ -128,7 +135,7 @@ for your group. Ask for its client ID and tenant ID, and whether "Allow public c
    - With a client secret, the browser goes to Microsoft and comes back.
 
    Either way, the page then shows who you're signed in as, and `MSGRAPH_REFRESH_TOKEN` is in
-   `.env`. If sign-in fails with `AADSTS7000218`, the app needs a client secret (public client
+   your keychain. If sign-in fails with `AADSTS7000218`, the app needs a client secret (public client
    flows are off). If it fails with `AADSTS50011`, the redirect URI on the app doesn't match
    `http://localhost:8086` exactly.
 4. Click **Load my chats** and tick the chats to include. Nothing is read from a chat you don't
@@ -144,12 +151,31 @@ for your group. Ask for its client ID and tenant ID, and whether "Allow public c
 7. When the dry run looks right, run it once without `--dry-run`, and read the new entries on the
    pages it names.
 8. To change any of this later, run `python3 scripts/setup-server.py` again. The page reads
-   `rekall.toml` and `.env` fresh each time it loads.
+   `rekall.toml` and your secrets fresh each time it loads.
 9. To run it every weekday hour from 07:45 to 17:45, run `bash install.sh --with-graph` (macOS
    only). `bash install.sh --uninstall` removes it with everything else.
 
 The refresh token expires after 90 days without use. When it does, the job sends a notification
 naming `AADSTS700082`; sign in again from the setup page.
+
+## Power users: a secrets manager
+
+If you keep secrets in Doppler or a similar tool, skip the settings page's key fields and add one
+line to `rekall.toml`:
+
+```toml
+[secrets]
+run_prefix = "doppler run --project myproject --config dev --"
+```
+
+The launchers run every scheduled job under that prefix, so the keys arrive as environment
+variables. Rekall looks for each secret in the environment first, then the keychain, then a
+legacy `.env` in the rekall folder, so existing `.env` files keep working.
+
+## macOS Keychain prompt
+
+The first scheduled run after you save a key may pop up a Keychain prompt asking whether python
+can read it. Click **Always Allow**, or every hourly run will wait on the prompt.
 
 ## Corporate CA note
 

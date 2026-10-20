@@ -3,19 +3,19 @@
 Graph ingest.
 
 Run `python3 scripts/setup-server.py` and open http://localhost:8086, as often as you like: it
-reads rekall.toml and .env fresh on every load. The page shows:
+reads rekall.toml and the secrets fresh on every load. The page shows:
 - each secret Rekall reads, present or missing (never the value), and whether `claude` is on PATH;
 - Graph sign-in status (a token refresh plus /me) and a Sign in button;
 - your Teams chats with a checkbox each, the mail folders, and the on/off switch;
 - Save, which rewrites only the [graph] section of rekall.toml.
 
 Sign-in needs MSGRAPH_CLIENT_ID and MSGRAPH_TENANT_ID for an Entra app with read-only delegated
-permissions. Either way the new refresh token goes into .env (mode 600):
+permissions. Either way the new refresh token goes into the OS keyring (rekall_config.set_secret):
 - No MSGRAPH_CLIENT_SECRET (the app allows public client flows): device-code sign-in. The page
   shows a code; you enter it at Microsoft's sign-in page.
 - With MSGRAPH_CLIENT_SECRET: the auth-code flow cos-desk's msgraph-auth.py uses, which needs
   http://localhost:8086 as a "Mobile and desktop applications" redirect URI on the app.
-Doppler users: start it under `doppler run -- python3 scripts/setup-server.py`.
+Secrets manager users: start it under their run command, e.g. `doppler run -- python3 scripts/setup-server.py`.
 
 Local only, with Radar's /setup guards: binds 127.0.0.1, rejects any Host but localhost:8086 or
 127.0.0.1:8086, every POST needs a matching Origin and `X-Rekall-Setup: 1`, and the OAuth callback
@@ -38,44 +38,20 @@ _spec = importlib.util.spec_from_file_location("graph_ingest", Path(__file__).pa
 gi = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(gi)
 fp = gi.fp
+from rekall_config import find_secret, get_secret, set_secret  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG = Path(os.environ.get("REKALL_CONFIG", ROOT / "rekall.toml"))
-ENV_FILE = ROOT / ".env"
 PORT = 8086  # the redirect URI registered on the Entra app, shared with cos-desk's msgraph-auth.py
 REDIRECT = f"http://localhost:{PORT}"
 SIGNIN_SCOPE = "offline_access User.Read Mail.Read Chat.ReadBasic Chat.Read"
 HOSTS = {f"localhost:{PORT}", f"127.0.0.1:{PORT}"}
 SECRETS = ["FATHOM_API_KEY", "WORK_EMAIL", "MSGRAPH_CLIENT_ID", "MSGRAPH_TENANT_ID", "MSGRAPH_REFRESH_TOKEN"]
 OPTIONAL = ["MSGRAPH_CLIENT_SECRET"]  # only for an app without public client flows
+INPUTS = ["FATHOM_API_KEY", "WORK_EMAIL"]  # typed on the page; the Graph app values come from the app registration
 GRAPH_NEEDS = ["MSGRAPH_CLIENT_ID", "MSGRAPH_TENANT_ID"]
 STATES = set()  # one-time OAuth state values
 DEVICE = {}     # the pending device-code sign-in: device_code, interval, next poll time
-
-
-def load_env_file():
-    if ENV_FILE.exists():
-        for line in ENV_FILE.read_text().splitlines():
-            k, sep, v = line.partition("=")
-            if sep and re.fullmatch(r"[A-Z_][A-Z0-9_]*", k.strip()) and v.strip():
-                os.environ.setdefault(k.strip(), v.strip().strip("\"'"))
-
-
-def set_env_var(key, value):
-    """Set KEY=value in .env, keeping every other line. Creates the file (mode 600) if missing."""
-    lines = ENV_FILE.read_text().splitlines() if ENV_FILE.exists() else []
-    out, done = [], False
-    for line in lines:
-        if line.split("=", 1)[0].strip() == key:
-            out.append(f"{key}={value}")
-            done = True
-        else:
-            out.append(line)
-    if not done:
-        out.append(f"{key}={value}")
-    ENV_FILE.write_text("\n".join(out) + "\n")
-    ENV_FILE.chmod(0o600)
-    os.environ[key] = value
 
 
 def graph_section(enabled, folders, chats):
@@ -116,7 +92,7 @@ def save_config(data):
 
 
 def graph_status():
-    if not all(os.environ.get(k) for k in GRAPH_NEEDS + ["MSGRAPH_REFRESH_TOKEN"]):
+    if not all(find_secret(k) for k in GRAPH_NEEDS + ["MSGRAPH_REFRESH_TOKEN"]):
         return {"ok": False, "error": "One or more MSGRAPH_* secrets are missing."}
     try:
         tok = gi.graph_token()
@@ -146,7 +122,7 @@ def token_post(form):
     """(http status, json) from the tenant's token or devicecode endpoint; never raises on 4xx."""
     path = "devicecode" if "grant_type" not in form else "token"
     req = fp.urllib.request.Request(
-        f"https://login.microsoftonline.com/{os.environ['MSGRAPH_TENANT_ID']}/oauth2/v2.0/{path}",
+        f"https://login.microsoftonline.com/{get_secret('MSGRAPH_TENANT_ID')}/oauth2/v2.0/{path}",
         data=urlencode(form).encode(), headers={"Content-Type": "application/x-www-form-urlencoded"})
     try:
         with fp.urllib.request.urlopen(req, timeout=30, context=fp.SSL_CTX) as resp:
@@ -160,12 +136,12 @@ def token_post(form):
 
 def device_start():
     """Start a device-code sign-in, or tell the page to use the redirect flow when a secret is set."""
-    missing = [k for k in GRAPH_NEEDS if not os.environ.get(k)]
+    missing = [k for k in GRAPH_NEEDS if not find_secret(k)]
     if missing:
-        return {"error": f"Missing {', '.join(missing)}. Add them to .env first."}
-    if os.environ.get("MSGRAPH_CLIENT_SECRET"):
+        return {"error": f"Missing {', '.join(missing)}. Save them first (SETUP.md, Graph section)."}
+    if find_secret("MSGRAPH_CLIENT_SECRET"):
         return {"redirect": "/signin"}
-    code, out = token_post({"client_id": os.environ["MSGRAPH_CLIENT_ID"], "scope": SIGNIN_SCOPE})
+    code, out = token_post({"client_id": get_secret("MSGRAPH_CLIENT_ID"), "scope": SIGNIN_SCOPE})
     if code != 200:
         return {"error": out.get("error_description", out.get("error", f"HTTP {code}"))[:300]}
     DEVICE.clear()
@@ -175,7 +151,7 @@ def device_start():
 
 
 def device_poll():
-    """One poll of the pending device-code sign-in. Writes the refresh token to .env on success."""
+    """One poll of the pending device-code sign-in. Saves the refresh token on success."""
     if not DEVICE:
         return {"error": "No sign-in in progress. Start again."}
     if time.time() > DEVICE["expires"]:
@@ -184,11 +160,11 @@ def device_poll():
     if time.time() < DEVICE["next"]:  # Microsoft asks for at least `interval` seconds between polls
         return {"pending": True}
     DEVICE["next"] = time.time() + DEVICE["interval"]
-    code, out = token_post({"client_id": os.environ["MSGRAPH_CLIENT_ID"], "device_code": DEVICE["device_code"],
+    code, out = token_post({"client_id": get_secret("MSGRAPH_CLIENT_ID"), "device_code": DEVICE["device_code"],
                             "grant_type": "urn:ietf:params:oauth:grant-type:device_code"})
     if code == 200 and out.get("refresh_token"):
         DEVICE.clear()
-        set_env_var("MSGRAPH_REFRESH_TOKEN", out["refresh_token"])
+        set_secret("MSGRAPH_REFRESH_TOKEN", out["refresh_token"])
         return {"ok": True}
     err = out.get("error")
     if err == "slow_down":
@@ -203,7 +179,7 @@ def device_poll():
 
 def status():
     cfg = tomllib.loads(CONFIG.read_text(encoding="utf-8")).get("graph", {})
-    return {"secrets": [{"name": k, "present": bool(os.environ.get(k)), "optional": k in OPTIONAL} for k in SECRETS + OPTIONAL],
+    return {"secrets": [{"name": k, "present": bool(find_secret(k)), "optional": k in OPTIONAL} for k in SECRETS + OPTIONAL],
             "claude": bool(shutil.which("claude")), "graph": graph_status(),
             "config": {"enabled": bool(cfg.get("enabled")), "folders": cfg.get("mail_folders", ["inbox", "sentitems"]),
                        "chats": cfg.get("chats", [])},
@@ -243,13 +219,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if url.path == "/":
             return self.send(200, PAGE, "text/html")
         if url.path == "/signin":
-            missing = [k for k in GRAPH_NEEDS + OPTIONAL if not os.environ.get(k)]
+            missing = [k for k in GRAPH_NEEDS + OPTIONAL if not find_secret(k)]
             if missing:
-                return self.send(400, f"Missing {', '.join(missing)}. Add them to .env first.", "text/plain")
+                return self.send(400, f"Missing {', '.join(missing)}. Save them first (SETUP.md, Graph section).", "text/plain")
             state = secrets.token_urlsafe(24)
             STATES.add(state)
-            auth = (f"https://login.microsoftonline.com/{os.environ['MSGRAPH_TENANT_ID']}/oauth2/v2.0/authorize?"
-                    + urlencode({"client_id": os.environ["MSGRAPH_CLIENT_ID"], "response_type": "code",
+            auth = (f"https://login.microsoftonline.com/{get_secret('MSGRAPH_TENANT_ID')}/oauth2/v2.0/authorize?"
+                    + urlencode({"client_id": get_secret("MSGRAPH_CLIENT_ID"), "response_type": "code",
                                  "redirect_uri": REDIRECT, "response_mode": "query", "scope": SIGNIN_SCOPE,
                                  "state": state, "prompt": "select_account"}))
             return self.send(302, b"", "text/plain", {"Location": auth})
@@ -267,11 +243,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if state not in STATES:
             return self.send(400, "Unknown sign-in state. Start again from the setup page.", "text/plain")
         STATES.discard(state)
-        body = urlencode({"client_id": os.environ["MSGRAPH_CLIENT_ID"], "client_secret": os.environ["MSGRAPH_CLIENT_SECRET"],
+        body = urlencode({"client_id": get_secret("MSGRAPH_CLIENT_ID"), "client_secret": get_secret("MSGRAPH_CLIENT_SECRET"),
                           "code": q["code"][0], "redirect_uri": REDIRECT, "grant_type": "authorization_code",
                           "scope": SIGNIN_SCOPE}).encode()
         req = fp.urllib.request.Request(
-            f"https://login.microsoftonline.com/{os.environ['MSGRAPH_TENANT_ID']}/oauth2/v2.0/token", data=body,
+            f"https://login.microsoftonline.com/{get_secret('MSGRAPH_TENANT_ID')}/oauth2/v2.0/token", data=body,
             headers={"Content-Type": "application/x-www-form-urlencoded"})
         try:
             with fp.urllib.request.urlopen(req, timeout=30, context=fp.SSL_CTX) as resp:
@@ -280,7 +256,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self.send(400, f"Token exchange failed: HTTP {e.code} {e.read().decode(errors='ignore')[:300]}", "text/plain")
         if not tokens.get("refresh_token"):
             return self.send(400, "Microsoft returned no refresh token (offline_access missing?).", "text/plain")
-        set_env_var("MSGRAPH_REFRESH_TOKEN", tokens["refresh_token"])
+        set_secret("MSGRAPH_REFRESH_TOKEN", tokens["refresh_token"])
         self.send(302, b"", "text/plain", {"Location": "/"})
 
     def do_POST(self):
@@ -296,6 +272,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
         try:
             if path == "/api/config":
                 return self.send(200, {"saved": save_config(json.loads(self.rfile.read(n) or b"{}"))})
+            if path == "/api/secrets":
+                data = json.loads(self.rfile.read(n) or b"{}")
+                saved = [k for k in INPUTS if str(data.get(k, "")).strip()]
+                for k in saved:
+                    set_secret(k, str(data[k]).strip())
+                return self.send(200, {"saved": saved})
             if path == "/api/device/start":
                 return self.send(200, device_start())
             if path == "/api/device/poll":
@@ -399,13 +381,19 @@ footer { font: 500 0.75rem/1.5 var(--font-heading); letter-spacing: 0.08em; text
 
 <section aria-labelledby="h-secrets">
   <h2 id="h-secrets">Secrets</h2>
-  <p class="hint">Read from <code>.env</code> in the rekall folder or the environment. Values are never shown here.</p>
+  <p class="hint">Saved to your system keychain, or read from the environment or <code>.env</code>. Values are never shown here.</p>
   <table><thead><tr><th scope="col">Name</th><th scope="col">Status</th></tr></thead><tbody id="secrets"></tbody></table>
+  <form id="keys" autocomplete="off" style="margin-top: var(--space-lg)">
+    <p class="hint">Fathom API key (Fathom, Settings, Integrations, API) and the email Fathom knows you by. Leave a field blank to keep what's saved.</p>
+    <input type="password" id="k-FATHOM_API_KEY" placeholder="FATHOM_API_KEY" aria-label="FATHOM_API_KEY" autocomplete="off" style="margin-bottom: var(--space-sm)">
+    <input type="text" id="k-WORK_EMAIL" placeholder="WORK_EMAIL" aria-label="WORK_EMAIL" autocomplete="off">
+    <div class="savebar"><button class="btn btn-accent" id="savekeys" type="button">Save keys</button><p id="keymsg" role="status"></p></div>
+  </form>
 </section>
 
 <section aria-labelledby="h-account">
   <h2 id="h-account">Microsoft account</h2>
-  <p class="hint">Sign-in uses your Entra app, with a device code when <code>MSGRAPH_CLIENT_SECRET</code> is blank. The new token goes into <code>.env</code>.</p>
+  <p class="hint">Sign-in uses your Entra app, with a device code when <code>MSGRAPH_CLIENT_SECRET</code> is blank. The new token goes into your system keychain.</p>
   <div class="account"><div id="graph"><p class="sub">Checking...</p></div><button class="btn btn-secondary" id="signin" type="button">Sign in with Microsoft</button></div>
   <div class="device" id="device" hidden><p id="device-intro">Open <a id="device-link" target="_blank" rel="noopener"></a> and enter this code:</p><p class="code" id="device-code"></p><p class="sub" id="device-msg" role="status">Waiting for you to finish signing in...</p></div>
 </section>
@@ -483,6 +471,12 @@ $("signin").onclick = async () => {
     if (p.ok) { $("device").hidden = true; refresh(); }
   }, Math.max(3, r.interval) * 1000);
 };
+$("savekeys").onclick = async () => {
+  const r = await post("/api/secrets", {FATHOM_API_KEY: $("k-FATHOM_API_KEY").value, WORK_EMAIL: $("k-WORK_EMAIL").value});
+  $("k-FATHOM_API_KEY").value = $("k-WORK_EMAIL").value = "";
+  $("keymsg").textContent = r.error ? r.error : r.saved.length ? `Saved ${r.saved.join(", ")}.` : "Nothing to save.";
+  if (!r.error) refresh();
+};
 $("chats").addEventListener("change", count);
 $("filter").addEventListener("input", e => {
   const q = e.target.value.toLowerCase();
@@ -511,7 +505,6 @@ refresh();
 
 
 def main():
-    load_env_file()
     server = http.server.ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     print(f"Rekall setup: open {REDIRECT}  (Ctrl-C to stop)")
     try:

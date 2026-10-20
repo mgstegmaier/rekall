@@ -1,6 +1,6 @@
 #!/bin/bash
 # Rekall installer: every deterministic step of SETUP.md in one idempotent script.
-# Run it after rekall.toml and .env exist. Safe to re-run; `--uninstall` reverses
+# Run it after rekall.toml exists. Safe to re-run; `--uninstall` reverses
 # everything it did and leaves the repo, venv, .env and your wiki alone.
 #
 # Exists because the steps that write outside the repo (hooks into
@@ -155,13 +155,10 @@ uninstall() {
 
 [ -f "$REPO/rekall.toml" ] || { echo "rekall.toml is missing; write it first (SETUP.md step 3)." >&2; exit 1; }
 
-# 2. secrets skeleton (values are yours to fill in; never overwritten)
-[ -f "$REPO/.env" ] || cp "$REPO/.env.example" "$REPO/.env"
-chmod 600 "$REPO/.env" 2>/dev/null || true   # no-op on Windows, where the profile is already user-only
-
 # 3. venv, fastembed, embedding model
 [ -x "$PY" ] || "$PY3" -m venv "$VENV"
 "$PY" -c 'import fastembed' 2>/dev/null || "$PY" -m pip install -q fastembed
+"$PY" -c 'import keyring' 2>/dev/null || "$PY" -m pip install -q keyring   # rekall_config.get_secret
 "$PY" -c 'import mcp' 2>/dev/null || "$PY" -m pip install -q "mcp<2"   # graph-memory/mcp_server.py (v2 renamed FastMCP)
 # Windows ships no timezone database, so zoneinfo raises without tzdata in the venv
 [ -z "$WIN" ] || "$PY" -c 'import tzdata' 2>/dev/null || "$PY" -m pip install -q tzdata
