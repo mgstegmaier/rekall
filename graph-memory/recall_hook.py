@@ -3,8 +3,11 @@
 Claude Code hands this hook the prompt on stdin as JSON. It runs the same two
 legs as search.py and hands the top hits back as additionalContext.
 
-It never blocks a prompt. No index, no prompt, no hits, or any failure at all,
-and it prints nothing and exits 0.
+It never blocks a prompt: every path exits 0. No prompt or no hits prints
+nothing. A missing index or any failure logs one line to
+<state>/logs/hook.log and shows "rekall unavailable: <reason>", so a broken
+setup is visible instead of silently ungrounded. The hook command in
+hooks.json guards the case this file can't: the script itself missing.
 """
 
 import json
@@ -12,12 +15,17 @@ import os
 import re
 import sqlite3
 import sys
+from datetime import datetime
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
-from paths import DB  # noqa: E402
+try:
+    from paths import DB  # noqa: E402
+    BROKEN = None
+except (Exception, SystemExit) as e:  # rekall_config sys.exits on a missing rekall.toml
+    DB, BROKEN = None, f"config failed to load ({e})"
 TOP = 5
 BUDGET = 1500  # characters of context in total
 PER_HIT = 280  # characters of chunk text per hit
@@ -159,6 +167,27 @@ def graph_block(facts):
     return lines
 
 
+def log(reason):
+    """One line in the hook log. Falls back to the default state dir when the
+    config itself is what broke. Never raises."""
+    try:
+        from rekall_config import STATE_DIR
+    except (Exception, SystemExit):  # rekall_config sys.exits on a missing rekall.toml
+        STATE_DIR = Path.home() / ".config" / "rekall"
+    try:
+        (STATE_DIR / "logs").mkdir(parents=True, exist_ok=True)
+        with open(STATE_DIR / "logs" / "hook.log", "a", encoding="utf-8") as f:
+            f.write(f"{datetime.now():%Y-%m-%d %H:%M:%S} recall_hook: {reason}\n")
+    except Exception:
+        pass
+
+
+def unavailable(reason):
+    """Logs the reason and shows it to the user; injects no context."""
+    log(reason)
+    print(json.dumps({"systemMessage": f"rekall unavailable: {reason}"}))
+
+
 def main():
     if os.environ.get("MEMORY_STARTER_CHILD"):  # headless child of our own pipeline; nobody reads it
         return
@@ -166,12 +195,16 @@ def main():
         prompt = json.load(sys.stdin).get("prompt", "")
     except Exception:
         return
-    if not isinstance(prompt, str) or not prompt.strip() or BUTTON_PROMPT.match(prompt) or not DB.is_file():
+    if not isinstance(prompt, str) or not prompt.strip() or BUTTON_PROMPT.match(prompt):
         return
+    if BROKEN:
+        return unavailable(BROKEN)
+    if not DB.is_file():
+        return unavailable(f"no index at {DB}, run graph-memory/reindex.sh")
     try:
         kept = block(hits(prompt), prompt)
-    except Exception:
-        kept = []
+    except Exception as e:
+        return unavailable(f"search failed ({type(e).__name__}: {e})")
     facts = graph_facts(prompt)
     if not kept and not facts:
         return
@@ -199,5 +232,8 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        unavailable(f"{type(e).__name__}: {e}")
     sys.exit(0)
