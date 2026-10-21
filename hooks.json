@@ -1,12 +1,12 @@
 {
-  "_comment": "install.sh merges the two entries below into the hooks block of ~/.claude/settings.json, keeping anything already there, with __REPO__ replaced by this repo's absolute path and __VENV_PY__ by the venv interpreter (bin/python on macOS, Scripts/python.exe on Windows); install.sh --uninstall removes them. The recall hook fails open: any error exits silently and never blocks a prompt.",
+  "_comment": "install.sh merges the two entries below into the hooks block of ~/.claude/settings.json, keeping anything already there, with __REPO__ replaced by this repo's absolute path and __VENV_PY__ by the venv interpreter (bin/python on macOS, Scripts/python.exe on Windows); install.sh --uninstall removes them. Both commands fail open: they check the script exists first and exit 0 on any failure, because Claude Code treats exit 2 from UserPromptSubmit (Python's exit code for a missing script) as a block on every prompt. The recall command shows 'rekall unavailable' and logs to ~/.config/rekall/logs/hook.log when it can't run.",
   "hooks": {
     "UserPromptSubmit": [
       {
         "hooks": [
           {
             "type": "command",
-            "command": "\"__VENV_PY__\" \"__REPO__/graph-memory/recall_hook.py\"",
+            "command": "S=\"__REPO__/graph-memory/recall_hook.py\"; [ -f \"$S\" ] && \"__VENV_PY__\" \"$S\" || { mkdir -p \"$HOME/.config/rekall/logs\"; echo \"$(date \"+%Y-%m-%d %H:%M:%S\") hook command: $S or __VENV_PY__ missing or failed\" >> \"$HOME/.config/rekall/logs/hook.log\"; echo '{\"systemMessage\":\"rekall unavailable: recall_hook.py or its venv is missing, see ~/.config/rekall/logs/hook.log\"}'; }",
             "timeout": 20
           }
         ]
@@ -17,7 +17,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"__VENV_PY__\" \"__REPO__/graph-memory/digest/session_end.py\"",
+            "command": "S=\"__REPO__/graph-memory/digest/session_end.py\"; [ -f \"$S\" ] && \"__VENV_PY__\" \"$S\" || true",
             "timeout": 10
           }
         ]

@@ -51,12 +51,12 @@ done
 [ -n "$PY3" ] || { echo "No python 3.11 or newer on PATH. Install one (brew install python, or python.org on Windows) and re-run." >&2; exit 1; }
 
 # Merges (or removes) rekall's hooks and permission rules in settings.json.
-# Matching is by exact command / rule string, so re-runs never duplicate.
+# Hooks match by script path and rules by exact string, so re-runs never duplicate.
 settings() {  # $1 = add | remove
   mkdir -p "$(dirname "$SETTINGS")"
   [ -f "$SETTINGS" ] || echo '{}' > "$SETTINGS"
   "$PY3" - "$1" "$REPO" "$SETTINGS" "$PY" "$LIST_RULE" <<'EOF'
-import json, sys
+import json, re, sys
 mode, repo, path, venv_py, list_rule = sys.argv[1:]
 s = json.load(open(path))
 ours = json.load(open(f"{repo}/hooks.json"))["hooks"]
@@ -65,8 +65,9 @@ for event, entries in ours.items():
     have = hooks.setdefault(event, [])
     for e in entries:
         e = json.loads(json.dumps(e).replace("__REPO__", repo).replace("__VENV_PY__", venv_py))
-        cmd = e["hooks"][0]["command"]
-        have[:] = [h for h in have if h.get("hooks", [{}])[0].get("command") != cmd]
+        # match on the script path, so an older command shape for the same script is replaced, not kept beside
+        script = re.search(re.escape(repo) + r'/[^"]+\.py', e["hooks"][0]["command"]).group(0)
+        have[:] = [h for h in have if script not in h.get("hooks", [{}])[0].get("command", "")]
         if mode == "add":
             have.append(e)
     if not have:

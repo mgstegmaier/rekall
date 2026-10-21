@@ -163,4 +163,62 @@ for button in ["Approved: Delete the branch?", 'For "Which board?", I pick: Plat
 for ordinary in ["Approved budget for the DV2 refactor?", "For the EDP pipeline, what broke?", "Done with snowflake, now dbt"]:
     assert not recall_hook.BUTTON_PROMPT.match(ordinary), ordinary
 
+# Fail open, fail loud: every failure exits 0 with a "rekall unavailable" notice and a log line.
+# Each case runs the hook as Claude Code does, in a subprocess, with HOME in a temp dir so the
+# log lands there and never in the real ~/.config/rekall.
+import subprocess  # noqa: E402
+
+HOOK = Path(__file__).resolve().parent / "recall_hook.py"
+PROMPT = json.dumps({"prompt": "what broke in the EDP pipeline"})
+
+
+def run(cmd, home, env=None, shell=False):
+    env = {**os.environ, "HOME": str(home), **(env or {})}
+    env.pop("MEMORY_STARTER_CHILD", None)
+    return subprocess.run(cmd, input=PROMPT, capture_output=True, text=True, env=env, shell=shell,
+                          executable="/bin/bash" if shell else None, timeout=60)
+
+
+def assert_unavailable(r, log, why):
+    assert r.returncode == 0, (why, r.returncode, r.stderr)
+    assert "rekall unavailable" in json.loads(r.stdout)["systemMessage"], (why, r.stdout)
+    assert log.is_file() and log.read_text().strip(), (why, "no log line")
+
+
+with tempfile.TemporaryDirectory() as tmp:
+    tmp = Path(tmp)
+    toml = tmp / "rekall.toml"
+    state = tmp / "state"
+
+    # missing rag.db: config loads, index absent
+    toml.write_text(f'[user]\nname="t"\ntimezone="UTC"\n[vault]\npath="{tmp}/vault"\n'
+                    f'[data]\npath="{tmp}/data"\nstate="{state}"\n')
+    assert_unavailable(run([sys.executable, str(HOOK)], tmp, {"REKALL_CONFIG": str(toml)}),
+                       state / "logs" / "hook.log", "missing rag.db")
+
+    # search raises: rag.db exists but is not a database
+    (tmp / "data").mkdir()
+    (tmp / "data" / "rag.db").write_text("not sqlite")
+    (state / "logs" / "hook.log").unlink()
+    assert_unavailable(run([sys.executable, str(HOOK)], tmp, {"REKALL_CONFIG": str(toml)}),
+                       state / "logs" / "hook.log", "search raised")
+
+    # config missing: rekall_config sys.exits at import; the log falls back to ~/.config/rekall
+    assert_unavailable(run([sys.executable, str(HOOK)], tmp, {"REKALL_CONFIG": str(tmp / "nope.toml")}),
+                       tmp / ".config" / "rekall" / "logs" / "hook.log", "missing rekall.toml")
+
+    # the settings command itself, from hooks.json, with the script and then the venv missing:
+    # bare python on a missing script exits 2, which Claude Code reads as "block every prompt"
+    template = json.load(open(HOOK.parents[1] / "hooks.json"))["hooks"]
+    recall_cmd = template["UserPromptSubmit"][0]["hooks"][0]["command"]
+    end_cmd = template["SessionEnd"][0]["hooks"][0]["command"]
+    assert run([sys.executable, str(tmp / "gone.py")], tmp).returncode == 2  # the failure being guarded
+    for repo, py in [(tmp / "no-repo", sys.executable), (HOOK.parents[1], str(tmp / "no-venv" / "python"))]:
+        log = tmp / ".config" / "rekall" / "logs" / "hook.log"
+        log.unlink(missing_ok=True)
+        cmd = recall_cmd.replace("__REPO__", str(repo)).replace("__VENV_PY__", py)
+        assert_unavailable(run(cmd, tmp, shell=True), log, f"settings command, repo={repo} py={py}")
+        r = run(end_cmd.replace("__REPO__", str(repo)).replace("__VENV_PY__", py), tmp, shell=True)
+        assert r.returncode == 0, ("session_end command", r.returncode, r.stderr)
+
 print("ok")
