@@ -6,7 +6,8 @@ through the recall hook. The Windows path landed on 2026-09-10 and has not had i
 test yet, so on Windows expect to read the errors rather than trust the script.
 
 You need a Mac or a Windows 10-or-later machine, Claude Code (the VS Code extension is fine),
-and a Fathom account. Nothing else. On Windows, Claude Code already requires Git for Windows, and
+and a Fathom account. Rekall also needs Python 3.11 or newer; if the machine doesn't have it,
+setup offers to install it and asks before it does. On Windows, Claude Code already requires Git for Windows, and
 every step below runs in the Git Bash it installs.
 
 ## The short way
@@ -37,6 +38,19 @@ fails. Never skip a failed step and never overwrite a file that already exists.
    Tell me which OS you found, because steps 5, 8 and 10 branch on it. On Windows, also
    confirm Git Bash exists at `C:\Program Files\Git\bin\bash.exe` and run every later
    step in it, not in PowerShell.
+   Then check for Python 3.11 or newer the way install.sh does: try python3.13,
+   python3.12, python3.11, python3 and python, and take the first one that reports 3.11
+   or newer. The Windows `python3` that only opens the Microsoft Store doesn't count. If
+   none qualifies, tell me what you found and ask before installing anything. On my yes:
+   - macOS with Homebrew (`brew` on PATH): run `brew install python@3.13`.
+   - macOS without Homebrew: download the current macOS installer from
+     https://www.python.org/downloads/macos/, open it, and tell me to click through it.
+     It asks for my Mac password, so I do that part, not you. Wait until I say it's done.
+   - Windows: run `winget install -e --id Python.Python.3.13 --scope user`. It needs no
+     admin rights. The new Python isn't on PATH for this session, so tell me to type
+     `/exit`, open Claude Code in the rekall folder again, and paste this setup message
+     again.
+   Re-check after the install. If there's still no Python 3.11 or newer, stop.
 2. Ask me where my wiki should live. If I have no vault, ask for a folder (suggest
    ~/rekall-vault) and copy the contents of vault-template/ into it. If I already have an
    Obsidian vault, ask for its path and copy vault-template/wiki/ into it, skipping
