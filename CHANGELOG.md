@@ -1,0 +1,62 @@
+# Rekall changelog
+
+The changes that affect an installed Rekall, newest first. Rekall has no version numbers, so each entry is dated and links the pull request or commit that made it.
+
+To upgrade, run `git pull` and then `bash install.sh` in the rekall folder (see "Upgrading" in the README). An entry marked **Re-run install.sh** changes something the installer writes outside the repo, such as the Claude Code hooks, the Claude Desktop MCP entry, or the venv packages, so `git pull` alone doesn't pick it up.
+
+## 2026-10-21
+
+- Rekall hooks never block a prompt. Before this change, a missing `recall_hook.py` made Python exit 2, and Claude Code treats exit 2 from a `UserPromptSubmit` hook as a block, so every prompt was rejected. Both hook commands now check that the script exists first and exit 0 on any failure. When recall can't run, Claude Code shows `rekall unavailable: <reason>` and the reason is logged to `~/.config/rekall/logs/hook.log`. The installer replaces your old hook commands; it doesn't add the new ones beside them. **Re-run install.sh.** ([#16](https://github.com/mgstegmaier/rekall/pull/16))
+
+## 2026-10-20
+
+- Secrets are stored in the OS keychain by default, and the settings page opens at the end of install. **Re-run install.sh** (it adds `keyring` to the venv). ([#15](https://github.com/mgstegmaier/rekall/pull/15))
+
+## 2026-10-19
+
+- The Fathom pipeline skips the Monday push when `rekall.toml` has no `[monday]` board. ([#14](https://github.com/mgstegmaier/rekall/pull/14))
+
+## 2026-10-18
+
+- Wiki pages live in per-type folders, `pages/<type>/<slug>.md`. Scripts read `pages/` recursively, `wiki-lint.py` warns about a page outside its type folder, and `scripts/wiki-type-folders.py` moves misfiled pages. ([#13](https://github.com/mgstegmaier/rekall/pull/13))
+- When two recall results score close together, recall prefers the more recent one. The first reindex after upgrading rebuilds the index once. ([#12](https://github.com/mgstegmaier/rekall/pull/12))
+
+## 2026-10-16
+
+- Microsoft Graph sign-in uses a device code on the settings page, so it needs no client secret. ([#11](https://github.com/mgstegmaier/rekall/pull/11))
+- The Graph ingest skips Outlook meeting notices. ([#10](https://github.com/mgstegmaier/rekall/pull/10))
+- Optional Microsoft Graph ingest: new facts and decisions from mail and Teams go onto the project pages a thread names. A local setup page configures it. ([#9](https://github.com/mgstegmaier/rekall/pull/9))
+
+## 2026-10-07
+
+- An MCP server gives Claude Desktop chat two wiki tools, `search_wiki` and `read_page`. **Re-run install.sh**, then restart Claude Desktop. ([`7f55d1b`](https://github.com/mgstegmaier/rekall/commit/7f55d1b), [#7](https://github.com/mgstegmaier/rekall/pull/7))
+- The recall hook skips the canned prompts sent by the open-asks pane buttons. ([`334030a`](https://github.com/mgstegmaier/rekall/commit/334030a))
+
+## 2026-09-24
+
+- Cost audit: the session digest's auth is fixed, and recall, ingest, and reindex each do less work per run. ([`7190513`](https://github.com/mgstegmaier/rekall/commit/7190513))
+
+## 2026-09-15
+
+- Optional Granola sweep brings Granola notes into the wiki beside Fathom's. ([`0f29243`](https://github.com/mgstegmaier/rekall/commit/0f29243))
+
+## 2026-09-13
+
+- The wiki graph has typed edges (owns, maintains, depends_on, and others) from relation frontmatter. The recall hook leaves out plain `mentions` edges. ([`be95515`](https://github.com/mgstegmaier/rekall/commit/be95515), [`755e727`](https://github.com/mgstegmaier/rekall/commit/755e727))
+
+## 2026-09-10
+
+- Rekall installs on Windows. ([`7dcecc8`](https://github.com/mgstegmaier/rekall/commit/7dcecc8))
+
+## 2026-09-05
+
+- The index runs in WAL mode, so a reindex never blocks the recall hook. ([`3ad2cf5`](https://github.com/mgstegmaier/rekall/commit/3ad2cf5))
+
+## 2026-09-04
+
+- `install.sh` performs every setup step that writes outside the repo, and re-running it is safe. `bash install.sh --uninstall` reverses it. ([#1](https://github.com/mgstegmaier/rekall/pull/1))
+- Wiki pages carry a lifecycle `status` (active, retired, archive). ([`76be8be`](https://github.com/mgstegmaier/rekall/commit/76be8be))
+
+## 2026-09-03
+
+- First public release.
