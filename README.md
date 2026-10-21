@@ -17,6 +17,19 @@ to open the rekall folder in Claude Code and paste the setup message from rekall
 
 Then open the `rekall` folder in Claude Code and paste the setup message from `SETUP.md`. Claude walks you through the questions (where your wiki should live, your Fathom key, your timezone), runs `install.sh` for the index, the hooks, and the schedules (it asks you to approve that one command), and backfills your last 30 days of meetings. When it finishes, type `/exit` and open Claude Code again so the hooks load. `SETUP.md` has the full step list and the corporate-proxy fix if your laptop rewrites HTTPS.
 
+## Upgrading
+
+In the rekall folder, run these two commands:
+
+```bash
+git pull
+bash install.sh
+```
+
+`git pull` brings in the new code. `install.sh` re-applies everything it writes outside the repo (the Claude Code hooks, the venv packages, the schedules, the Claude Desktop MCP entry), replacing older copies instead of adding duplicates. Re-running it is safe. Then type `/exit` and open Claude Code again so any changed hooks load. [`CHANGELOG.md`](CHANGELOG.md) lists what changed, and which changes need the `install.sh` step.
+
+If `install.sh` fails partway, fix what its error names and run it again. It skips the steps that are already done.
+
 ## What it does
 
 - **Capture** - a Fathom pipeline writes one note per meeting; a `raw/` folder takes anything you drop in; a session-end hook writes up every Claude Code session you close
@@ -66,6 +79,7 @@ If `rekall` shows as failed under Settings > Developer, the server's log says wh
 ```
 rekall/
 ├── SETUP.md            # the guided install
+├── CHANGELOG.md        # what changed, and when an upgrade needs install.sh
 ├── rekall.example.toml # settings: vault path, data path, name, timezone (copy to rekall.toml)
 ├── .env.example        # secrets: Fathom key, optional Monday and Jira tokens (copy to .env)
 ├── hooks.json          # the two Claude Code hook entries
