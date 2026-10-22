@@ -36,7 +36,7 @@
   <Actions Context="Author">
     <Exec>
       <Command>__BASH__</Command>
-      <Arguments>-c "'__VENV_PY_WIN__' '__REPO_WIN__/scripts/wiki-lint.py' &gt;&gt; '__HOME_WIN__/.config/rekall/logs/wiki-lint.log' 2&gt;&amp;1; '__VENV_PY_WIN__' '__REPO_WIN__/scripts/wiki-cleanup.py' --execute &gt;&gt; '__HOME_WIN__/.config/rekall/logs/wiki-lint.log' 2&gt;&amp;1"</Arguments>
+      <Arguments>-c "export PYTHONUTF8=1; '__VENV_PY_WIN__' '__REPO_WIN__/scripts/wiki-lint.py' &gt;&gt; '__HOME_WIN__/.config/rekall/logs/wiki-lint.log' 2&gt;&amp;1; '__VENV_PY_WIN__' '__REPO_WIN__/scripts/wiki-cleanup.py' --execute &gt;&gt; '__HOME_WIN__/.config/rekall/logs/wiki-lint.log' 2&gt;&amp;1"</Arguments>
     </Exec>
   </Actions>
 </Task>

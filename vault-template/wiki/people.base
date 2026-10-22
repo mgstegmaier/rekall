@@ -1,0 +1,37 @@
+filters:
+  and:
+    - file.inFolder("wiki/pages")
+    - note.type == "person"
+properties:
+  file.name:
+    displayName: Person
+  note.description:
+    displayName: Description
+  note.date:
+    displayName: Last updated
+  note.tags:
+    displayName: Tags
+views:
+  - type: table
+    name: All
+    order:
+      - file.name
+      - description
+      - date
+      - tags
+    sort:
+      - property: date
+        direction: DESC
+      - property: file.name
+        direction: ASC
+    columnSize:
+      note.description: 434
+  - type: table
+    name: Recently updated
+    order:
+      - file.name
+      - description
+      - date
+    sort:
+      - property: date
+        direction: DESC

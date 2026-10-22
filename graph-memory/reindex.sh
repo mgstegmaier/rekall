@@ -12,6 +12,8 @@ PY="$HERE/.venv/bin/python"
 [ -x "$PY" ] || PY="$HERE/.venv/Scripts/python.exe"   # Windows venv layout
 WIKI="$("$PY" "$HERE/../rekall_config.py" WIKI)"
 export PATH="$HOME/.local/bin:$PATH"  # launchd's PATH lacks claude
+# Windows Python defaults to cp1252 for open/read_text/write_text; UTF-8 mode makes it match macOS.
+export PYTHONUTF8=1
 # distil any new/changed meeting notes and raw/ sources first (SHA256 state makes
 # this incremental, usually zero claude calls); the index build below picks up its
 # output. raw/ is distilled because a long source can answer questions the compiled

@@ -61,6 +61,26 @@ def get_scalar(fm, key):
     return v or None
 
 
+UNQUOTED_PROSE = re.compile(r"^(title|description):[ \t]+([^\"'\[{\s].*?)[ \t]*$", re.M)
+
+
+def quote_prose_scalars(text):
+    """Quote an unquoted title/description that YAML would reject or misread ("at Upland: Radar"
+    is a nested mapping, " #" starts a comment). One bad line makes Obsidian drop the whole
+    frontmatter block and render it as body text. JSON strings are valid YAML double-quoted."""
+    span = frontmatter_span(text)
+    if not span:
+        return text
+
+    def fix(m):
+        v = m.group(2)
+        if ": " in v or " #" in v or v.endswith(":") or v[0] in "&*!|>%@`":
+            return f"{m.group(1)}: {json.dumps(v, ensure_ascii=False)}"
+        return m.group(0)
+
+    return text[:span[0]] + UNQUOTED_PROSE.sub(fix, text[span[0]:span[1]]) + text[span[1]:]
+
+
 def pages():
     by_type = {t: s for s, t in SECTIONS if t}
     other = next(s for s, t in SECTIONS if t is None)
@@ -73,8 +93,17 @@ def pages():
 
 def regen(dry):
     by_section = {s: [] for s, _ in SECTIONS}
+    quoted = []
     for section, p in pages():
         text = p.read_text()
+        # ponytail: the index pass reads every page after each ingest, so it doubles as the
+        # frontmatter repair; move to a lint fixer if more fields need it.
+        fixed = quote_prose_scalars(text)
+        if fixed != text:
+            quoted.append(p.stem)
+            if not dry:
+                p.write_text(fixed)
+            text = fixed
         span = frontmatter_span(text)
         desc = get_scalar(text[span[0]:span[1]], "description") if span else None
         entry = f"- [[{p.stem}]] -- {desc}" if desc else f"- [[{p.stem}]]"
@@ -86,6 +115,9 @@ def regen(dry):
         if by_section[section]:
             out += f"\n## {section}\n\n" + "\n".join(by_section[section]) + "\n"
     out += "\n" + FOOTER
+    if quoted:
+        print(f"quoted title/description frontmatter on {len(quoted)} page(s)"
+              + (" (dry-run)" if dry else "") + ": " + ", ".join(quoted[:10]))
     old = INDEX.read_text() if INDEX.exists() else ""
     if out == old:
         print("index.md unchanged")
