@@ -9,6 +9,8 @@ if [ -f "$LOG" ] && [ "$(wc -c < "$LOG")" -gt 1000000 ]; then
     tail -n 2000 "$LOG" > "$LOG.tmp" && cat "$LOG.tmp" > "$LOG" && rm -f "$LOG.tmp"
 fi
 export PATH="/opt/homebrew/bin:/usr/local/bin:/Library/Frameworks/Python.framework/Versions/3.13/bin:$HOME/.local/bin:$PATH"
+# Windows Python defaults to cp1252 for open/read_text/write_text; UTF-8 mode makes it match macOS.
+export PYTHONUTF8=1
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # The venv has keyring; system python would skip the Keychain without a word.
 VENV="$SCRIPT_DIR/../graph-memory/.venv"

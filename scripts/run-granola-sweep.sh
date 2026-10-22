@@ -3,6 +3,8 @@
 # Off unless GRANOLA_API_KEY is found (the script logs one line and exits 0 without it).
 # Plan: vault wiki/plans/2026-09-15-granola-sweep.md.
 export PATH="/opt/homebrew/bin:/usr/local/bin:/Library/Frameworks/Python.framework/Versions/3.13/bin:$HOME/.local/bin:$PATH"
+# Windows Python defaults to cp1252 for open/read_text/write_text; UTF-8 mode makes it match macOS.
+export PYTHONUTF8=1
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # The venv has keyring; system python would skip the Keychain without a word.
 VENV="$SCRIPT_DIR/../graph-memory/.venv"

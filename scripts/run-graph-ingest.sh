@@ -2,6 +2,8 @@
 # Trigger for the Microsoft Graph ingest — launchd (weekdays, hourly at :45, 07:45-17:45) or manual.
 # Off unless rekall.toml has [graph] enabled = true. Secrets: read by the script. Plan: docs/plans/2026-10-16-rekall-graph-ingest.md.
 export PATH="/opt/homebrew/bin:/usr/local/bin:/Library/Frameworks/Python.framework/Versions/3.13/bin:$HOME/.local/bin:$PATH"
+# Windows Python defaults to cp1252 for open/read_text/write_text; UTF-8 mode makes it match macOS.
+export PYTHONUTF8=1
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # The venv has keyring; system python would skip the Keychain without a word.
 VENV="$SCRIPT_DIR/../graph-memory/.venv"

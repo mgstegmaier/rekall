@@ -1,0 +1,21 @@
+filters:
+  and:
+    - file.inFolder("wiki/meetings")
+    - note.type == "meeting"
+properties:
+  file.name:
+    displayName: Meeting
+  note.date:
+    displayName: Date
+  file.mtime:
+    displayName: Last updated
+views:
+  - type: table
+    name: Recent meetings
+    order:
+      - file.name
+      - date
+      - file.mtime
+    sort:
+      - property: file.name
+        direction: DESC
