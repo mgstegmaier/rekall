@@ -34,9 +34,11 @@
     <WakeToRun>false</WakeToRun>
   </Settings>
   <Actions Context="Author">
+    <!-- Headless conhost gives bash a console with no window; launching bash.exe
+         directly opens a visible terminal on every run. -->
     <Exec>
-      <Command>__BASH__</Command>
-      <Arguments>-c "export PYTHONUTF8=1; '__VENV_PY_WIN__' '__REPO_WIN__/scripts/wiki-lint.py' &gt;&gt; '__HOME_WIN__/.config/rekall/logs/wiki-lint.log' 2&gt;&amp;1; '__VENV_PY_WIN__' '__REPO_WIN__/scripts/wiki-cleanup.py' --execute &gt;&gt; '__HOME_WIN__/.config/rekall/logs/wiki-lint.log' 2&gt;&amp;1"</Arguments>
+      <Command>conhost.exe</Command>
+      <Arguments>--headless "__BASH__" -c "export PYTHONUTF8=1; '__VENV_PY_WIN__' '__REPO_WIN__/scripts/wiki-lint.py' &gt;&gt; '__HOME_WIN__/.config/rekall/logs/wiki-lint.log' 2&gt;&amp;1; '__VENV_PY_WIN__' '__REPO_WIN__/scripts/wiki-cleanup.py' --execute &gt;&gt; '__HOME_WIN__/.config/rekall/logs/wiki-lint.log' 2&gt;&amp;1"</Arguments>
     </Exec>
   </Actions>
 </Task>

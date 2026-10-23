@@ -38,9 +38,11 @@
     <WakeToRun>false</WakeToRun>
   </Settings>
   <Actions Context="Author">
+    <!-- Headless conhost gives bash a console with no window; launching bash.exe
+         directly opens a visible terminal on every run. -->
     <Exec>
-      <Command>__BASH__</Command>
-      <Arguments>-c "'__REPO_WIN__/scripts/run-fathom-pipeline.sh' &gt;&gt; '__HOME_WIN__/.config/rekall/logs/fathom-pipeline.log' 2&gt;&amp;1"</Arguments>
+      <Command>conhost.exe</Command>
+      <Arguments>--headless "__BASH__" -c "'__REPO_WIN__/scripts/run-fathom-pipeline.sh' &gt;&gt; '__HOME_WIN__/.config/rekall/logs/fathom-pipeline.log' 2&gt;&amp;1"</Arguments>
     </Exec>
   </Actions>
 </Task>
