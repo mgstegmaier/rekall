@@ -4,6 +4,10 @@ The changes that affect an installed Rekall, newest first. Rekall has no version
 
 To upgrade, run `git pull` and then `bash install.sh` in the rekall folder (see "Upgrading" in the README). An entry marked **Re-run install.sh** changes something the installer writes outside the repo, such as the Claude Code hooks, the Claude Desktop MCP entry, or the venv packages, so `git pull` alone doesn't pick it up.
 
+## 2026-10-23
+
+- On Windows, the scheduled tasks start bash through `conhost.exe --headless`, so no terminal window opens on each run. Before this change, every run of the reindex, Fathom pipeline, Granola sweep, and lint tasks opened a blank Git Bash window until it finished. Output still goes to `~/.config/rekall/logs/`. **Re-run install.sh** to re-register the tasks.
+
 ## 2026-10-22
 
 - `vault-template/wiki/CLAUDE.md` now carries the relation fields (`owner`, `people`, `maintainers`, `depends_on`, `about`, `part_of`, `runs_on`, `reads_from`, `writes_to`, `attendees`), the `plan`, `note`, `decision` and `context` types, and the `sessions/`, `plans/` and `meetings/transcripts/` folders. The ingest agent reads this file on every run, so without it no relation fields get written. The template also gains the six Bases (`people`, `projects`, `entities`, `concepts`, `summaries`, `meetings`) the index header points to. Setup copies the template only once, so an existing vault keeps its old copy. **Copy `vault-template/wiki/CLAUDE.md` and `vault-template/wiki/*.base` into your vault's `wiki/` folder**, keeping any rules you added to your own `CLAUDE.md`.
