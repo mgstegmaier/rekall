@@ -159,9 +159,34 @@ uninstall() {
 # nothing has to be asked in chat. Never overwrites an existing toml or vault.
 if [ -z "$WIN" ] && [ "${1:-}" = "--standard" ]; then
   if [ ! -f "$REPO/rekall.toml" ]; then
+    # Vault: $REKALL_VAULT, else one of the vaults Obsidian already knows, else a new ~/rekall/vault.
+    # ponytail: Terminal prompt until the setup page grows a vault picker (plan step 3).
+    vault="${REKALL_VAULT:-}"
+    if [ -z "$vault" ]; then
+      known="$("$PY3" -c 'import json, os, sys
+p = os.path.expanduser("~/Library/Application Support/obsidian/obsidian.json")
+try: vs = json.load(open(p))["vaults"].values()
+except Exception: sys.exit()
+for v in vs:
+    if os.path.isdir(v.get("path", "")): print(v["path"])')"
+      if [ -n "$known" ]; then
+        { echo "Obsidian already has these vaults. Which one should Rekall use?"
+          echo "$known" | nl -w2 -s') '
+          echo " n) Create a new vault at ~/rekall/vault"; } >&2
+        { exec 3</dev/tty; } 2>/dev/null || { echo "No terminal to ask on. Re-run with REKALL_VAULT=/path/to/vault." >&2; exit 1; }
+        read -r -p "Number or n: " pick <&3
+        case "$pick" in
+          n|N) ;;
+          *[!0-9]*|"") echo "Not a choice: '$pick'. Re-run and pick a number or n." >&2; exit 1 ;;
+          *) vault="$(echo "$known" | sed -n "${pick}p")"
+             [ -n "$vault" ] || { echo "No vault $pick. Re-run and pick again." >&2; exit 1; } ;;
+        esac
+      fi
+    fi
     tz="$(readlink /etc/localtime | sed 's|.*/zoneinfo/||')"
     name="$(id -F 2>/dev/null || id -un)"
     sed -e "s|^name = \"Your Name\"|name = \"$name\"|" -e "s|^timezone = \"America/Chicago\"|timezone = \"${tz:-America/Chicago}\"|" \
+        -e "s|^path = \"~/rekall/vault\"|path = \"${vault:-~/rekall/vault}\"|" \
       "$REPO/rekall.example.toml" > "$REPO/rekall.toml"
   fi
   VAULT_DIR="$("$PY3" "$REPO/rekall_config.py" VAULT)"

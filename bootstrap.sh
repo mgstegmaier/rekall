@@ -7,6 +7,11 @@
 set -euo pipefail
 
 REPO="$HOME/rekall/repo"
+# An existing install wins: its reindex agent names the repo it runs from, and that repo holds
+# the rekall.toml pointing at the person's vault. Re-running must never start a second install.
+OLD="$(sed -n 's|.*<string>\(.*\)/graph-memory/reindex.sh</string>.*|\1|p' \
+  "$HOME/Library/LaunchAgents/com.rekall.wiki-reindex.plist" 2>/dev/null || true)"
+[ -n "$OLD" ] && [ -f "$OLD/rekall.toml" ] && { REPO="$OLD"; echo "Existing Rekall install found at $REPO; updating it."; }
 export PATH="$HOME/.local/bin:$PATH"   # where uv, uv's python and claude install
 
 [ "$(uname -s)" = Darwin ] || { echo "bootstrap.sh is macOS-only; on Windows follow SETUP.md." >&2; exit 1; }
