@@ -142,6 +142,8 @@ uninstall() {
       rm -f "$AGENTS/$l.plist"
     done
   fi
+  # the Documents shortcut, only if it is still the link this script made
+  [ "$(readlink "$HOME/Documents/rekall" 2>/dev/null)" = "$HOME/rekall" ] && rm "$HOME/Documents/rekall"
   settings remove
   desktop remove
   # only remove skills/commands that still match what this repo installs; an edited copy stays
@@ -190,6 +192,12 @@ if [ -n "$STANDARD" ]; then
     mkdir -p "$VAULT_DIR"
     cp -R "$REPO/vault-template/." "$VAULT_DIR/"
     sed "${SEDI[@]}" "s|REKALL_REPO|$REPO|g" "$VAULT_DIR/wiki/CLAUDE.md"
+  fi
+  # Finder shortcut: ~/rekall lives outside Documents (privacy prompts, OneDrive/iCloud sync),
+  # so link it from Documents where people look. A symlink, since a Finder alias needs osascript
+  # and an Automation prompt. Only for the standard layout, and never over an existing entry.
+  if [ "$REPO" = "$HOME/rekall/repo" ] && [ -d "$HOME/Documents" ] && [ ! -e "$HOME/Documents/rekall" ] && [ ! -L "$HOME/Documents/rekall" ]; then
+    ln -s "$HOME/rekall" "$HOME/Documents/rekall"
   fi
 fi
 MODEL_DIR="$("$PY" "$REPO/rekall_config.py" DATA)/model"
