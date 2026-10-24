@@ -6,6 +6,7 @@ To upgrade, run `git pull` and then `bash install.sh` in the rekall folder (see 
 
 ## 2026-10-23
 
+- New installs on macOS can start from one Terminal command: `curl -fsSL https://raw.githubusercontent.com/mgstegmaier/rekall/main/bootstrap.sh | bash`. `bootstrap.sh` installs git (Apple's Command Line Tools), Python 3.13 (through uv, with no admin password), and the Claude Code CLI when they're missing. It clones the repo to `~/rekall/repo` and runs `install.sh --standard`, which writes `rekall.toml` with your macOS name and timezone and copies the vault template to `~/rekall/vault`. The example config now defaults to `~/rekall/vault` and `~/rekall/data` instead of `~/rekall-vault` and `~/rekall-data`. Existing installs keep the paths in their own `rekall.toml`, so nothing moves.
 - On Windows, the scheduled tasks start bash through `conhost.exe --headless`, so no terminal window opens on each run. Before this change, every run of the reindex, Fathom pipeline, Granola sweep, and lint tasks opened a blank Git Bash window until it finished. Output still goes to `~/.config/rekall/logs/`. **Re-run install.sh** to re-register the tasks.
 
 ## 2026-10-22

@@ -43,7 +43,8 @@ if sed --version >/dev/null 2>&1; then SEDI=(-i); else SEDI=(-i ''); fi
 # 1. python 3.11+ (Apple's /usr/bin/python3 is too old, and python.org on Windows
 # installs `python` rather than `python3`; prefer the newest one on PATH)
 PY3=""
-for c in python3.13 python3.12 python3.11 python3 python; do
+export PATH="$HOME/.local/bin:$PATH"   # uv-installed python and the claude CLI live here
+for c in ${REKALL_PYTHON:-} python3.13 python3.12 python3.11 python3 python; do
   if command -v "$c" >/dev/null && "$c" -c 'import sys; sys.exit(sys.version_info < (3, 11))' 2>/dev/null; then
     PY3="$(command -v "$c")"; break
   fi
@@ -153,6 +154,23 @@ uninstall() {
   exit 0
 }
 [ "${1:-}" = "--uninstall" ] && uninstall
+
+# --standard (bootstrap.sh): write rekall.toml with the ~/rekall layout and seed the vault, so
+# nothing has to be asked in chat. Never overwrites an existing toml or vault.
+if [ -z "$WIN" ] && [ "${1:-}" = "--standard" ]; then
+  if [ ! -f "$REPO/rekall.toml" ]; then
+    tz="$(readlink /etc/localtime | sed 's|.*/zoneinfo/||')"
+    name="$(id -F 2>/dev/null || id -un)"
+    sed -e "s|^name = \"Your Name\"|name = \"$name\"|" -e "s|^timezone = \"America/Chicago\"|timezone = \"${tz:-America/Chicago}\"|" \
+      "$REPO/rekall.example.toml" > "$REPO/rekall.toml"
+  fi
+  VAULT_DIR="$("$PY3" "$REPO/rekall_config.py" VAULT)"
+  if [ ! -e "$VAULT_DIR/wiki" ]; then
+    mkdir -p "$VAULT_DIR"
+    cp -R "$REPO/vault-template/." "$VAULT_DIR/"
+    sed "${SEDI[@]}" "s|REKALL_REPO|$REPO|g" "$VAULT_DIR/wiki/CLAUDE.md"
+  fi
+fi
 
 [ -f "$REPO/rekall.toml" ] || { echo "rekall.toml is missing; write it first (SETUP.md step 3)." >&2; exit 1; }
 

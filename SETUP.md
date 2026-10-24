@@ -52,7 +52,7 @@ fails. Never skip a failed step and never overwrite a file that already exists.
      again.
    Re-check after the install. If there's still no Python 3.11 or newer, stop.
 2. Ask me where my wiki should live. If I have no vault, ask for a folder (suggest
-   ~/rekall-vault) and copy the contents of vault-template/ into it. If I already have an
+   ~/rekall/vault) and copy the contents of vault-template/ into it. If I already have an
    Obsidian vault, ask for its path and copy vault-template/wiki/ into it, skipping
    anything already there. In the copied
    wiki/CLAUDE.md, replace REKALL_REPO with the rekall folder's absolute path.
