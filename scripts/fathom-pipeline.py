@@ -32,7 +32,7 @@ from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from rekall_config import find_secret, MONDAY_BOARD, MONDAY_GROUP, STATE_DIR, TIMEZONE, VAULT  # noqa: E402
+from rekall_config import claude_env, find_secret, MONDAY_BOARD, MONDAY_GROUP, STATE_DIR, TIMEZONE, VAULT  # noqa: E402
 
 MEETINGS = VAULT / "wiki" / "meetings"
 RAW = VAULT / "wiki" / "raw"
@@ -492,6 +492,7 @@ def ingest_to_wiki(source_paths, extra=""):
     clean_env = {k: v for k, v in os.environ.items() if k != "ANTHROPIC_API_KEY"}
     clean_env["REKALL_GUARD_ROOTS"] = roots
     clean_env["REKALL_GUARD_LOG"] = str(LOG_DIR / "guard-denials.log")
+    claude_env(clean_env)
     clean_env["MEMORY_STARTER_CHILD"] = "1"  # this claude -p call is our own child; skip recall hook + session digest for it
     # Stream claude's events into the logfile timestamped and truncated, so after
     # a timeout kill the last line names what the session was doing when it hung.

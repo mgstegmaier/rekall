@@ -184,7 +184,7 @@ fi
 # --standard: the setup page collects the vault choice and the Fathom key, then closes itself.
 # Opens for a new toml or missing keys, so a re-run of a finished install never reopens it.
 if [ -n "$STANDARD" ]; then
-  if [ -n "$FRESH" ] || ! "$PY" -c 'import sys; sys.path.insert(0, sys.argv[1]); import rekall_config as c; sys.exit(not (c.find_secret("FATHOM_API_KEY") and c.find_secret("WORK_EMAIL")))' "$REPO"; then
+  if [ -n "$FRESH" ] || ! "$PY" -c 'import sys; sys.path.insert(0, sys.argv[1]); import rekall_config as c; sys.exit(not (all(c.find_secret(k) for k in ("FATHOM_API_KEY", "WORK_EMAIL", "CLAUDE_CODE_OAUTH_TOKEN"))))' "$REPO"; then
     "$PY" "$REPO/scripts/setup-server.py" --once
   fi
   VAULT_DIR="$("$PY" "$REPO/rekall_config.py" VAULT)"
@@ -260,5 +260,13 @@ if [ -n "$WIN" ]; then
   for l in $LABELS; do schtasks /Query /TN "$l" /FO LIST 2>/dev/null | grep -i "TaskName\|Next Run" || echo "  $l: not registered"; done
 else
   launchctl list | grep rekall || echo "  (none listed: run 'launchctl list | grep rekall' yourself)"
+fi
+# --standard on a new install: pull the last 30 days of meetings now instead of waiting for the hourly
+# run, which only looks back 26 hours. nohup, so closing Terminal doesn't stop it; the pipeline's
+# own lock keeps the hourly job from running beside it.
+if [ -n "$FRESH" ]; then
+  nohup bash "$REPO/scripts/run-fathom-pipeline.sh" --since "$(date -v-30d +%F)" --no-monday \
+    >> "$LOGS/backfill.log" 2>&1 &
+  echo "Backfill of the last 30 days started in the background (about an hour). Progress: $LOGS/backfill.log"
 fi
 echo "Undo everything: bash $REPO/install.sh --uninstall"

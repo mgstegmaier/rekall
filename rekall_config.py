@@ -65,6 +65,16 @@ def get_secret(name):
     return value
 
 
+def claude_env(env):
+    """env with the stored Claude token added, for a claude -p child. The settings page saves it
+    (claude setup-token), so scheduled jobs run without an interactive login. Without one the
+    child falls back to the CLI's own login, as before."""
+    token = find_secret("CLAUDE_CODE_OAUTH_TOKEN")
+    if token:
+        env["CLAUDE_CODE_OAUTH_TOKEN"] = token
+    return env
+
+
 def set_secret(name, value):
     import keyring
     keyring.set_password(KEYRING_SERVICE, name, value)

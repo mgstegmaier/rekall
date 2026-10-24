@@ -39,7 +39,7 @@ from urllib.parse import quote, urlencode
 _spec = importlib.util.spec_from_file_location("fathom_pipeline", Path(__file__).parent / "fathom-pipeline.py")
 fp = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(fp)
-from rekall_config import GRAPH  # noqa: E402  (fathom-pipeline put the repo root on sys.path)
+from rekall_config import GRAPH, claude_env  # noqa: E402  (fathom-pipeline put the repo root on sys.path)
 
 GRAPH_BASE = "https://graph.microsoft.com/v1.0"
 SCOPE = "User.Read Mail.Read Chat.Read offline_access"
@@ -249,6 +249,7 @@ def call_model(prompt, key):
            "--output-format", "json", "--no-session-persistence"]
     # strip the API key so claude uses the subscription login, as the Fathom pipeline does
     env = {k: v for k, v in os.environ.items() if k != "ANTHROPIC_API_KEY"}
+    claude_env(env)
     env["MEMORY_STARTER_CHILD"] = "1"  # our own child: skip the recall hook and session digest
     fp.STATE_DIR.mkdir(parents=True, exist_ok=True)
     proc = subprocess.run(cmd, cwd=fp.STATE_DIR, env=env, capture_output=True, text=True, timeout=300)
