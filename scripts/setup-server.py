@@ -15,6 +15,9 @@ permissions. Either way the new refresh token goes into the OS keyring (rekall_c
   shows a code; you enter it at Microsoft's sign-in page.
 - With MSGRAPH_CLIENT_SECRET: the auth-code flow cos-desk's msgraph-auth.py uses, which needs
   http://localhost:8086 as a "Mobile and desktop applications" redirect URI on the app.
+`--once` (install.sh --standard runs it): opens the browser itself, adds the vault picker's Finish
+button, and exits when a vault is picked and FATHOM_API_KEY and WORK_EMAIL are saved. If 8086 is
+taken it uses the next free port up to 8095; only 8086 works for the auth-code Graph sign-in.
 Secrets manager users: start it under their run command, e.g. `doppler run -- python3 scripts/setup-server.py`.
 
 Local only, with Radar's /setup guards: binds 127.0.0.1, rejects any Host but localhost:8086 or
@@ -30,7 +33,9 @@ import secrets
 import shutil
 import sys
 import time
+import threading
 import tomllib
+import webbrowser
 from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urlparse
 
@@ -43,9 +48,12 @@ from rekall_config import find_secret, get_secret, set_secret  # noqa: E402
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG = Path(os.environ.get("REKALL_CONFIG", ROOT / "rekall.toml"))
 PORT = 8086  # the redirect URI registered on the Entra app, shared with cos-desk's msgraph-auth.py
+PORTS = range(PORT, PORT + 10)  # main() takes the first free one; only 8086 works for the auth-code sign-in
 REDIRECT = f"http://localhost:{PORT}"
 SIGNIN_SCOPE = "offline_access User.Read Mail.Read Chat.ReadBasic Chat.Read"
-HOSTS = {f"localhost:{PORT}", f"127.0.0.1:{PORT}"}
+HOSTS = {f"localhost:{PORT}", f"127.0.0.1:{PORT}"}  # main() resets these for the port it binds
+DEFAULT_VAULT = "~/rekall/vault"
+ONCE = {"on": False, "vault_picked": False}  # --once: install.sh waits on this page, which exits on Finish
 SECRETS = ["FATHOM_API_KEY", "WORK_EMAIL", "MSGRAPH_CLIENT_ID", "MSGRAPH_TENANT_ID", "MSGRAPH_REFRESH_TOKEN"]
 OPTIONAL = ["MSGRAPH_CLIENT_SECRET"]  # only for an app without public client flows
 INPUTS = ["FATHOM_API_KEY", "WORK_EMAIL"]  # typed on the page; the Graph app values come from the app registration
@@ -177,13 +185,47 @@ def device_poll():
     return {"error": out.get("error_description", err or f"HTTP {code}")[:300]}
 
 
+def known_vaults():
+    """Folders Obsidian has open as vaults, from its own registry; missing folders dropped."""
+    try:
+        reg = json.loads((Path.home() / "Library/Application Support/obsidian/obsidian.json").read_text())
+        return [v["path"] for v in reg["vaults"].values() if os.path.isdir(v.get("path", ""))]
+    except Exception:  # no Obsidian, another OS, or a registry shape we don't know
+        return []
+
+
+def save_vault(path):
+    """Point [vault] path at one of Obsidian's vaults or the default new one; nothing else is accepted."""
+    if path != DEFAULT_VAULT and path not in known_vaults():
+        raise ValueError("pick one of the listed vaults")
+    text = CONFIG.read_text(encoding="utf-8")
+    new, n = re.subn(r'(?m)^(\[vault\][^\[]*?^path = ).*$', lambda m: m.group(1) + json.dumps(path), text)
+    assert n == 1 and tomllib.loads(new)["vault"]["path"] == path
+    tmp = CONFIG.with_suffix(".toml.tmp")
+    tmp.write_text(new, encoding="utf-8")
+    tmp.replace(CONFIG)
+    ONCE["vault_picked"] = True
+    return path
+
+
+def finish_missing():
+    """What --once still needs before install.sh can carry on."""
+    missing = [k for k in INPUTS if not find_secret(k)]
+    if known_vaults() and not ONCE["vault_picked"]:
+        missing.append("a vault choice")
+    return missing
+
+
 def status():
-    cfg = tomllib.loads(CONFIG.read_text(encoding="utf-8")).get("graph", {})
+    full = tomllib.loads(CONFIG.read_text(encoding="utf-8"))
+    cfg = full.get("graph", {})
     return {"secrets": [{"name": k, "present": bool(find_secret(k)), "optional": k in OPTIONAL} for k in SECRETS + OPTIONAL],
             "claude": bool(shutil.which("claude")), "graph": graph_status(),
             "config": {"enabled": bool(cfg.get("enabled")), "folders": cfg.get("mail_folders", ["inbox", "sentitems"]),
                        "chats": cfg.get("chats", [])},
-            "config_path": str(CONFIG)}
+            "config_path": str(CONFIG), "once": ONCE["on"],
+            "vault": {"path": full["vault"]["path"], "known": known_vaults(), "default": DEFAULT_VAULT,
+                      "picked": ONCE["vault_picked"]}}
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -278,6 +320,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 for k in saved:
                     set_secret(k, str(data[k]).strip())
                 return self.send(200, {"saved": saved})
+            if path == "/api/vault":
+                return self.send(200, {"saved": save_vault(str(json.loads(self.rfile.read(n) or b"{}").get("path", "")))})
+            if path == "/api/finish":
+                missing = finish_missing()
+                if missing:
+                    return self.send(200, {"error": f"Still needed: {', '.join(missing)}."})
+                self.send(200, {"done": True})
+                if ONCE["on"]:  # shutdown() blocks until serve_forever returns, so not on this thread
+                    threading.Thread(target=self.server.shutdown).start()
+                return
             if path == "/api/device/start":
                 return self.send(200, device_start())
             if path == "/api/device/poll":
@@ -377,8 +429,14 @@ footer { font: 500 0.75rem/1.5 var(--font-heading); letter-spacing: 0.08em; text
 </style></head><body><main>
 <p class="masthead">Rekall · <b>settings</b> · this machine only</p>
 <h1>Settings</h1>
-<p class="lead">Rekall can read your mail and the Teams chats you pick, and add new project facts and decisions to the wiki pages they name. It never sends mail or posts to Teams. Come back to this page any time to change what it reads.</p>
+<p class="lead">Choose your vault and save your Fathom key here. Optionally, Rekall can also read your mail and the Teams chats you pick, and add new project facts and decisions to the wiki pages they name. It never sends mail or posts to Teams. Come back to this page any time to change what it reads.</p>
 
+<section aria-labelledby="h-vault">
+  <h2 id="h-vault">Vault</h2>
+  <p class="hint">The Obsidian vault Rekall writes its wiki into. Pick one Obsidian already has open, or start a new one.</p>
+  <div id="vaults"></div>
+  <p id="vaultmsg" role="status" class="hint" style="margin: var(--space-md) 0 0"></p>
+</section>
 <section aria-labelledby="h-secrets">
   <h2 id="h-secrets">Secrets</h2>
   <p class="hint">Saved to your system keychain, or read from the environment or <code>.env</code>. Values are never shown here.</p>
@@ -422,7 +480,12 @@ footer { font: 500 0.75rem/1.5 var(--font-heading); letter-spacing: 0.08em; text
   <div class="callout"><p>Check what it would write, without touching the vault:</p><code class="cmd">bash scripts/run-graph-ingest.sh --dry-run --hours 24</code></div>
 </section>
 
-<footer>Runs on 127.0.0.1 and stops when you press Ctrl-C in the terminal.</footer>
+<section id="finish" aria-labelledby="h-finish" hidden>
+  <h2 id="h-finish">Finish setup</h2>
+  <p class="hint">Needs a vault choice, your Fathom API key and your work email. The installer carries on in Terminal once you finish.</p>
+  <div class="savebar"><button class="btn btn-accent" id="finishbtn" type="button">Finish setup</button><p id="finishmsg" role="status"></p></div>
+</section>
+<footer id="foot">Runs on 127.0.0.1 and stops when you press Ctrl-C in the terminal.</footer>
 </main>
 <script>
 let saved = [];
@@ -436,6 +499,11 @@ async function refresh() {
   $("graph").innerHTML = s.graph.ok
     ? `<p class="who">${esc(s.graph.user)}</p><p class="sub">${esc(s.graph.mail)}</p>`
     : `<p class="who">Not signed in</p><p class="sub">${esc(s.graph.error)}</p>`;
+  const v = s.vault, opts = [...new Set(v.known.concat([v.default]))];
+  $("vaults").innerHTML = opts.map(p => `<label class="switch" style="margin-bottom: var(--space-sm)"><input type="radio" name="vault" value="${esc(p)}" ${p === v.path && (v.picked || !v.known.length || !s.once) ? "checked" : ""}>
+    <span><strong>${esc(p === v.default ? "New vault" : p.split("/").pop())}</strong><span class="hint">${esc(p)}</span></span></label>`).join("");
+  $("finish").hidden = !s.once;
+  if (s.once) $("foot").textContent = "Runs on 127.0.0.1 and closes itself when you finish setup.";
   $("signin").textContent = s.graph.ok ? "Switch account" : "Sign in with Microsoft";
   $("enabled").checked = s.config.enabled;
   $("folders").value = s.config.folders.join(", ");
@@ -477,6 +545,15 @@ $("savekeys").onclick = async () => {
   $("keymsg").textContent = r.error ? r.error : r.saved.length ? `Saved ${r.saved.join(", ")}.` : "Nothing to save.";
   if (!r.error) refresh();
 };
+$("vaults").addEventListener("change", async e => {
+  const r = await post("/api/vault", {path: e.target.value});
+  $("vaultmsg").textContent = r.error ? r.error : `Rekall will use ${r.saved}.`;
+});
+$("finishbtn").onclick = async () => {
+  const r = await post("/api/finish");
+  $("finishmsg").textContent = r.error || "Done. You can close this tab; the installer is carrying on in Terminal.";
+  if (r.done) $("finishbtn").disabled = true;
+};
 $("chats").addEventListener("change", count);
 $("filter").addEventListener("input", e => {
   const q = e.target.value.toLowerCase();
@@ -505,8 +582,24 @@ refresh();
 
 
 def main():
-    server = http.server.ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
-    print(f"Rekall setup: open {REDIRECT}  (Ctrl-C to stop)")
+    global HOSTS
+    ONCE["on"] = "--once" in sys.argv
+    ONCE["vault_picked"] = bool(os.environ.get("REKALL_VAULT"))  # install.sh already wrote it into rekall.toml
+    for port in PORTS:
+        try:
+            server = http.server.ThreadingHTTPServer(("127.0.0.1", port), Handler)
+            break
+        except OSError:
+            continue
+    else:
+        sys.exit(f"Ports {PORTS.start}-{PORTS.stop - 1} are all in use; free one and re-run.")
+    HOSTS = {f"localhost:{port}", f"127.0.0.1:{port}"}
+    url = f"http://localhost:{port}"
+    if ONCE["on"]:
+        print(f"Rekall setup is open in your browser at {url}. Fill it in and click Finish setup.", flush=True)
+        webbrowser.open(url)
+    else:
+        print(f"Rekall setup: open {url}  (Ctrl-C to stop)")
     try:
         server.serve_forever()
     except KeyboardInterrupt:

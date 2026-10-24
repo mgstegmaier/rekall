@@ -155,45 +155,18 @@ uninstall() {
 }
 [ "${1:-}" = "--uninstall" ] && uninstall
 
-# --standard (bootstrap.sh): write rekall.toml with the ~/rekall layout and seed the vault, so
-# nothing has to be asked in chat. Never overwrites an existing toml or vault.
+# --standard (bootstrap.sh): write rekall.toml with the ~/rekall layout so nothing is asked in chat.
+# The vault is picked on the setup page below; REKALL_VAULT presets it. Never overwrites a toml.
+STANDARD= FRESH=
 if [ -z "$WIN" ] && [ "${1:-}" = "--standard" ]; then
+  STANDARD=1
   if [ ! -f "$REPO/rekall.toml" ]; then
-    # Vault: $REKALL_VAULT, else one of the vaults Obsidian already knows, else a new ~/rekall/vault.
-    # ponytail: Terminal prompt until the setup page grows a vault picker (plan step 3).
-    vault="${REKALL_VAULT:-}"
-    if [ -z "$vault" ]; then
-      known="$("$PY3" -c 'import json, os, sys
-p = os.path.expanduser("~/Library/Application Support/obsidian/obsidian.json")
-try: vs = json.load(open(p))["vaults"].values()
-except Exception: sys.exit()
-for v in vs:
-    if os.path.isdir(v.get("path", "")): print(v["path"])')"
-      if [ -n "$known" ]; then
-        { echo "Obsidian already has these vaults. Which one should Rekall use?"
-          echo "$known" | nl -w2 -s') '
-          echo " n) Create a new vault at ~/rekall/vault"; } >&2
-        { exec 3</dev/tty; } 2>/dev/null || { echo "No terminal to ask on. Re-run with REKALL_VAULT=/path/to/vault." >&2; exit 1; }
-        read -r -p "Number or n: " pick <&3
-        case "$pick" in
-          n|N) ;;
-          *[!0-9]*|"") echo "Not a choice: '$pick'. Re-run and pick a number or n." >&2; exit 1 ;;
-          *) vault="$(echo "$known" | sed -n "${pick}p")"
-             [ -n "$vault" ] || { echo "No vault $pick. Re-run and pick again." >&2; exit 1; } ;;
-        esac
-      fi
-    fi
+    FRESH=1  # a new toml still needs its vault picked on the setup page
     tz="$(readlink /etc/localtime | sed 's|.*/zoneinfo/||')"
     name="$(id -F 2>/dev/null || id -un)"
     sed -e "s|^name = \"Your Name\"|name = \"$name\"|" -e "s|^timezone = \"America/Chicago\"|timezone = \"${tz:-America/Chicago}\"|" \
-        -e "s|^path = \"~/rekall/vault\"|path = \"${vault:-~/rekall/vault}\"|" \
+        -e "s|^path = \"~/rekall/vault\"|path = \"${REKALL_VAULT:-~/rekall/vault}\"|" \
       "$REPO/rekall.example.toml" > "$REPO/rekall.toml"
-  fi
-  VAULT_DIR="$("$PY3" "$REPO/rekall_config.py" VAULT)"
-  if [ ! -e "$VAULT_DIR/wiki" ]; then
-    mkdir -p "$VAULT_DIR"
-    cp -R "$REPO/vault-template/." "$VAULT_DIR/"
-    sed "${SEDI[@]}" "s|REKALL_REPO|$REPO|g" "$VAULT_DIR/wiki/CLAUDE.md"
   fi
 fi
 
@@ -206,6 +179,19 @@ fi
 "$PY" -c 'import mcp' 2>/dev/null || "$PY" -m pip install -q "mcp<2"   # graph-memory/mcp_server.py (v2 renamed FastMCP)
 # Windows ships no timezone database, so zoneinfo raises without tzdata in the venv
 [ -z "$WIN" ] || "$PY" -c 'import tzdata' 2>/dev/null || "$PY" -m pip install -q tzdata
+# --standard: the setup page collects the vault choice and the Fathom key, then closes itself.
+# Opens for a new toml or missing keys, so a re-run of a finished install never reopens it.
+if [ -n "$STANDARD" ]; then
+  if [ -n "$FRESH" ] || ! "$PY" -c 'import sys; sys.path.insert(0, sys.argv[1]); import rekall_config as c; sys.exit(not (c.find_secret("FATHOM_API_KEY") and c.find_secret("WORK_EMAIL")))' "$REPO"; then
+    "$PY" "$REPO/scripts/setup-server.py" --once
+  fi
+  VAULT_DIR="$("$PY" "$REPO/rekall_config.py" VAULT)"
+  if [ ! -e "$VAULT_DIR/wiki" ]; then
+    mkdir -p "$VAULT_DIR"
+    cp -R "$REPO/vault-template/." "$VAULT_DIR/"
+    sed "${SEDI[@]}" "s|REKALL_REPO|$REPO|g" "$VAULT_DIR/wiki/CLAUDE.md"
+  fi
+fi
 MODEL_DIR="$("$PY" "$REPO/rekall_config.py" DATA)/model"
 [ -f "$MODEL_DIR/model_optimized.onnx" ] || PYTHON="$PY" bash "$REPO/graph-memory/fetch_model.sh"
 
