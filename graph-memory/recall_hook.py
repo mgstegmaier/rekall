@@ -23,6 +23,7 @@ sys.path.insert(0, str(HERE))
 
 try:
     from paths import DB  # noqa: E402
+    from rekall_config import claude_auth_status  # noqa: E402
     BROKEN = None
 except (Exception, SystemExit) as e:  # rekall_config sys.exits on a missing rekall.toml
     DB, BROKEN = None, f"config failed to load ({e})"
@@ -206,9 +207,16 @@ def main():
     except Exception as e:
         return unavailable(f"search failed ({type(e).__name__}: {e})")
     facts = graph_facts(prompt)
-    if not kept and not facts:
+    try:
+        auth = claude_auth_status()  # two small file reads
+    except Exception:
+        auth = None
+    if not kept and not facts and not auth:
         return
     parts = []
+    if auth:
+        parts.append(f"Rekall sign-in: {auth} Tell the user, and offer to run that command for them; "
+                     "it opens the Claude sign-in in their browser.")
     if kept:
         parts.append("From your notes:\n\n" + "\n\n".join(kept))
     graph_lines = graph_block(facts) if facts else []
@@ -218,6 +226,8 @@ def main():
     label = f"memory: {count} hit{'' if count == 1 else 's'}"
     if graph_lines:
         label += f", {len(graph_lines)} graph facts"
+    if auth:
+        label = f"rekall: {auth}" + (f" ({label})" if kept or graph_lines else "")
     print(
         json.dumps(
             {

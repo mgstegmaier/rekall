@@ -6,6 +6,7 @@ and shell scripts ask it for one value: `python3 rekall_config.py VAULT`.
 Set REKALL_CONFIG=/path/to/other.toml to run everything against a different vault.
 """
 
+import json
 import os
 import sys
 import tomllib
@@ -73,6 +74,79 @@ def claude_env(env):
     if token:
         env["CLAUDE_CODE_OAUTH_TOKEN"] = token
     return env
+
+
+# Claude sign-in health. Plain files, because the recall hook checks them on every prompt and must
+# not touch the keychain that often.
+AUTH_FAILED = STATE_DIR / "claude-auth-failed"     # a scheduled claude -p call was refused; cleared on success
+TOKEN_INFO = STATE_DIR / "claude-token.json"       # when the settings page last saved a token
+REAUTH_PROMPTED = STATE_DIR / "claude-reauth-prompted"
+TOKEN_WARN_DAYS = 330  # ponytail: the CLI calls the token long-lived; warn a month before a year
+AUTH_ERRORS = ("not logged in", "/login", "invalid api key", "oauth token", "authentication_error",
+               "token has expired", "401")
+
+
+def token_saved():
+    """Record a new token's date and clear any failure; the settings page calls this after saving."""
+    from datetime import date
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    TOKEN_INFO.write_text(json.dumps({"created": date.today().isoformat()}))
+    AUTH_FAILED.unlink(missing_ok=True)
+
+
+def token_age_days():
+    from datetime import date
+    try:
+        return (date.today() - date.fromisoformat(json.loads(TOKEN_INFO.read_text())["created"])).days
+    except Exception:  # no token saved yet, or an unreadable file
+        return None
+
+
+def claude_auth_status():
+    """One line when the Claude sign-in needs attention, else None."""
+    if AUTH_FAILED.exists():
+        return (f"Claude refused Rekall's background jobs since {AUTH_FAILED.read_text().strip()[:16]}, "
+                f"so meetings aren't being captured. Sign in again: {sys.executable} {ROOT}/scripts/setup-server.py --reauth")
+    age = token_age_days()
+    if age is not None and age >= TOKEN_WARN_DAYS:
+        return (f"Rekall's Claude sign-in is {age} days old and will expire soon. "
+                f"Sign in again: {sys.executable} {ROOT}/scripts/setup-server.py --reauth")
+    return None
+
+
+def note_claude_result(ok, output=""):
+    """Runners call this after each claude -p child: success clears the failure, an auth error records it."""
+    try:
+        if ok:
+            AUTH_FAILED.unlink(missing_ok=True)
+        elif any(e in output.lower() for e in AUTH_ERRORS):
+            from datetime import datetime
+            STATE_DIR.mkdir(parents=True, exist_ok=True)
+            if not AUTH_FAILED.exists():
+                AUTH_FAILED.write_text(datetime.now().isoformat(timespec="minutes"))
+            prompt_reauth()
+    except OSError:
+        pass  # bookkeeping must never fail the job
+
+
+def prompt_reauth():
+    """macOS dialog with a Sign in button, at most once a day. Sign in runs setup-server.py --reauth,
+    which opens the Claude sign-in in the browser. Detached, so the job never waits on the dialog."""
+    import subprocess, shlex, time
+    if sys.platform != "darwin":
+        return
+    if REAUTH_PROMPTED.exists() and time.time() - REAUTH_PROMPTED.stat().st_mtime < 86400:
+        return
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    REAUTH_PROMPTED.touch()
+    venv = ROOT / "graph-memory/.venv/bin/python"  # has keyring; the job's own python may not
+    py = venv if venv.exists() else Path(sys.executable)
+    dialog = ('display dialog "Rekall needs you to sign in to Claude again, or it stops capturing meetings." '
+              'with title "Rekall" buttons {"Later", "Sign in"} default button "Sign in" cancel button "Later"')
+    # "Later" is the cancel button, so osascript exits non-zero and the sign-in doesn't run
+    cmd = f"osascript -e {shlex.quote(dialog)} >/dev/null && {shlex.quote(str(py))} {shlex.quote(str(ROOT / 'scripts/setup-server.py'))} --reauth"
+    subprocess.Popen(["/bin/sh", "-c", cmd], start_new_session=True,
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 def set_secret(name, value):

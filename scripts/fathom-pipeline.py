@@ -32,7 +32,7 @@ from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from rekall_config import claude_env, find_secret, MONDAY_BOARD, MONDAY_GROUP, STATE_DIR, TIMEZONE, VAULT  # noqa: E402
+from rekall_config import claude_env, find_secret, note_claude_result, prompt_reauth, token_age_days, TOKEN_WARN_DAYS, MONDAY_BOARD, MONDAY_GROUP, STATE_DIR, TIMEZONE, VAULT  # noqa: E402
 
 MEETINGS = VAULT / "wiki" / "meetings"
 RAW = VAULT / "wiki" / "raw"
@@ -511,6 +511,7 @@ def ingest_to_wiki(source_paths, extra=""):
         log(f"  ingest batch of {len(source_paths)}: TIMEOUT after 2400s (log: {logfile})")
         return False
     log(f"  ingest batch of {len(source_paths)}: exit {returncode} (log: {logfile})")
+    note_claude_result(returncode == 0, Path(logfile).read_text(errors="replace")[-3000:] if returncode else "")
     if returncode != 0:
         return False
     if not WIKI_LOG.exists() or WIKI_LOG.stat().st_mtime <= log_before_mtime:
@@ -539,6 +540,9 @@ def main():
     if lock_fh is None:
         log("another pipeline run is active; exiting")
         return
+    age = token_age_days()
+    if age is not None and age >= TOKEN_WARN_DAYS:  # ask before it expires, once a day at most
+        prompt_reauth()
     # ponytail: lock_fh stays open (never closed) so the lock holds for the whole run;
     # the OS releases it automatically on process exit.
 

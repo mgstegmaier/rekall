@@ -15,6 +15,8 @@ permissions. Either way the new refresh token goes into the OS keyring (rekall_c
   shows a code; you enter it at Microsoft's sign-in page.
 - With MSGRAPH_CLIENT_SECRET: the auth-code flow cos-desk's msgraph-auth.py uses, which needs
   http://localhost:8086 as a "Mobile and desktop applications" redirect URI on the app.
+`--reauth` (the expiry dialog's Sign in button runs it): no page; runs the Claude sign-in, saves the
+token, tests it, and posts a notification.
 `--once` (install.sh --standard runs it): opens the browser itself, adds the vault picker's Finish
 button, and exits when a vault is picked and FATHOM_API_KEY and WORK_EMAIL are saved. If 8086 is
 taken it uses the next free port up to 8095; only 8086 works for the auth-code Graph sign-in.
@@ -48,7 +50,7 @@ _spec = importlib.util.spec_from_file_location("graph_ingest", Path(__file__).pa
 gi = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(gi)
 fp = gi.fp
-from rekall_config import claude_env, find_secret, get_secret, set_secret  # noqa: E402
+from rekall_config import claude_env, find_secret, get_secret, set_secret, token_saved  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG = Path(os.environ.get("REKALL_CONFIG", ROOT / "rekall.toml"))
@@ -247,6 +249,7 @@ def claude_signin():
             m = TOKEN_RE.search(out)
             if m:
                 set_secret("CLAUDE_CODE_OAUTH_TOKEN", m.group(0).decode())
+                token_saved()
                 CLAUDE.update(state="saved", error="")
                 return
         CLAUDE.update(state="failed", error="No token came back. Paste one from `claude setup-token` below.")
@@ -384,6 +387,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 saved = [k for k in INPUTS if str(data.get(k, "")).strip()]
                 for k in saved:
                     set_secret(k, str(data[k]).strip())
+                if "CLAUDE_CODE_OAUTH_TOKEN" in saved:
+                    token_saved()
                 return self.send(200, {"saved": saved})
             if path == "/api/vault":
                 return self.send(200, {"saved": save_vault(str(json.loads(self.rfile.read(n) or b"{}").get("path", "")))})
@@ -679,8 +684,29 @@ refresh();
 """
 
 
+def notify(text):
+    """A macOS notification; elsewhere, the terminal line is enough."""
+    print(text, flush=True)
+    if sys.platform == "darwin":
+        subprocess.run(["osascript", "-e", f"display notification {json.dumps(text)} with title \"Rekall\""], check=False)
+
+
+def reauth():
+    """--reauth: the one-click path from the expiry dialog. No page; the browser opens on Claude's sign-in."""
+    claude_signin()
+    if CLAUDE["state"] != "saved":
+        notify(f"Claude sign-in didn't finish: {CLAUDE['error']} Run: python3 {Path(__file__)} for the settings page.")
+        sys.exit(1)
+    probe = claude_probe()
+    notify("Signed in to Claude. Rekall's background jobs are running again." if probe["ok"]
+           else f"Signed in, but Claude didn't answer the test: {probe['error']}")
+    sys.exit(0 if probe["ok"] else 1)
+
+
 def main():
     global HOSTS
+    if "--reauth" in sys.argv:
+        return reauth()
     ONCE["on"] = "--once" in sys.argv
     ONCE["vault_picked"] = bool(os.environ.get("REKALL_VAULT"))  # install.sh already wrote it into rekall.toml
     for port in PORTS:
