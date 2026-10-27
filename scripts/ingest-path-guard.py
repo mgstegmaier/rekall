@@ -82,17 +82,27 @@ def main():
         return deny("REKALL_GUARD_ROOTS is unset, so no path can be verified")
 
     writable = [Path(p).resolve() for p in sys.argv[1:]]
+    tool = call.get("tool_name", "tool")
     tool_input = call.get("tool_input") or {}
-    # A glob can reach hidden folders without naming a path: Grep's `glob`, Glob's `pattern`.
-    globs = [tool_input.get("glob")] + ([tool_input.get("pattern")] if call.get("tool_name") == "Glob" else [])
-    for g in globs:
-        # a component that starts with "." outright or as a brace alternative ({.obsidian,pages})
-        if isinstance(g, str) and re.search(r"(^|[/\\{,])\.", g):
-            return deny(f"hidden files and folders are off limits during automated ingest. Refused glob: {g}")
+    if tool in ("Glob", "Grep"):
+        # Grep searches hidden files, and a pathless call searches cwd (the vault root), which
+        # holds .obsidian/. So a search must name a path under a write root (wiki/, which has no
+        # dot folders) or a read-only root that holds none (the skill).
+        searchable = writable + [r for r in allowed if not any(w == r or r in w.parents for w in writable)]
+        path = tool_input.get("path")
+        if not isinstance(path, str) or not path or where(path, searchable) is None:
+            return deny(f"{tool} must be given a path under {os.pathsep.join(str(r) for r in searchable)} "
+                        f"during automated ingest. Refused path: {path!r}")
+        # Globs: a narrow alphabet, so [.]x, ?x, \x and absolute patterns can't reach a dot folder.
+        g = tool_input.get("pattern") if tool == "Glob" else tool_input.get("glob")
+        if isinstance(g, str) and g and (not re.fullmatch(r"[A-Za-z0-9_*/{},. -]+", g)
+                                         or g[0] in "/~" or re.search(r"(^|[/{,])\.", g)):
+            return deny(f"{tool} glob {g!r} is not allowed during automated ingest; "
+                        f"use letters, digits, _ - . * / {{ }} , only, relative, with no hidden folders")
     for key in PATH_KEYS:
         value = tool_input.get(key)
         if isinstance(value, str) and value:
-            reason = refusal(call.get("tool_name", "tool"), value, allowed, writable)
+            reason = refusal(tool, value, allowed, writable)
             if reason:
                 return deny(reason)
     sys.exit(0)  # no output, no decision, the call proceeds

