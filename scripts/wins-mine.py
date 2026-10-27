@@ -78,6 +78,12 @@ def frontmatter(text):
     return m.group(1) if m else ""
 
 
+def tags(fm):
+    """The frontmatter's tags, lowercased: `tags: [a, b]`, `tags: a`, or a `- a` list below it."""
+    m = re.search(r"^tags:[ \t]*(.*)\n?((?:[ \t]*-[^\n]*\n?)*)", fm, re.M)
+    return {t.lower() for t in re.findall(r"[^\s,\[\]'\"-][^\s,\[\]'\"]*", m.group(1) + "\n" + m.group(2))} if m else set()
+
+
 def project_pages():
     pages = []
     for f in sorted((WIKI / "pages").rglob("*.md")):
@@ -85,7 +91,7 @@ def project_pages():
         fm = frontmatter(text)
         if "type: project" not in fm:
             continue
-        if WORK_TAG.lower() not in fm.lower():
+        if WORK_TAG.lower() not in tags(fm):
             continue
         desc = re.search(r"^description:\s*(.*)$", fm, re.M)
         state = re.search(r"^## State\n(.*?)(?=^## |\Z)", text, re.M | re.DOTALL)

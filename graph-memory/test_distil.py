@@ -69,13 +69,37 @@ with tempfile.TemporaryDirectory() as tmp:
 
     def errors(model, prompt_text, payload):
         calls.append(payload)
-        raise RuntimeError("claude exited 1")
+        raise distil.ClaudeExit("claude exited 1")
 
     distil.ask = errors
+    for _ in range(3):  # every note fails: systemic (outage, 429), so no strikes and no quarantine
+        assert distil.run(corpus, rebuild=False) == {"distilled": 0, "skipped": 0, "dropped": 1}
+    assert len(calls) == 6
+    assert not distil.load_state().get("boom.md", {}).get("failures"), "an all-fail run records no strikes"
+
+    (corpus / "good.md").write_text("# Good\n\nThe launch moved to May.\n")
+
+    def mixed(model, prompt_text, payload):
+        if "good.md" in payload:
+            return '- When is the launch?\nquote: "The launch moved to May."\n'
+        raise distil.ClaudeExit("claude exited 1")
+
+    distil.ask = mixed
+    assert distil.run(corpus, rebuild=False) == {"distilled": 1, "skipped": 0, "dropped": 1}
+    assert distil.load_state()["boom.md"]["failures"] == 1, "one strike when another note got through"
+
+    def timeouts(model, prompt_text, payload):
+        raise TimeoutError("claude took too long")
+
+    distil.ask = timeouts
     distil.run(corpus, rebuild=False)
-    distil.run(corpus, rebuild=False)  # second error in a row on the same hash -> quarantined
-    assert distil.run(corpus, rebuild=False) == {"distilled": 0, "skipped": 1, "dropped": 0}
-    assert len(calls) == 5, "an erroring note must stop costing a call per run"
+    assert distil.load_state()["boom.md"]["failures"] == 1, "a timeout is never a strike"
+
+    (corpus / "good2.md").write_text("# Good2\n\nShipped on Friday.\n")
+    distil.ask = lambda m, p, payload: ('- What shipped?\nquote: "Shipped on Friday."\n'
+                                        if "good2.md" in payload else "no question or quote in here")
+    distil.run(corpus, rebuild=False)
+    assert distil.load_state()["boom.md"]["failures"] == 2, "a bad answer beside a success is a strike"
 
 with tempfile.TemporaryDirectory() as tmp:
     cfg = Path(tmp) / "config.json"

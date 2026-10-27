@@ -20,6 +20,7 @@ exiting 0 blocks the call and hands the reason back to the model.
 """
 import json
 import os
+import re
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -58,8 +59,10 @@ def refusal(tool, value, allowed, writable):
     if any(part.startswith(".") for part in real.relative_to(root).parts):
         return f"hidden files and folders are off limits during automated ingest. Refused: {value}"
     if tool in WRITE_TOOLS:
-        if real.name == "CLAUDE.md":
+        if real.name.lower() in ("claude.md", "claude.local.md"):  # APFS is case-insensitive
             return f"CLAUDE.md files are read-only during automated ingest. Refused: {value}"
+        if real.suffix.lower() != ".md":  # a .canvas or .html page is not ingest's to write
+            return f"ingest writes markdown pages only. Refused: {value}"
         if where(real, writable) is None:
             return (f"{tool} is restricted to {os.pathsep.join(str(r) for r in writable)} during "
                     f"automated ingest. Refused: {value}")
@@ -80,6 +83,12 @@ def main():
 
     writable = [Path(p).resolve() for p in sys.argv[1:]]
     tool_input = call.get("tool_input") or {}
+    # A glob can reach hidden folders without naming a path: Grep's `glob`, Glob's `pattern`.
+    globs = [tool_input.get("glob")] + ([tool_input.get("pattern")] if call.get("tool_name") == "Glob" else [])
+    for g in globs:
+        # a component that starts with "." outright or as a brace alternative ({.obsidian,pages})
+        if isinstance(g, str) and re.search(r"(^|[/\\{,])\.", g):
+            return deny(f"hidden files and folders are off limits during automated ingest. Refused glob: {g}")
     for key in PATH_KEYS:
         value = tool_input.get(key)
         if isinstance(value, str) and value:

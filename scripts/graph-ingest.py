@@ -416,6 +416,10 @@ def main():
             continue
         try:
             planned = plan_thread(t, projects, state, tok)
+        except SystemExit:  # signed out partway: log the pages already written before stopping
+            if log_entries and not args.dry_run:
+                append_log(log_entries, day)
+            raise
         except Exception as e:  # model timeout, bad JSON, a Graph error on one body: retried next run
             failed += 1
             log(f"  {t['kind']} \"{t['name']}\": {type(e).__name__}: {str(e)[:200]}")

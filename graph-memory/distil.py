@@ -42,6 +42,10 @@ class NotSignedIn(RuntimeError):
     """claude -p was refused for want of a sign-in: no note is to blame, so callers stop."""
 
 
+class ClaudeExit(RuntimeError):
+    """claude -p exited non-zero. The note may be to blame, or an outage or rate limit may."""
+
+
 def model_name():
     """distil_model from digest/config.json, or haiku when there is no config.
 
@@ -96,7 +100,7 @@ def ask(model, prompt_text, payload):
         raise NotSignedIn("claude is not signed in; sign in again with scripts/setup-server.py --reauth")
     if proc.returncode != 0:
         # claude -p prints its errors to stdout; the tail holds the error, the head is warnings
-        raise RuntimeError((proc.stderr + proc.stdout).strip()[-300:] or f"claude exited {proc.returncode}")
+        raise ClaudeExit((proc.stderr + proc.stdout).strip()[-300:] or f"claude exited {proc.returncode}")
     return proc.stdout
 
 
@@ -171,6 +175,7 @@ def run(corpus, paths=None, limit=None, rebuild=True, under=None):
 
     state = load_state()
     counts = {"distilled": 0, "skipped": 0, "dropped": 0}
+    exits = []  # notes whose call exited non-zero; struck only if another note got through
     for path in files:
         if limit is not None and counts["distilled"] + counts["dropped"] >= limit:
             counts["skipped"] += 1
@@ -195,8 +200,11 @@ def run(corpus, paths=None, limit=None, rebuild=True, under=None):
         except Exception as exc:  # one bad note never stops the run
             print(f"dropped {rel}: {type(exc).__name__} {exc}")
             counts["dropped"] += 1
-            # quarantined like a bad answer, so a note that always errors stops retrying hourly
-            record_failure(state, rel, known, digest)
+            # A timeout or a missing claude is the machine's fault: no strike. A non-zero exit
+            # is a strike only when another note in this run succeeded, so an outage or a 429
+            # that fails every note never quarantines them.
+            if isinstance(exc, ClaudeExit):
+                exits.append((rel, known, digest))
             continue
         if text is None:
             counts["dropped"] += 1
@@ -207,6 +215,9 @@ def run(corpus, paths=None, limit=None, rebuild=True, under=None):
         state[rel] = {"sha256": digest, "slug": slug}
         counts["distilled"] += 1
         print(f"distilled {rel} -> distilled/{slug}")
+    if counts["distilled"]:
+        for rel, known, digest in exits:
+            record_failure(state, rel, known, digest)
     save_state(state)
 
     print(

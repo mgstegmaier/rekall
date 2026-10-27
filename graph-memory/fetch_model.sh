@@ -18,10 +18,17 @@ SUMS="13582bcf2effc85b7bf3d3f5532e686bc1c9ce86bb009d10f0ec33cbe92299dd  config.j
 d241a60d5e8f04cc1b2b3e9ef7a4921b27bf526d9f6050ab90f9267a1f9e5c66  tokenizer.json
 0b29c7bfc889e53b36d9dd3e686dd4300f6525110eaa98c76a5dafceb2029f53  tokenizer_config.json
 07eced375cec144d27c900241f3e339478dec958f92fddbc551f295c992038a3  vocab.txt"
+# Download beside MODEL_DIR and move in only after every checksum passes, so a partial or
+# tampered download never lands where install.sh's "model exists, skip" check would see it.
+TMP="$(mktemp -d "$MODEL_DIR.part.XXXXXX")"
+trap 'rm -rf "$TMP"' EXIT
 echo "$SUMS" | while read -r _ f; do
-  curl -sSL --fail -o "$MODEL_DIR/$f" "https://huggingface.co/Qdrant/bge-small-en-v1.5-onnx-Q/resolve/$REV/$f"
+  curl -sSL --fail -o "$TMP/$f" "https://huggingface.co/Qdrant/bge-small-en-v1.5-onnx-Q/resolve/$REV/$f"
   echo "fetched $f"
 done
 SHA="shasum -a 256"
 command -v shasum >/dev/null || SHA=sha256sum   # Git Bash on Windows ships sha256sum only
-(cd "$MODEL_DIR" && echo "$SUMS" | $SHA -c -) || { echo "model checksum mismatch in $MODEL_DIR; not using it" >&2; exit 1; }
+(cd "$TMP" && echo "$SUMS" | $SHA -c -) || { echo "model checksum mismatch; nothing installed, re-run to fetch again" >&2; exit 1; }
+# model_optimized.onnx moves last: it is the file install.sh checks for
+echo "$SUMS" | while read -r _ f; do [ "$f" = model_optimized.onnx ] || mv -f "$TMP/$f" "$MODEL_DIR/$f"; done
+mv -f "$TMP/model_optimized.onnx" "$MODEL_DIR/model_optimized.onnx"

