@@ -4,6 +4,10 @@ The changes that affect an installed Rekall, newest first. Rekall has no version
 
 To upgrade, run `git pull` and then `bash install.sh` in the rekall folder (see "Upgrading" in the README). An entry marked **Re-run install.sh** changes something the installer writes outside the repo, such as the Claude Code hooks, the Claude Desktop MCP entry, or the venv packages, so `git pull` alone doesn't pick it up.
 
+## 2026-10-27
+
+- A skipped OS vault now says so. `find_secret` fell through to `.env` without a word when the `keyring` module was missing or its backend was broken, so a runner whose Python lacks `keyring` read secrets from a file that may not hold them and reported nothing. On 2026-10-26 that hid a stored `CLAUDE_CODE_OAUTH_TOKEN` from every scheduled job for most of a day: the jobs ran as though nobody had signed in. It now prints one line to stderr per process, naming the Python and the `pip install keyring` that fixes it.
+
 ## 2026-10-26
 
 - New page type `research`: a dated memo that answers a question from evidence, says what the evidence does not support, and recommends nothing. Memos live in `wiki/pages/research/`, so they are indexed, linked, and in the graph like any other page, and `wiki-lint.py` and `wiki-index.py` know the type.
