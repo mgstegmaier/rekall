@@ -42,6 +42,13 @@ group = "Auto-Capture"
 # pages and never rewrites `## State`. Set enabled = false to stop the sweep.
 enabled = true
 
+[wins]
+# Optional. scripts/wins-mine.py gathers a year's evidence for a review from these.
+repos_dir = "~/work-repos"          # folder holding your work git clones
+author = "Your Name"                # git log --author pattern
+work_markers = ["work-repos"]       # a Claude Code project path containing one of these counts as work
+tag = "work"                        # project pages whose frontmatter carries this word
+
 [graph]
 # Optional. Reads your mail and the Teams chats you pick, and writes new project facts and
 # decisions into matching wiki project pages. Off unless enabled = true and the MSGRAPH_*

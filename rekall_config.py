@@ -35,6 +35,8 @@ EMBEDDING_MODEL = _cfg.get("index", {}).get("embedding_model", "BAAI/bge-small-e
 GRAPH = _cfg.get("graph", {})
 # Research sweep (fathom-pipeline links wiki/pages/research/ memos onto the pages they name); on unless enabled = false.
 RESEARCH = _cfg.get("research", {})
+# Annual-review evidence miner (scripts/wins-mine.py): work repos, git author, work markers, page tag.
+WINS = _cfg.get("wins", {})
 # Optional command the launchers put in front of each job, e.g. "doppler run --project p --config c --".
 RUN_PREFIX = _cfg.get("secrets", {}).get("run_prefix", "")
 

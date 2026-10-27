@@ -123,7 +123,7 @@ def resolve_slug(by_slug, by_name, aliases, value):
     """Same lookup as a wikilink target (slug as written, else spaces to hyphens),
     then the entity's name (frontmatter title) and its alias table, both
     case-insensitive — attendees and other relation values are often written as
-    a display name ("Matthew Brink") rather than a slug."""
+    a display name ("Dana Reyes") rather than a slug."""
     v = value.strip().lower()
     return (
         by_slug.get(v)
@@ -222,7 +222,7 @@ def main():
         )
         spaced = slug.replace("-", " ")
         # slug spacing plus the page's own `aliases:` list (how pages/me.md
-        # says "Michael Stegmaier" without the name living in this repo)
+        # says your full name without it living in this repo)
         for alias in [spaced] + relations.get("aliases", []):
             if alias.lower() != name.lower():
                 db.execute("INSERT INTO aliases VALUES (?,?)", (ident, alias))
