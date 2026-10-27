@@ -142,7 +142,7 @@ with tempfile.TemporaryDirectory() as tmp:
     db = sqlite3.connect(db_path)
     db.execute("CREATE TABLE chunks (id INTEGER PRIMARY KEY, file TEXT, section TEXT, text TEXT)")
     db.execute("CREATE VIRTUAL TABLE chunks_fts USING fts5(text, file, section)")
-    rows = [(1, "pages/family.md", "School", "Judah has soccer practice on Tuesday"),
+    rows = [(1, "pages/family.md", "School", "Tobias has soccer practice on Tuesday"),
             (2, "pages/tickets.md", "Open", "SNOW-1234 tracks the key rotation"),
             (3, "sessions/2026-08-31.md", "Notes", "a note on recursion in the parser")]
     rows += [(10 + i, f"pages/p{i}.md", "Python", f"python script number {i}") for i in range(search.RARE_DF + 1)]
@@ -160,11 +160,11 @@ with tempfile.TemporaryDirectory() as tmp:
 
         search.meaning_leg = low_meaning_leg
         recall_hook.DB = db_path
-        assert [l for l, _ in hits("Judah")] == ["[pages/family.md § School]"], hits("Judah")
+        assert [l for l, _ in hits("Tobias")] == ["[pages/family.md § School]"], hits("Tobias")
         assert [l for l, _ in hits("what about SNOW-1234")] == ["[pages/tickets.md § Open]"]
         assert hits("explain recursion") == []  # lowercase: not a name, stays gated
         assert hits("Python") == []  # capitalised but common: weak
-        assert hits("Judah Xyzzy") == []  # names something the notes lack: no chunk holds both
+        assert hits("Tobias Xyzzy") == []  # names something the notes lack: no chunk holds both
     finally:
         search.meaning_leg = real_meaning_leg
 
@@ -216,7 +216,7 @@ finally:
 for button in ["Approved: Delete the branch?", 'For "Which board?", I pick: Platform', "Not doing this, plan around it: Run setup.py",
                'Approved with changes. Instead of "X", do this: Y', 'Answer to "What id?": 42']:
     assert recall_hook.BUTTON_PROMPT.match(button), button
-for ordinary in ["Approved budget for the DV2 refactor?", "For the EDP pipeline, what broke?", "Done with snowflake, now dbt"]:
+for ordinary in ["Approved budget for the schema refactor?", "For the warehouse project, what broke?", "Done with snowflake, now dbt"]:
     assert not recall_hook.BUTTON_PROMPT.match(ordinary), ordinary
 
 # Fail open, fail loud: every failure exits 0 with a "rekall unavailable" notice and a log line.
@@ -225,7 +225,7 @@ for ordinary in ["Approved budget for the DV2 refactor?", "For the EDP pipeline,
 import subprocess  # noqa: E402
 
 HOOK = Path(__file__).resolve().parent / "recall_hook.py"
-PROMPT = json.dumps({"prompt": "what broke in the EDP pipeline"})
+PROMPT = json.dumps({"prompt": "what broke in the warehouse project"})
 
 
 def run(cmd, home, env=None, shell=False):

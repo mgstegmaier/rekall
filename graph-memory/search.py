@@ -57,7 +57,7 @@ def keyword_leg(db, query):
 
 
 # ponytail: a "strong" keyword hit is one of the keyword leg's top STRONG_TOP chunks that holds
-# every rare name-like token of the prompt: written with a capital or a digit (Judah, SNOW-1234),
+# every rare name-like token of the prompt: written with a capital or a digit (Tobias, SNOW-1234),
 # in at most RARE_DF chunks. Measured 2026-10-27 on the live index (14,279 chunks): names
 # sit at 22-24 chunks, while lowercase coding words that are just as rare (recursion, dataclass)
 # would let generic prompts through, hence the capital-or-digit test. A token in no chunk at all
