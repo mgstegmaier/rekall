@@ -32,10 +32,11 @@ from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from rekall_config import find_secret, MONDAY_BOARD, MONDAY_GROUP, STATE_DIR, TIMEZONE, VAULT  # noqa: E402
+from rekall_config import find_secret, MONDAY_BOARD, MONDAY_GROUP, RESEARCH, STATE_DIR, TIMEZONE, VAULT  # noqa: E402
 
 MEETINGS = VAULT / "wiki" / "meetings"
 RAW = VAULT / "wiki" / "raw"
+RESEARCH_DIR = VAULT / "wiki" / "pages" / "research"
 WIKI_LOG = VAULT / "wiki" / "log.md"
 WIKI_TYPED_DIRS = ["pages"]
 STATE_FILE = STATE_DIR / "fathom-pipeline-state.json"
@@ -44,6 +45,17 @@ LOCK_FILE = STATE_DIR / "fathom-pipeline.lock"
 CT = ZoneInfo(TIMEZONE)
 FATHOM_BASE = "https://api.fathom.ai/external/v1"
 INGEST_BATCH = 5
+# Research memos are analysis, not source material, so they get their own prompt and a write
+# boundary narrow enough that a wrong unattended run can't corrupt what a page says is true.
+RESEARCH_EXTRA = (
+    "These sources are research memos that ALREADY live in the wiki, at wiki/pages/research/. "
+    "Follow SKILL.md's 'Mode: Research ingest', NOT the normal Ingest mode. Hard limits: create no "
+    "pages, rewrite no page's `## State`, add no `## Updates` entry, and never edit the memo itself. "
+    "Your only edit outside wiki/log.md is one line under a `## Research` section on each page the "
+    "memo's `project:` and `tags:` frontmatter names, adding that section just above "
+    "`## Related pages` when the page lacks one. A memo is a dated open question, not a settled "
+    "fact: write each line so a reader sees evidence and its date, never a decision."
+)
 
 
 def log(msg):
@@ -117,7 +129,7 @@ def http_json(url, headers=None, body=None, timeout=30, retries=5):
 def load_state():
     if STATE_FILE.exists():
         return json.loads(STATE_FILE.read_text())
-    return {"meetings": {}, "raw_ingested": [], "monday_group_id": None}
+    return {"meetings": {}, "raw_ingested": [], "research_ingested": [], "monday_group_id": None}
 
 
 def save_state(state):
@@ -130,15 +142,24 @@ def slugify(title, max_len=50):
     return slug[:max_len].rstrip("-") or "untitled"
 
 
-def raw_key(path):
-    """State-file entry for a raw/ file: name + short content hash, so edits re-ingest."""
+def source_key(path):
+    """State-file entry for a swept file: name + short content hash, so edits re-ingest."""
     return f"{path.name}:{hashlib.sha256(path.read_bytes()).hexdigest()[:16]}"
 
 
-def raw_is_pending(path, raw_ingested):
+def source_is_pending(path, ingested):
     # ponytail: bare filename entries are legacy (pre-hash) marks and match regardless of
     # content hash, so already-tracked raw files don't spuriously re-ingest on this upgrade.
-    return path.name not in raw_ingested and raw_key(path) not in raw_ingested
+    return path.name not in ingested and source_key(path) not in ingested
+
+
+def pending_research(state):
+    """Research memos whose content changed since their last sweep. Empty when [research]
+    enabled = false in rekall.toml, or the folder doesn't exist yet."""
+    if not RESEARCH.get("enabled", True) or not RESEARCH_DIR.is_dir():
+        return []
+    return [f for f in sorted(RESEARCH_DIR.glob("*.md"))
+            if source_is_pending(f, state.get("research_ingested", []))]
 
 
 # ── Fathom ──────────────────────────────────────────────────
@@ -402,9 +423,13 @@ def push_action_items(m, note_rel, group_id):
 def verify_ingest(source_paths):
     """Cheap, dumb post-ingest check: did the log move, and does every source show up
     somewhere in the wiki. No LLM calls -- a plain substring scan."""
+    # A source that itself lives under wiki/pages/ (a research memo) would match its own text,
+    # so drop it: the check is whether some OTHER page now references it.
+    selves = {(VAULT / s).resolve() for s in source_paths}
     text = "".join(
         f.read_text(errors="ignore")
         for d in WIKI_TYPED_DIRS for f in (VAULT / "wiki" / d).rglob("*.md")
+        if f.resolve() not in selves
     )
     for s in source_paths:
         basename = Path(s).stem
@@ -568,8 +593,9 @@ def main():
         for m in new:
             mine = sum(1 for a in m["action_items"] if a["is_mine"] and not a["completed"])
             log(f"  would process: {m['dt'].strftime('%Y-%m-%d')} {m['title']} ({mine} of my action items)")
-        pending_raw = [f.name for f in sorted(RAW.glob("*.md")) if raw_is_pending(f, state["raw_ingested"])]
+        pending_raw = [f.name for f in sorted(RAW.glob("*.md")) if source_is_pending(f, state["raw_ingested"])]
         log(f"  would ingest raw/: {pending_raw}")
+        log(f"  would sweep research/: {[f.name for f in pending_research(state)]}")
         return
 
     # 0. daily digest rollover: first sweep of a new day archives yesterday's
@@ -607,52 +633,66 @@ def main():
     # 2. wiki ingest: new notes + previously failed + new raw files
     if not args.no_wiki:
         failures = state.setdefault("ingest_failures", {})  # source path -> consecutive failure count
+        state.setdefault("research_ingested", [])
         pending_notes = [(mid, e) for mid, e in state["meetings"].items() if not e["ingested"]]
-        pending_raw = [f for f in sorted(RAW.glob("*.md")) if raw_is_pending(f, state["raw_ingested"])]
+        pending_raw = [f for f in sorted(RAW.glob("*.md")) if source_is_pending(f, state["raw_ingested"])]
         sources = [e["note"] for _, e in pending_notes] + [f"wiki/raw/{f.name}" for f in pending_raw]
-        quarantined = [s for s in sources if failures.get(s, 0) >= 2]
+        research = [f"wiki/pages/research/{f.name}" for f in pending_research(state)]
+        quarantined = [s for s in sources + research if failures.get(s, 0) >= 2]
         if quarantined:
             log(f"  skipping {len(quarantined)} quarantined source(s): {quarantined}")
         sources = [s for s in sources if failures.get(s, 0) < 2]
-        log(f"wiki ingest: {len(sources)} pending sources")
+        research = [s for s in research if failures.get(s, 0) < 2]
+        log(f"wiki ingest: {len(sources)} pending sources, {len(research)} research memos")
 
         def mark_ingested(s):
             for mid, e in state["meetings"].items():
                 if e["note"] == s:
                     e["ingested"] = True
-            if s.startswith("wiki/raw/"):
-                key = raw_key(RAW / s[len("wiki/raw/"):])
-                if key not in state["raw_ingested"]:
-                    state["raw_ingested"].append(key)
+            for prefix, tracked in (("wiki/raw/", state["raw_ingested"]),
+                                    ("wiki/pages/research/", state["research_ingested"])):
+                if s.startswith(prefix):
+                    key = source_key(VAULT / s)
+                    if key not in tracked:
+                        tracked.append(key)
             failures.pop(s, None)
 
-        for i in range(0, len(sources), INGEST_BATCH):
-            batch = sources[i:i + INGEST_BATCH]
-            if ingest_to_wiki(batch):
+        def run_batches(srcs, extra=""):
+            """Ingest srcs in batches of INGEST_BATCH. False when one whole batch failed
+            source by source, which reads as systemic: a further batch only burns tokens."""
+            for i in range(0, len(srcs), INGEST_BATCH):
+                batch = srcs[i:i + INGEST_BATCH]
+                if ingest_to_wiki(batch, extra):
+                    for s in batch:
+                        mark_ingested(s)
+                    save_state(state)
+                    continue
+                # Batch failed: retry each source alone so one poison file can't block the queue forever.
+                log("  batch failed; retrying sources individually")
+                any_ok = False
                 for s in batch:
-                    mark_ingested(s)
-                save_state(state)
-                continue
-            # Batch failed: retry each source alone so one poison file can't block the queue forever.
-            log("  batch failed; retrying sources individually")
-            any_ok = False
-            for s in batch:
-                if ingest_to_wiki([s]):
-                    mark_ingested(s)
-                    any_ok = True
-                else:
-                    failures[s] = failures.get(s, 0) + 1
-                    log(f"  source failed ({failures[s]}x): {s}")
-                    if failures[s] >= 2:
-                        notify(f"ingest source quarantined after {failures[s]} failures: {s}")
-                save_state(state)
-            if not any_ok:
-                notify("wiki ingest failed for every source in a batch; likely systemic, stopping this run")
-                break
+                    if ingest_to_wiki([s], extra):
+                        mark_ingested(s)
+                        any_ok = True
+                    else:
+                        failures[s] = failures.get(s, 0) + 1
+                        log(f"  source failed ({failures[s]}x): {s}")
+                        if failures[s] >= 2:
+                            notify(f"ingest source quarantined after {failures[s]} failures: {s}")
+                    save_state(state)
+                if not any_ok:
+                    notify("wiki ingest failed for every source in a batch; likely systemic, stopping this run")
+                    return False
+            return True
+
+        # Research memos sweep separately, under RESEARCH_EXTRA's narrower write boundary.
+        if run_batches(sources) and research:
+            run_batches(research, RESEARCH_EXTRA)
 
         # Index is derived from page frontmatter; regenerate deterministically after ingest
         # rather than trusting the headless agent to hand-edit a contended catalog file.
-        if any(e["ingested"] for e in state["meetings"].values()) or state["raw_ingested"]:
+        if (any(e["ingested"] for e in state["meetings"].values())
+                or state["raw_ingested"] or state["research_ingested"]):
             regen = subprocess.run(
                 [sys.executable, str(Path(__file__).parent / "wiki-index.py")],
                 capture_output=True, text=True, timeout=120)

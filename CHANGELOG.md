@@ -4,6 +4,12 @@ The changes that affect an installed Rekall, newest first. Rekall has no version
 
 To upgrade, run `git pull` and then `bash install.sh` in the rekall folder (see "Upgrading" in the README). An entry marked **Re-run install.sh** changes something the installer writes outside the repo, such as the Claude Code hooks, the Claude Desktop MCP entry, or the venv packages, so `git pull` alone doesn't pick it up.
 
+## 2026-10-26
+
+- New page type `research`: a dated memo that answers a question from evidence, says what the evidence does not support, and recommends nothing. Memos live in `wiki/pages/research/`, so they are indexed, linked, and in the graph like any other page, and `wiki-lint.py` and `wiki-index.py` know the type.
+- The Fathom pipeline sweeps `wiki/pages/research/` on every run. For each new or edited memo it adds one dated line under a `## Research` section on the pages the memo's `project:` and `tags:` frontmatter names, creating that section when a page lacks one. The sweep creates no pages, rewrites no `## State`, and adds no `## Updates` entry, so an unattended run cannot change what a page says is true: a memo is dated evidence, and the conclusion drawn from it stays a human's to write. Turn the sweep off with `enabled = false` under `[research]` in `rekall.toml`. **Delete `~/.claude/skills/wiki`, then re-run install.sh** for the new ingest mode, and **copy the `## Research sections` block and the `type: research` line from `vault-template/wiki/CLAUDE.md`** into your own vault's `wiki/CLAUDE.md`.
+- Ingest verification stops counting a source's own text. A source under `wiki/pages/` (a research memo) used to satisfy the post-ingest scan by containing its own basename, which verified nothing; the scan now excludes each source from the text it is checked against, so the check means some other page references it.
+
 ## 2026-10-23
 
 - On Windows, the scheduled tasks start bash through `conhost.exe --headless`, so no terminal window opens on each run. Before this change, every run of the reindex, Fathom pipeline, Granola sweep, and lint tasks opened a blank Git Bash window until it finished. Output still goes to `~/.config/rekall/logs/`. **Re-run install.sh** to re-register the tasks.

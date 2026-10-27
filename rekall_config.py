@@ -32,6 +32,8 @@ MONDAY_GROUP = _cfg.get("monday", {}).get("group", "Auto-Capture")
 EMBEDDING_MODEL = _cfg.get("index", {}).get("embedding_model", "BAAI/bge-small-en-v1.5")
 # Optional Microsoft Graph ingest (scripts/graph-ingest.py); off unless enabled = true.
 GRAPH = _cfg.get("graph", {})
+# Research sweep (fathom-pipeline links wiki/pages/research/ memos onto the pages they name); on unless enabled = false.
+RESEARCH = _cfg.get("research", {})
 # Optional command the launchers put in front of each job, e.g. "doppler run --project p --config c --".
 RUN_PREFIX = _cfg.get("secrets", {}).get("run_prefix", "")
 
