@@ -485,7 +485,9 @@ def guard_settings():
 
 
 def ingest_to_wiki(source_paths, extra=""):
-    """Run headless claude over a batch of source paths. Returns True on success."""
+    """Run headless claude over a batch of source paths. True on success, False on a real
+    failure, None when the CLI couldn't authenticate -- an environment fault the sources
+    are not to blame for, so the caller stops instead of counting it against them."""
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     logfile = LOG_DIR / f"ingest-{datetime.now().strftime('%Y%m%d-%H%M%S')}.log"
     log_before_mtime = WIKI_LOG.stat().st_mtime if WIKI_LOG.exists() else 0
@@ -525,12 +527,23 @@ def ingest_to_wiki(source_paths, extra=""):
     timed_out = threading.Event()
     watchdog = threading.Timer(2400, lambda: (timed_out.set(), proc.kill()))
     watchdog.start()
+    auth_failed = False
     with open(logfile, "w") as f:
         for line in proc.stdout:
-            f.write(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] {line.rstrip()[:300]}\n")
+            line = line.rstrip()
+            if '"error":"authentication_failed"' in line:
+                auth_failed = True
+            # The final result line carries the real error text. Truncating it hid an expired
+            # OAuth session behind a 0-token "<synthetic>" message for three runs (2026-10-26).
+            f.write(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] "
+                    f"{line if '\"type\":\"result\"' in line else line[:300]}\n")
             f.flush()
     returncode = proc.wait()
     watchdog.cancel()
+    if auth_failed:
+        log(f"  ingest batch of {len(source_paths)}: NOT AUTHENTICATED, run `claude` then /login "
+            f"(log: {logfile})")
+        return None
     if timed_out.is_set():
         log(f"  ingest batch of {len(source_paths)}: TIMEOUT after 2400s (log: {logfile})")
         return False
@@ -662,7 +675,11 @@ def main():
             source by source, which reads as systemic: a further batch only burns tokens."""
             for i in range(0, len(srcs), INGEST_BATCH):
                 batch = srcs[i:i + INGEST_BATCH]
-                if ingest_to_wiki(batch, extra):
+                ok = ingest_to_wiki(batch, extra)
+                if ok is None:
+                    notify("wiki ingest can't authenticate: run `claude`, then /login. Stopping this run.")
+                    return False
+                if ok:
                     for s in batch:
                         mark_ingested(s)
                     save_state(state)
@@ -671,7 +688,12 @@ def main():
                 log("  batch failed; retrying sources individually")
                 any_ok = False
                 for s in batch:
-                    if ingest_to_wiki([s], extra):
+                    ok = ingest_to_wiki([s], extra)
+                    if ok is None:
+                        notify("wiki ingest can't authenticate: run `claude`, then /login. Stopping this run.")
+                        save_state(state)
+                        return False
+                    if ok:
                         mark_ingested(s)
                         any_ok = True
                     else:
