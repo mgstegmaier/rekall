@@ -138,8 +138,9 @@ def check_settings():
 
 
 def check_strip_images(fp, vault):
-    """Lines with a remote marker and an embed marker are deleted from the wiki pages the child
-    wrote; plain links, local images and marker-free fences stay; paths outside wiki/ are ignored."""
+    """Embed-capable lines (raw HTML, a non-local image, a reference definition) are deleted from
+    the wiki pages the child wrote; plain links, local embeds and ordinary text stay; paths
+    outside wiki/ are ignored."""
     page = vault / "wiki" / "pages" / "p.md"
     page.parent.mkdir(parents=True, exist_ok=True)
     outside = vault / "notes.md"
@@ -164,11 +165,19 @@ def check_strip_images(fp, vault):
         "```",
         "![in a fence](https://evil.example/fenced)",
         "```",
+        "<img",                                   # tag split across lines: the opening line goes
+        "![a](",                                  # target on the next line: the opening line goes
+        '<img src="https&colon;\\\\evil.example\\x">',
+        '![l](assets/a.png "note: x")',          # a titled local image is lost, accepted
+        "![unc](\\\\evil.example\\share\\x.png)",  # a UNC path is a network fetch on Windows
+        "[Q3]: target: 10%",                     # any reference definition goes
+        "[r2]:",
+        "    https://evil.example/next-line.png",
     ]
-    keep = ["# P", "[Q3]: target: 10%", '![l](assets/a.png "note: x")', "Keep ![[local.png]] too.",
-            "[see](https://e/x)", "```md", "no remote marker in this fence", "```"]
-    page.write_text("\n".join(keep[:2] + bypasses + keep[2:]
-                              + ["[r2]:", "    https://evil.example/next-line.png", "tail"]) + "\n")
+    keep = ["# P", "![l](assets/a.png)", "Keep ![[local.png]] and ![[b.png|200]] too.",
+            "[see](https://e/x)", "```md", "no tag or image in this fence", "```",
+            "a < b and x<3 stay", "tail"]
+    page.write_text("\n".join(keep[:1] + bypasses + keep[1:]) + "\n")
     events = [json.dumps({"type": "assistant", "message": {"content": [
         {"type": "tool_use", "name": "Write", "input": {"file_path": "wiki/pages/p.md", "content": "..."}},
         {"type": "tool_use", "name": "Write", "input": {"file_path": "notes.md", "content": "..."}},
@@ -178,11 +187,13 @@ def check_strip_images(fp, vault):
     written = [p for e in events for p in fp.written_paths(e)]
     assert written == [page.resolve()], f"only .md wiki pages the child wrote count: {written}"
     fp.strip_remote_images(written)
-    text = page.read_text()
-    assert "evil" not in text, f"every bypass must be deleted: {text}"
-    for k in keep + ["tail"]:
-        assert k + "\n" in text, f"kept line lost: {k!r}"
-    assert "[r2]:" not in text, "a definition with its destination on the next line goes too"
+    lines = page.read_text().splitlines()
+    for b in bypasses:
+        if b != "```":
+            assert b not in lines, f"must be deleted: {b!r}"
+    assert "evil" not in "\n".join(l for l in lines if "![" in l or "<" in l), lines
+    for k in keep:
+        assert k in lines, f"kept line lost: {k!r}"
     assert "evil" in outside.read_text(), "a path outside wiki/ is ignored and its file untouched"
 
 

