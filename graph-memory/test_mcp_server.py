@@ -8,6 +8,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from mcp_server import read_page, search_wiki  # noqa: E402
+from paths import DB  # noqa: E402
+
+if not DB.is_file():  # the scratch config from the root conftest.py has no index
+    if "pytest" in sys.modules:
+        import pytest
+        pytest.skip(f"no index at {DB}", allow_module_level=True)
+    sys.exit(f"no index at {DB}: run graph-memory/reindex.sh first")
 
 # the tools are plain functions underneath the decorator
 out = search_wiki("Wiki Log")
