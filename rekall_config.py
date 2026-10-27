@@ -42,6 +42,21 @@ ENV_FILE = ROOT / ".env"  # legacy store, checked last so existing installs keep
 KEYRING_SERVICE = "rekall"
 
 
+_KEYRING_WARNED = False
+
+
+def _warn_no_keyring(exc):
+    """Say once per process that the OS vault was skipped. A silent fall-through here cost three
+    hours on 2026-10-26: the runner's venv had no keyring module, so every scheduled job read a
+    .env with no CLAUDE_CODE_OAUTH_TOKEN in it and ran as though nobody had ever signed in."""
+    global _KEYRING_WARNED
+    if _KEYRING_WARNED:
+        return
+    _KEYRING_WARNED = True
+    print(f"rekall: the OS vault was skipped ({type(exc).__name__}: {exc}), so secrets come from "
+          f"{ENV_FILE} only. Fix: {sys.executable} -m pip install keyring", file=sys.stderr)
+
+
 def find_secret(name):
     """Value for name from the environment, then the OS keyring, then .env; None when all are empty."""
     if os.environ.get(name):
@@ -51,8 +66,8 @@ def find_secret(name):
         value = keyring.get_password(KEYRING_SERVICE, name)
         if value:
             return value
-    except Exception:
-        pass
+    except Exception as exc:
+        _warn_no_keyring(exc)
     if ENV_FILE.exists():
         for line in ENV_FILE.read_text(encoding="utf-8").splitlines():
             k, sep, v = line.partition("=")

@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Lookup order for rekall_config.get_secret: environment, then keyring, then .env. No real Keychain.
 Run directly: python3 scripts/test_secrets.py"""
+import contextlib
+import io
 import os
 import sys
 import tempfile
@@ -40,7 +42,22 @@ except KeyError as e:
 def boom(*a):
     raise RuntimeError("backend down")
 fake.get_password = boom
-assert rc.get_secret("K") == "from-file", "a broken keyring falls through to .env"
+
+# The fall-through has to say so: a silent one let every scheduled job run unauthenticated for
+# hours on 2026-10-26, because nothing reported that the OS vault was never consulted.
+err = io.StringIO()
+with contextlib.redirect_stderr(err):
+    assert rc.get_secret("K") == "from-file", "a broken keyring falls through to .env"
+    assert rc.get_secret("K") == "from-file", "the warning does not repeat per lookup"
+warned = err.getvalue()
+assert "RuntimeError: backend down" in warned, f"a broken backend warns on stderr: {warned!r}"
+assert warned.count("rekall: the OS vault was skipped") == 1, f"warns once per process: {warned!r}"
+
+rc._KEYRING_WARNED = False
 sys.modules["keyring"] = None  # import raises ImportError
-assert rc.get_secret("K") == "from-file", "a missing package falls through to .env"
+err = io.StringIO()
+with contextlib.redirect_stderr(err):
+    assert rc.get_secret("K") == "from-file", "a missing package falls through to .env"
+assert "keyring" in err.getvalue() and "ModuleNotFoundError" in err.getvalue(), \
+    f"a missing package warns on stderr: {err.getvalue()!r}"
 print("ok")
