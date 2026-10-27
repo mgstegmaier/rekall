@@ -27,9 +27,7 @@ import hashlib
 import html
 import importlib.util
 import json
-import os
 import re
-import subprocess
 import sys
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
@@ -39,7 +37,7 @@ from urllib.parse import quote, urlencode
 _spec = importlib.util.spec_from_file_location("fathom_pipeline", Path(__file__).parent / "fathom-pipeline.py")
 fp = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(fp)
-from rekall_config import GRAPH, claude_env, note_claude_result  # noqa: E402  (fathom-pipeline put the repo root on sys.path)
+from rekall_config import GRAPH, run_claude  # noqa: E402  (fathom-pipeline put the repo root on sys.path)
 
 GRAPH_BASE = "https://graph.microsoft.com/v1.0"
 SCOPE = "User.Read Mail.Read Chat.Read offline_access"
@@ -53,6 +51,7 @@ STATE_CAP = 1500    # characters of a page's ## State sent to the model
 PRUNE_DAYS = 30
 MAX_LOOKBACK_DAYS = 7
 MAX_TERM_WORDS = 6
+MAX_THREAD_FAILS = 3  # ponytail: a thread that fails this many runs in a row is skipped until pruned (PRUNE_DAYS)
 log = fp.log
 
 
@@ -247,17 +246,13 @@ def call_model(prompt, key):
     cmd = ["claude", "-p", prompt, "--model", MODEL, "--tools", "", "--strict-mcp-config",
            "--setting-sources", "project", "--system-prompt", SYSTEM,
            "--output-format", "json", "--no-session-persistence"]
-    # strip the API key so claude uses the subscription login, as the Fathom pipeline does
-    env = {k: v for k, v in os.environ.items() if k != "ANTHROPIC_API_KEY"}
-    claude_env(env)
-    env["MEMORY_STARTER_CHILD"] = "1"  # our own child: skip the recall hook and session digest
     fp.STATE_DIR.mkdir(parents=True, exist_ok=True)
-    proc = subprocess.run(cmd, cwd=fp.STATE_DIR, env=env, capture_output=True, text=True, timeout=300)
+    proc = run_claude(cmd, cwd=fp.STATE_DIR, timeout=300)
+    if proc is None:  # SystemExit passes the per-thread except in main(): every later thread would fail too
+        sys.exit("claude is not signed in; stopping. Sign in again: scripts/setup-server.py --reauth")
     if proc.returncode and not proc.stdout.strip():
-        note_claude_result(False, proc.stderr)
-        raise RuntimeError(f"claude -p failed: {proc.stderr.strip()[-200:]}")
+        raise RuntimeError(f"claude -p failed: {(proc.stderr or proc.stdout).strip()[-200:]}")
     out = json.loads(proc.stdout)
-    note_claude_result(not out.get("is_error"), str(out.get("result")))
     u = out.get("usage") or {}
     USAGE_LOG.parent.mkdir(parents=True, exist_ok=True)
     with open(USAGE_LOG, "a") as f:
@@ -350,6 +345,7 @@ def mark_seen(state, thread, msgs, prompt_hash):
     e = state["threads"].setdefault(h(thread["key"]), {"seen": []})
     e["seen"] = sorted(set(e["seen"]) | {h(m["id"]) for m in msgs})
     e["hash"] = prompt_hash
+    e.pop("fails", None)
     e["at"] = datetime.now(timezone.utc).isoformat()
 
 
@@ -387,7 +383,8 @@ def main():
         log(f"graph ingest is off: missing {', '.join(missing)} (run scripts/setup-server.py)")
         return
     fp.STATE_DIR.mkdir(parents=True, exist_ok=True)
-    if fp.acquire_lock(LOCK_FILE) is None:
+    lock = fp.acquire_lock(LOCK_FILE)  # bound for the whole run: a dropped handle closes and frees the flock
+    if lock is None:
         log("another graph ingest is active; exiting")
         return
 
@@ -414,11 +411,19 @@ def main():
     day = datetime.now(fp.CT).strftime("%Y-%m-%d")
     log_entries, matched, failed = [], 0, 0
     for t in threads:
+        entry = state["threads"].get(h(t["key"])) or {}
+        if entry.get("fails", 0) >= MAX_THREAD_FAILS:
+            continue
         try:
             planned = plan_thread(t, projects, state, tok)
         except Exception as e:  # model timeout, bad JSON, a Graph error on one body: retried next run
             failed += 1
             log(f"  {t['kind']} \"{t['name']}\": {type(e).__name__}: {str(e)[:200]}")
+            if not args.dry_run:
+                entry = state["threads"].setdefault(h(t["key"]), {"seen": []})
+                entry["fails"] = entry.get("fails", 0) + 1
+                entry["at"] = datetime.now(timezone.utc).isoformat()
+                save_state(state)
             continue
         if planned is None:
             continue
@@ -446,7 +451,7 @@ def main():
     log(f"{matched} threads matched a project page, {len(log_entries)} page entries written, {failed} failed")
     if log_entries:
         append_log(log_entries, day)
-    if not args.dry_run and not failed:  # a failed thread keeps the window open for the next run
+    if not args.dry_run:  # a failing thread no longer pins the window open; its fails count retires it
         state["last_run"] = started.isoformat()
         save_state(state)
 

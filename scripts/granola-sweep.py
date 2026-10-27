@@ -181,7 +181,8 @@ def main():
         return
 
     LOCK_FILE.parent.mkdir(parents=True, exist_ok=True)
-    if fp.acquire_lock(LOCK_FILE) is None:  # held until exit, same as the pipeline
+    lock = fp.acquire_lock(LOCK_FILE)  # bound for the whole run: a dropped handle closes and frees the flock
+    if lock is None:
         log("another Granola sweep is active; exiting")
         return
 
@@ -249,6 +250,10 @@ def main():
         batch = pending[i:i + fp.INGEST_BATCH]
         ok = fp.ingest_to_wiki(batch, extra="Some sources are Fathom notes with a newly appended '## Granola notes' "
                                            "section; only that section is new to the wiki.")
+        if ok is None:  # not signed in: the sources aren't at fault, so none of them is counted
+            fp.notify("Granola sweep: wiki ingest can't authenticate; run scripts/setup-server.py --reauth. "
+                      "Stopping this run.", title="Granola sweep")
+            break
         for s in batch:
             if ok:
                 failures.pop(s, None)

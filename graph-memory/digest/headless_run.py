@@ -1,6 +1,7 @@
 """Write up one staged session with no window, then feed it to the index.
 
     python headless_run.py digest/pending/<session>.md
+    python headless_run.py --drain    (reindex.sh, hourly: retry what failed before)
 
 session_end.py spawns this detached in headless mode. It reads the staged text,
 asks Claude for the entry, appends it to today's log inside your notes, then
@@ -11,6 +12,7 @@ reason lands in digest/log/digest.log, so the next run can try again.
 """
 
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -56,10 +58,32 @@ def main(staged):
         distil.rebuild_index(notes)
 
 
+def drain(min_age=600):
+    """Write up staged files older than min_age seconds, oldest first, one at a time. Younger
+    ones may still have their own headless_run going. Stops at a sign-in failure, since every
+    later file would fail the same way. ponytail: a file that always fails is retried each hour;
+    its reason is in digest.log, and deleting it is the fix."""
+    if common.config()["mode"] != "headless":
+        return  # session mode leaves staged text for your next session on purpose
+    for staged in sorted(common.PENDING.glob("*.md"), key=lambda p: p.stat().st_mtime):
+        if time.time() - staged.stat().st_mtime < min_age:
+            continue
+        try:
+            main(staged)
+        except distil.NotSignedIn as exc:
+            common.note_failure("drain", f"{staged.name}: {exc}; stopping")
+            return
+        except Exception as exc:
+            common.note_failure("drain", f"{staged.name}: {type(exc).__name__} {exc}")
+
+
 if __name__ == "__main__":
     distil.utf8_out()
     if len(sys.argv) < 2:
-        sys.exit("usage: python headless_run.py <staged file>")
+        sys.exit("usage: python headless_run.py <staged file> | --drain")
+    if sys.argv[1] == "--drain":
+        drain()
+        sys.exit(0)
     path = Path(sys.argv[1])
     try:
         main(path)

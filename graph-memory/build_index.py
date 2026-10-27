@@ -70,6 +70,10 @@ def note_files(corpus):
         rel = path.relative_to(root)
         if rel.parts == ("index.md",):
             continue
+        # ponytail: a top-level distilled/ predates the DATA/distilled move; its files would
+        # take the same "distilled/<name>" keys as the real distillates and re-embed hourly
+        if len(rel.parts) > 1 and rel.parts[0] == "distilled":
+            continue
         if any(part.startswith(".") or part in SKIP_DIRS for part in rel.parts):
             continue
         if skip_starter and (starter == path.parent or starter in path.parents):
