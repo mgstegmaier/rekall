@@ -151,6 +151,85 @@ def prompt_reauth():
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
+# Sweep freshness. The hook asks, on every prompt, whether a sweep has landed recently *while you
+# were actually at the keyboard*. Both halves are counted in scheduled slots rather than elapsed
+# hours, so a night's sleep costs nothing: the 19:15-07:15 gap holds no slots at all.
+FATHOM_STATE = STATE_DIR / "fathom-pipeline-state.json"
+PRESENCE = STATE_DIR / "hook-presence.json"
+SWEEP_HOURS = range(7, 20)  # ponytail: mirrors com.heckatron.fathom-pipeline; change both together
+SWEEP_MINUTE = 15
+STALE_SLOTS = 3             # three missed runs inside the window before the hook says anything
+PRESENCE_GAP = 90 * 60      # a quiet stretch longer than this means you were away, not just idle
+
+
+def sweep_slots(start, end):
+    """How many scheduled sweeps fall in (start, end], in local time."""
+    if start is None or end <= start:
+        return 0
+    from datetime import datetime, time as dt_time, timedelta
+    from zoneinfo import ZoneInfo
+    tz = ZoneInfo(TIMEZONE)
+    start, end = start.astimezone(tz), end.astimezone(tz)
+    n, day = 0, start.date()
+    while day <= end.date():
+        for h in SWEEP_HOURS:
+            slot = datetime.combine(day, dt_time(h, SWEEP_MINUTE), tzinfo=tz)
+            if start < slot <= end:
+                n += 1
+        day += timedelta(days=1)
+    return n
+
+
+def sweep_stale(last_success, streak_start, now):
+    """True when sweeps are overdue AND you have been present long enough for that to mean
+    something. The second half is what keeps a long weekend or an overnight sleep quiet: you may
+    have missed 39 slots with the lid shut, but your current stretch of use has missed none, and
+    launchd's catch-up run gets its chance before anything is said."""
+    if last_success is None:
+        return False  # nothing has ever succeeded; a fresh install is not a fault to report
+    return (sweep_slots(last_success, now) >= STALE_SLOTS
+            and sweep_slots(streak_start, now) >= STALE_SLOTS)
+
+
+def note_presence(now):
+    """Record this prompt and return the start of the current unbroken stretch of use. A gap
+    longer than PRESENCE_GAP means the machine was off or asleep, so the stretch restarts."""
+    start = now
+    try:
+        d = json.loads(PRESENCE.read_text())
+        from datetime import datetime
+        if (now - datetime.fromisoformat(d["last_seen"])).total_seconds() <= PRESENCE_GAP:
+            start = datetime.fromisoformat(d["streak_start"])
+    except Exception:
+        pass  # first run, or an unreadable file: this prompt starts the stretch
+    try:
+        STATE_DIR.mkdir(parents=True, exist_ok=True)
+        PRESENCE.write_text(json.dumps({"last_seen": now.isoformat(), "streak_start": start.isoformat()}))
+    except OSError:
+        pass  # bookkeeping must never break the prompt
+    return start
+
+
+def sweep_status():
+    """One line when sweeps have gone quiet while you were working, else None. Unlike the auth
+    flag this latches nothing: a successful run moves last_success forward and the line stops
+    appearing on its own."""
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc)
+    streak = note_presence(now)
+    try:
+        last = json.loads(FATHOM_STATE.read_text()).get("last_success")
+        last = datetime.fromisoformat(last) if last else None
+    except Exception:
+        return None
+    if not sweep_stale(last, streak, now):
+        return None
+    from zoneinfo import ZoneInfo
+    return (f"Rekall's meeting sweep hasn't completed since {last.astimezone(ZoneInfo(TIMEZONE)):%b %d %H:%M} "
+            f"({sweep_slots(last, now)} scheduled runs missed), so the wiki may be behind. "
+            f"Check the job is loaded: launchctl list | grep fathom")
+
+
 def set_secret(name, value):
     import keyring
     keyring.set_password(KEYRING_SERVICE, name, value)
