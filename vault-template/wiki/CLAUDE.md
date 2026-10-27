@@ -41,6 +41,7 @@ wiki/
 - `type: entity` — anything else that exists: documents, orgs, places, products
 - `type: concept` — ideas, patterns, methodologies, fundamentals
 - `type: summary` — NON-MEETING sources only (long, raw, or external documents where the compiled summary is the artifact). Never create a per-meeting summary page: a meeting note is already Fathom's summary, so meeting content flows directly into entity/project/concept pages citing the meeting note.
+- `type: research` — a dated memo that answers a question from evidence: what was measured, against what, on what date, what the evidence supports and what it does not, and the open questions left. It recommends nothing and assigns no work, which is what separates it from a plan. Frontmatter adds `date` and `project: "[[project-page]]"`. `pages/research/` also holds the source documents a memo analyses, so a claim can be checked against what was actually written. Link memos from the project page: a memo is a dated snapshot and is allowed to go stale, the project page's `## State` carries the current answer, and every link to a memo names its measurement date so a reader knows what they are clicking. A superseded memo gets a one-line banner pointing to what replaced it and `status: retired`; its findings are never rewritten.
 - `type: meeting` → `meetings/`, the one folder split: meetings are the source layer.
 - `type: plan` → `plans/`, the other folder split: a plan is a dated artifact of a session, not a compiled page. Frontmatter: `date`, `status: draft | approved | complete | abandoned`, `project: "[[project-page]]"`, `source`. The `/wiki` skill's "Mode: Plan" has the write recipe.
 - Could be two types → `type: entity`.
@@ -118,10 +119,24 @@ Section order (`scripts/wiki-reflow.py` in the rekall repo enforces it mechanica
 1. `## State` — the current picture, REWRITTEN in place on every update, never appended to. One State section per page.
 2. `## Next steps`, then `## Members` (project pages carry all three; other pages carry what applies).
 3. `## Updates` — the dated log, NEWEST FIRST. Each entry is `### YYYY-MM-DD short title`; a new entry goes at the TOP of this section, directly under the heading. Dated headings never appear anywhere else on the page.
-4. Reference sections (architecture, RCAs, specs, merged-in material), any order.
+4. Reference sections (architecture, RCAs, specs, merged-in material), any order. `## Research` is one of these; see below.
 5. `## Related pages` last.
 
 The reader question this answers is "what is true now?" — State answers it, Updates shows how it got there. Any section that carries dated sub-entries keeps them newest-first too.
+
+## Research sections
+
+A page gains a `## Research` section when a memo in `pages/research/` concerns it. The section is a list of dated pointers, newest first, one line per memo:
+
+```
+- [[memo-basename]] (measured YYYY-MM-DD) — the question it asked. What the evidence showed. [open]
+```
+
+`measured` is the memo's own `date`, so a reader knows the age of a finding before clicking it. The bracketed status is `open`, `acted on`, or `superseded`.
+
+The section carries findings and open questions, never recommendations and never decisions. What a memo concluded reaches `## State` only when a person puts it there, and that separation is the point: `## Research` answers "what has been measured about this, and when", which is a different question from State's "what is true now". A line that reads as an instruction has been written wrong.
+
+Writers: the hourly Fathom pipeline maintains these lines (`[research] enabled` in `rekall.toml`, "Mode: Research ingest" in the wiki skill). Its sweep may create this one section and edit the lines inside it, and may touch nothing else on a page — no new pages, no `## State` rewrite, no `## Updates` entry. A memo whose subject has no page is recorded in `log.md`, not given one.
 
 ## Markdown gotchas (Obsidian renderer)
 

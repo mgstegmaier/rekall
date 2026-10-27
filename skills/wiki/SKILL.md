@@ -39,6 +39,8 @@ heck-db/
 2. `wiki/` -- Claude creates/updates interlinked markdown pages in `wiki/pages/<type>/<slug>.md` (the folder name is the page's `type` frontmatter) per wiki/CLAUDE.md's placement rules.
 3. Schema -- **`wiki/CLAUDE.md` in the vault is the source of truth for structure** (layout, placement, page format, hard rules); it loads automatically for any session touching wiki files. This skill file owns the workflows (ingest/query/lint). Layout follows Google's Open Knowledge Format idiom (see `docs/research/2026-08-22-okf-for-obsidian-wiki.md`); only `type` frontmatter is required for OKF conformance.
 
+**Research memos** (`type: research`, in `wiki/pages/research/`) are a fourth thing again: compiled pages that are also swept. The pipeline hands each new or edited memo to "Mode: Research ingest" below, which may only add a dated pointer under `## Research` on the pages the memo concerns.
+
 **Automated ingest:** the Fathom pipeline (see `docs/plans/2026-08-21-wiki-revival-fathom-pipeline.md`) runs unattended: it writes meeting notes to `wiki/meetings/`, ingests them and anything in `wiki/raw/` into the wiki, and logs everything. It has standing permission to create and update pages anywhere in `wiki/`, including `index.md` and `log.md`. Review happens after the fact -- by reading pages and `wiki/log.md` -- not by pre-approval.
 
 ---
@@ -103,6 +105,52 @@ User drops `wiki/raw/karpathy-llm-wiki.md` and says "ingest this" (or the pipeli
    - `wiki/pages/person/andrej-karpathy.md`
    - `wiki/pages/summary/karpathy-llm-wiki-summary.md`
 3. Regenerate index.md (wiki-index.py) and append to log.md (append-only, at the END)
+
+---
+
+## Mode: Research ingest
+
+Runs when the Fathom pipeline finds a new or edited memo in `wiki/pages/research/`, or when the user asks to sweep research. A research memo is not source material: it is dated analysis that already lives in the wiki as its own page. This mode connects it to the pages it concerns, and does nothing else.
+
+**The whole write authority:** one line per memo under a `## Research` section on each page the memo concerns, plus the usual `wiki/log.md` entry.
+
+**Never, in this mode:**
+
+- Create a page. A memo about something with no page gets recorded in the log entry instead.
+- Rewrite `## State`. State answers "what is true now"; a memo is evidence, not a conclusion. Only a human or the normal Ingest mode changes State.
+- Add a `## Updates` entry. Updates records what happened to the thing itself, not what someone measured about it.
+- Edit the memo. Memos are written by hand, and their findings are never rewritten (wiki/CLAUDE.md, "Linking and staleness").
+- Set `about` on the memo, or add it to any page's `sources`. `sources` means the evidence a page's own claims rest on.
+
+### Workflow
+
+1. **Read the memo.** Take `title`, `description`, `date`, `status`, `project:` and `tags:` from its frontmatter.
+2. **Decide which pages it concerns.** The `project:` wikilink is the primary target. Add a page for each project, entity, concept, system, or person the findings are *about*, never one the memo mentions in passing. Grep `wiki/pages/` for the names; a name with no page is skipped, not created. More than four targets means you are matching mentions rather than subjects.
+3. **Write the line** (shape below) under `## Research` on each target, newest first. One line per memo per page: when the memo already has a line there, rewrite that line in place instead of adding a second.
+4. **Create the section when the page lacks one.** `## Research` is a reference section, so it goes after `## Updates`, directly above `## Related pages` (or last, on a page with no Related pages section).
+5. **Append one entry to the END of `wiki/log.md`**, naming the memo and every page you touched.
+
+### The line
+
+```
+- [[memo-basename]] (measured YYYY-MM-DD) — the question it asked. What the evidence showed. [open]
+```
+
+`measured` is the memo's own `date`, so a reader knows how old the finding is before clicking. The bracketed status is `open`, `acted on`, or `superseded`, and defaults to `open`. Keep the line near 30 words: a pointer carrying enough to decide whether to read the memo, not a summary of it.
+
+Write findings, not recommendations. "Cortex returns no text coordinates at any flag, so closing that gap means another engine" is a finding. "We should switch parsing engines" is a recommendation, and a recommendation never goes in a research line, on any page.
+
+### Example
+
+`wiki/pages/research/bounding-boxes-doc-extraction.md` carries `project: "[[doc-extraction]]"`. The sweep adds this to `wiki/pages/project/doc-extraction.md`:
+
+```
+## Research
+
+- [[bounding-boxes-doc-extraction]] (measured 2026-10-24) — would bounding boxes improve extraction? Page provenance covers 0.04% of field citations, and Cortex returns no coordinates at any flag. [open]
+```
+
+No page created, no State rewritten, no Updates entry added.
 
 ---
 

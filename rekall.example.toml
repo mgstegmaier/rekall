@@ -36,6 +36,12 @@ group = "Auto-Capture"
 # secrets manager instead, put its command here; the launchers run each job under it.
 # run_prefix = "doppler run --project myproject --config dev --"
 
+[research]
+# The research sweep: the hourly pipeline reads each memo in wiki/pages/research/ and adds one
+# dated line under a `## Research` section on the pages its frontmatter names. It creates no
+# pages and never rewrites `## State`. Set enabled = false to stop the sweep.
+enabled = true
+
 [graph]
 # Optional. Reads your mail and the Teams chats you pick, and writes new project facts and
 # decisions into matching wiki project pages. Off unless enabled = true and the MSGRAPH_*

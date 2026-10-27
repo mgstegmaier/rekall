@@ -24,10 +24,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from rekall_config import ARCHIVE, STATE_DIR, VAULT, WIKI  # noqa: E402
 RAW = WIKI / "raw"
+RESEARCH = WIKI / "pages" / "research"
 TYPED_DIRS = ["pages"]
 REQUIRED_FIELDS = ["type", "title", "description", "date"]
 PAGE_TYPES = {"person", "project", "entity", "concept", "summary", "system", "pipeline",
-              "note", "decision", "context"}  # `type` is the taxonomy; a page lives in pages/<type>/
+              "note", "decision", "context", "research"}  # `type` is the taxonomy; a page lives in pages/<type>/
 STATUSES = {"active", "retired", "archive"}
 STATE_FILE = STATE_DIR / "wiki-lint-state.json"
 PIPELINE_STATE = STATE_DIR / "fathom-pipeline-state.json"
@@ -279,6 +280,10 @@ def check_pipeline_state(r):
             fname = name.rsplit(":", 1)[0] if re.fullmatch(r".+:[0-9a-f]{16}", name) else name
             if not (RAW / fname).exists() and not (ARCHIVE / fname).exists():
                 issues.append(f"raw_ingested references missing file: wiki/raw/{fname}")
+        for name in state.get("research_ingested", []):
+            fname = name.rsplit(":", 1)[0] if re.fullmatch(r".+:[0-9a-f]{16}", name) else name
+            if not (RESEARCH / fname).exists() and not (ARCHIVE / fname).exists():
+                issues.append(f"research_ingested references missing file: wiki/pages/research/{fname}")
         for mid, entry in state.get("meetings", {}).items():
             if entry.get("retired"):
                 continue  # deleted under the pre-2026-09-04 retire path; missing on disk is correct
@@ -307,7 +312,7 @@ def check_page_order(r):
             rel = f.relative_to(WIKI)
             lines = f.read_text(encoding="utf-8", errors="replace").splitlines()
             h2 = [ln for ln in lines if ln.startswith("## ")]
-            for name in ("## State", "## Next steps", "## Members", "## Related pages"):
+            for name in ("## State", "## Next steps", "## Members", "## Research", "## Related pages"):
                 if h2.count(name) > 1:
                     issues.append(f"{rel}: {h2.count(name)}x `{name}` (merge)")
             if "## State" in h2 and h2[0] != "## State":

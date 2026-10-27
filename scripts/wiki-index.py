@@ -22,7 +22,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from rekall_config import VAULT, WIKI  # noqa: E402
 INDEX = WIKI / "index.md"
 SECTIONS = [("People", "person"), ("Projects", "project"), ("Systems", "system"), ("Pipelines", "pipeline"),
-            ("Entities", "entity"), ("Concepts", "concept"), ("Summaries", "summary"), ("Other pages", None)]  # None = any other `type`
+            ("Entities", "entity"), ("Concepts", "concept"), ("Summaries", "summary"),
+            ("Research", "research"), ("Other pages", None)]  # None = any other `type`
 PAGES = WIKI / "pages"
 
 HEADER = """---
