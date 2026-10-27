@@ -22,6 +22,7 @@ def write_config(tmp, enabled):
 
 
 def load_pipeline():
+    sys.modules.pop("rekall_config", None)  # under pytest an earlier test cached it with another REKALL_CONFIG
     spec = importlib.util.spec_from_file_location("fp", HERE / "fathom-pipeline.py")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)

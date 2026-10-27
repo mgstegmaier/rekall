@@ -60,7 +60,8 @@ def email(subject, ids, body="We decided to run V2 on all 30k records."):
             "msgs": [{"id": i, "from": "Ana Lopez", "date": "2026-10-16T15:00:00Z", "to": ["Mike"], "body": body} for i in ids]}
 
 
-def test_matcher(projects):
+def test_matcher(projects=None):  # default: pytest calls the three projects tests with no argument
+    projects = projects or gi.load_projects(projects_dir())
     m = lambda s: gi.match(gi.clean_subject(s), projects)
     assert m("RE: NovaLink rollout plan") == ["nova-link"]
     assert m("Nova Link weekly sync") == ["nova-link"]
@@ -73,14 +74,16 @@ def test_matcher(projects):
     assert m("Novalinked nothing") == [], "terms match whole words only"
 
 
-def test_unmatched_dropped(projects):
+def test_unmatched_dropped(projects=None):
+    projects = projects or gi.load_projects(projects_dir())
     state, calls = {"threads": {}}, []
     t = email("Lunch on Friday?", ["a1"], body="NovaLink is great")  # body never read for mail matching
     assert gi.plan_thread(t, projects, state, None, ask=lambda p, k: calls.append(p) or []) is None
     assert calls == [] and state == {"threads": {}}, "unmatched thread called the model or left state"
 
 
-def test_dedupe_and_validation(projects):
+def test_dedupe_and_validation(projects=None):
+    projects = projects or gi.load_projects(projects_dir())
     state, calls = {"threads": {}}, []
 
     def ask(prompt, key):

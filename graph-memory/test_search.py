@@ -9,7 +9,13 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from search import QUERY_PREFIX, embedding_model, meaning_leg  # noqa: E402
+from search import DB, QUERY_PREFIX, embedding_model, meaning_leg  # noqa: E402
+
+if not DB.is_file():  # the scratch config from the root conftest.py: no index, so no model either
+    if "pytest" in sys.modules:
+        import pytest
+        pytest.skip(f"no index at {DB}", allow_module_level=True)
+    sys.exit(f"no index at {DB}: run graph-memory/reindex.sh first")
 
 db = sqlite3.connect(":memory:")
 db.execute("CREATE TABLE vectors (id INTEGER PRIMARY KEY, vec BLOB NOT NULL)")
