@@ -144,7 +144,8 @@ with tempfile.TemporaryDirectory() as tmp:
     db.execute("CREATE VIRTUAL TABLE chunks_fts USING fts5(text, file, section)")
     rows = [(1, "pages/family.md", "School", "Tobias has soccer practice on Tuesday"),
             (2, "pages/tickets.md", "Open", "SNOW-1234 tracks the key rotation"),
-            (3, "sessions/2026-08-31.md", "Notes", "a note on recursion in the parser")]
+            (3, "sessions/2026-08-31.md", "Notes", "a note on recursion in the parser"),
+            (4, "daily/2026-10-01.md", "Log", "please debug this upload and fix it")]
     rows += [(10 + i, f"pages/p{i}.md", "Python", f"python script number {i}") for i in range(search.RARE_DF + 1)]
     db.executemany("INSERT INTO chunks VALUES (?,?,?,?)", rows)
     db.executemany("INSERT INTO chunks_fts (rowid, text, file, section) VALUES (?,?,?,?)",
@@ -160,8 +161,11 @@ with tempfile.TemporaryDirectory() as tmp:
 
         search.meaning_leg = low_meaning_leg
         recall_hook.DB = db_path
-        assert [l for l, _ in hits("Tobias")] == ["[pages/family.md § School]"], hits("Tobias")
+        assert [l for l, _ in hits("what about Tobias")] == ["[pages/family.md § School]"], hits("what about Tobias")
         assert [l for l, _ in hits("what about SNOW-1234")] == ["[pages/tickets.md § Open]"]
+        assert [l for l, _ in hits("SNOW-1234 is failing")] == ["[pages/tickets.md § Open]"]  # first word, all-caps/digit
+        # a first word is capitalised by grammar, so a rare one is not a name
+        assert hits("Please fix it") == [] and hits("Debug this") == []
         assert hits("explain recursion") == []  # lowercase: not a name, stays gated
         assert hits("Python") == []  # capitalised but common: weak
         assert hits("Tobias Xyzzy") == []  # names something the notes lack: no chunk holds both
