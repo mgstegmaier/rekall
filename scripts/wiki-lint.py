@@ -416,8 +416,8 @@ def check_state_drift(r):
     page can drift until its State says one thing and its latest Update says the opposite.
     Skips pages without both sections and pages whose status is retired/archive."""
     def section(text, name):
-        m = re.search(rf"(?ms)^## {name}[ \t]*$(.*?)(?=^## |\Z)", text)
-        return m.group(1) if m else None
+        ms = [m.group(1) for m in re.finditer(rf"(?ms)^## {name}[ \t]*$(.*?)(?=^## |\Z)", text)]
+        return "\n".join(ms) if ms else None  # every section of that name: some pages carry duplicates
 
     issues = []
     for f in sorted((WIKI / "pages").rglob("*.md")):
