@@ -32,7 +32,7 @@ from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from rekall_config import find_secret, MONDAY_BOARD, MONDAY_GROUP, RESEARCH, STATE_DIR, TIMEZONE, VAULT  # noqa: E402
+from rekall_config import claude_env, find_secret, note_claude_result, prompt_reauth, token_age_days, TOKEN_WARN_DAYS, MONDAY_BOARD, MONDAY_GROUP, RESEARCH, STATE_DIR, TIMEZONE, VAULT  # noqa: E402
 
 MEETINGS = VAULT / "wiki" / "meetings"
 RAW = VAULT / "wiki" / "raw"
@@ -519,6 +519,7 @@ def ingest_to_wiki(source_paths, extra=""):
     clean_env = {k: v for k, v in os.environ.items() if k != "ANTHROPIC_API_KEY"}
     clean_env["REKALL_GUARD_ROOTS"] = roots
     clean_env["REKALL_GUARD_LOG"] = str(LOG_DIR / "guard-denials.log")
+    claude_env(clean_env)
     clean_env["MEMORY_STARTER_CHILD"] = "1"  # this claude -p call is our own child; skip recall hook + session digest for it
     # Stream claude's events into the logfile timestamped and truncated, so after
     # a timeout kill the last line names what the session was doing when it hung.
@@ -541,13 +542,18 @@ def ingest_to_wiki(source_paths, extra=""):
     returncode = proc.wait()
     watchdog.cancel()
     if auth_failed:
-        log(f"  ingest batch of {len(source_paths)}: NOT AUTHENTICATED, run `claude` then /login "
-            f"(log: {logfile})")
+        # The CLI can exit 0 on an auth-failed result, and its wording ("OAuth session expired and
+        # could not be refreshed") matches none of AUTH_ERRORS, so report this explicitly instead
+        # of letting the exit-code call below clear the marker (2026-10-26).
+        note_claude_result(False, "authentication_error")
+        log(f"  ingest batch of {len(source_paths)}: NOT AUTHENTICATED (log: {logfile}); "
+            f"sign in again with scripts/setup-server.py --reauth")
         return None
     if timed_out.is_set():
         log(f"  ingest batch of {len(source_paths)}: TIMEOUT after 2400s (log: {logfile})")
         return False
     log(f"  ingest batch of {len(source_paths)}: exit {returncode} (log: {logfile})")
+    note_claude_result(returncode == 0, Path(logfile).read_text(errors="replace")[-3000:] if returncode else "")
     if returncode != 0:
         return False
     if not WIKI_LOG.exists() or WIKI_LOG.stat().st_mtime <= log_before_mtime:
@@ -576,6 +582,9 @@ def main():
     if lock_fh is None:
         log("another pipeline run is active; exiting")
         return
+    age = token_age_days()
+    if age is not None and age >= TOKEN_WARN_DAYS:  # ask before it expires, once a day at most
+        prompt_reauth()
     # ponytail: lock_fh stays open (never closed) so the lock holds for the whole run;
     # the OS releases it automatically on process exit.
 
@@ -677,7 +686,7 @@ def main():
                 batch = srcs[i:i + INGEST_BATCH]
                 ok = ingest_to_wiki(batch, extra)
                 if ok is None:
-                    notify("wiki ingest can't authenticate: run `claude`, then /login. Stopping this run.")
+                    notify("wiki ingest can't authenticate; run scripts/setup-server.py --reauth. Stopping this run.")
                     return False
                 if ok:
                     for s in batch:
@@ -690,7 +699,7 @@ def main():
                 for s in batch:
                     ok = ingest_to_wiki([s], extra)
                     if ok is None:
-                        notify("wiki ingest can't authenticate: run `claude`, then /login. Stopping this run.")
+                        notify("wiki ingest can't authenticate; run scripts/setup-server.py --reauth. Stopping this run.")
                         save_state(state)
                         return False
                     if ok:

@@ -29,6 +29,7 @@ sys.path.insert(0, str(HERE))
 
 from build_index import normalise, note_files, parse_entry, utf8_out  # noqa: E402
 from paths import DISTILLED_DIR  # noqa: E402
+from rekall_config import claude_env, note_claude_result  # noqa: E402  (paths put the repo root on sys.path)
 
 DISTILLED = DISTILLED_DIR
 STATE = DISTILLED / ".state.json"
@@ -63,7 +64,7 @@ def child_env():
     env = {k: v for k, v in os.environ.items()
            if not k.startswith("CLAUDE") and k != "ANTHROPIC_API_KEY"}
     env["MEMORY_STARTER_CHILD"] = "1"
-    return env
+    return claude_env(env)  # after the CLAUDE* strip, so the stored token survives it
 
 
 def claude_argv(model):
@@ -97,6 +98,7 @@ def ask(model, prompt_text, payload):
             cwd=scratch,
             timeout=CALL_TIMEOUT,
         )
+    note_claude_result(proc.returncode == 0, proc.stderr + proc.stdout)
     if proc.returncode != 0:
         raise RuntimeError((proc.stderr or "claude failed").strip()[-300:])  # the tail holds the error; the head is warnings
     return proc.stdout

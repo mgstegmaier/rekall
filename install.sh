@@ -43,7 +43,8 @@ if sed --version >/dev/null 2>&1; then SEDI=(-i); else SEDI=(-i ''); fi
 # 1. python 3.11+ (Apple's /usr/bin/python3 is too old, and python.org on Windows
 # installs `python` rather than `python3`; prefer the newest one on PATH)
 PY3=""
-for c in python3.13 python3.12 python3.11 python3 python; do
+export PATH="$HOME/.local/bin:$PATH"   # uv-installed python and the claude CLI live here
+for c in ${REKALL_PYTHON:-} python3.13 python3.12 python3.11 python3 python; do
   if command -v "$c" >/dev/null && "$c" -c 'import sys; sys.exit(sys.version_info < (3, 11))' 2>/dev/null; then
     PY3="$(command -v "$c")"; break
   fi
@@ -141,6 +142,8 @@ uninstall() {
       rm -f "$AGENTS/$l.plist"
     done
   fi
+  # the Documents shortcut, only if it is still the link this script made
+  [ "$(readlink "$HOME/Documents/rekall" 2>/dev/null)" = "$HOME/rekall" ] && rm "$HOME/Documents/rekall"
   settings remove
   desktop remove
   # only remove skills/commands that still match what this repo installs; an edited copy stays
@@ -154,6 +157,21 @@ uninstall() {
 }
 [ "${1:-}" = "--uninstall" ] && uninstall
 
+# --standard (bootstrap.sh): write rekall.toml with the ~/rekall layout so nothing is asked in chat.
+# The vault is picked on the setup page below; REKALL_VAULT presets it. Never overwrites a toml.
+STANDARD= FRESH=
+if [ -z "$WIN" ] && [ "${1:-}" = "--standard" ]; then
+  STANDARD=1
+  if [ ! -f "$REPO/rekall.toml" ]; then
+    FRESH=1  # a new toml still needs its vault picked on the setup page
+    tz="$(readlink /etc/localtime | sed 's|.*/zoneinfo/||')"
+    name="$(id -F 2>/dev/null || id -un)"
+    sed -e "s|^name = \"Your Name\"|name = \"$name\"|" -e "s|^timezone = \"America/Chicago\"|timezone = \"${tz:-America/Chicago}\"|" \
+        -e "s|^path = \"~/rekall/vault\"|path = \"${REKALL_VAULT:-~/rekall/vault}\"|" \
+      "$REPO/rekall.example.toml" > "$REPO/rekall.toml"
+  fi
+fi
+
 [ -f "$REPO/rekall.toml" ] || { echo "rekall.toml is missing; write it first (SETUP.md step 3)." >&2; exit 1; }
 
 # 3. venv, fastembed, embedding model
@@ -163,6 +181,25 @@ uninstall() {
 "$PY" -c 'import mcp' 2>/dev/null || "$PY" -m pip install -q "mcp<2"   # graph-memory/mcp_server.py (v2 renamed FastMCP)
 # Windows ships no timezone database, so zoneinfo raises without tzdata in the venv
 [ -z "$WIN" ] || "$PY" -c 'import tzdata' 2>/dev/null || "$PY" -m pip install -q tzdata
+# --standard: the setup page collects the vault choice and the Fathom key, then closes itself.
+# Opens for a new toml or missing keys, so a re-run of a finished install never reopens it.
+if [ -n "$STANDARD" ]; then
+  if [ -n "$FRESH" ] || ! "$PY" -c 'import sys; sys.path.insert(0, sys.argv[1]); import rekall_config as c; sys.exit(not (all(c.find_secret(k) for k in ("FATHOM_API_KEY", "WORK_EMAIL", "CLAUDE_CODE_OAUTH_TOKEN"))))' "$REPO"; then
+    "$PY" "$REPO/scripts/setup-server.py" --once
+  fi
+  VAULT_DIR="$("$PY" "$REPO/rekall_config.py" VAULT)"
+  if [ ! -e "$VAULT_DIR/wiki" ]; then
+    mkdir -p "$VAULT_DIR"
+    cp -R "$REPO/vault-template/." "$VAULT_DIR/"
+    sed "${SEDI[@]}" "s|REKALL_REPO|$REPO|g" "$VAULT_DIR/wiki/CLAUDE.md"
+  fi
+  # Finder shortcut: ~/rekall lives outside Documents (privacy prompts, OneDrive/iCloud sync),
+  # so link it from Documents where people look. A symlink, since a Finder alias needs osascript
+  # and an Automation prompt. Only for the standard layout, and never over an existing entry.
+  if [ "$REPO" = "$HOME/rekall/repo" ] && [ -d "$HOME/Documents" ] && [ ! -e "$HOME/Documents/rekall" ] && [ ! -L "$HOME/Documents/rekall" ]; then
+    ln -s "$HOME/rekall" "$HOME/Documents/rekall"
+  fi
+fi
 MODEL_DIR="$("$PY" "$REPO/rekall_config.py" DATA)/model"
 [ -f "$MODEL_DIR/model_optimized.onnx" ] || PYTHON="$PY" bash "$REPO/graph-memory/fetch_model.sh"
 
@@ -223,5 +260,13 @@ if [ -n "$WIN" ]; then
   for l in $LABELS; do schtasks /Query /TN "$l" /FO LIST 2>/dev/null | grep -i "TaskName\|Next Run" || echo "  $l: not registered"; done
 else
   launchctl list | grep rekall || echo "  (none listed: run 'launchctl list | grep rekall' yourself)"
+fi
+# --standard on a new install: pull the last 30 days of meetings now instead of waiting for the hourly
+# run, which only looks back 26 hours. nohup, so closing Terminal doesn't stop it; the pipeline's
+# own lock keeps the hourly job from running beside it.
+if [ -n "$FRESH" ]; then
+  nohup bash "$REPO/scripts/run-fathom-pipeline.sh" --since "$(date -v-30d +%F)" --no-monday \
+    >> "$LOGS/backfill.log" 2>&1 &
+  echo "Backfill of the last 30 days started in the background (about an hour). Progress: $LOGS/backfill.log"
 fi
 echo "Undo everything: bash $REPO/install.sh --uninstall"

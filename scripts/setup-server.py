@@ -15,12 +15,18 @@ permissions. Either way the new refresh token goes into the OS keyring (rekall_c
   shows a code; you enter it at Microsoft's sign-in page.
 - With MSGRAPH_CLIENT_SECRET: the auth-code flow cos-desk's msgraph-auth.py uses, which needs
   http://localhost:8086 as a "Mobile and desktop applications" redirect URI on the app.
+`--reauth` (the expiry dialog's Sign in button runs it): no page; runs the Claude sign-in, saves the
+token, tests it, and posts a notification.
+`--once` (install.sh --standard runs it): opens the browser itself, adds the vault picker's Finish
+button, and exits when a vault is picked and FATHOM_API_KEY and WORK_EMAIL are saved. If 8086 is
+taken it uses the next free port up to 8095; only 8086 works for the auth-code Graph sign-in.
 Secrets manager users: start it under their run command, e.g. `doppler run -- python3 scripts/setup-server.py`.
 
 Local only, with Radar's /setup guards: binds 127.0.0.1, rejects any Host but localhost:8086 or
 127.0.0.1:8086, every POST needs a matching Origin and `X-Rekall-Setup: 1`, and the OAuth callback
 checks a one-time state value.
 """
+import fcntl
 import http.server
 import importlib.util
 import json
@@ -28,9 +34,15 @@ import os
 import re
 import secrets
 import shutil
+import struct
+import subprocess
+import tempfile
 import sys
 import time
+import threading
+import termios
 import tomllib
+import webbrowser
 from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urlparse
 
@@ -38,17 +50,20 @@ _spec = importlib.util.spec_from_file_location("graph_ingest", Path(__file__).pa
 gi = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(gi)
 fp = gi.fp
-from rekall_config import find_secret, get_secret, set_secret  # noqa: E402
+from rekall_config import claude_env, find_secret, get_secret, set_secret, token_saved  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG = Path(os.environ.get("REKALL_CONFIG", ROOT / "rekall.toml"))
 PORT = 8086  # the redirect URI registered on the Entra app, shared with cos-desk's msgraph-auth.py
+PORTS = range(PORT, PORT + 10)  # main() takes the first free one; only 8086 works for the auth-code sign-in
 REDIRECT = f"http://localhost:{PORT}"
 SIGNIN_SCOPE = "offline_access User.Read Mail.Read Chat.ReadBasic Chat.Read"
-HOSTS = {f"localhost:{PORT}", f"127.0.0.1:{PORT}"}
-SECRETS = ["FATHOM_API_KEY", "WORK_EMAIL", "MSGRAPH_CLIENT_ID", "MSGRAPH_TENANT_ID", "MSGRAPH_REFRESH_TOKEN"]
+HOSTS = {f"localhost:{PORT}", f"127.0.0.1:{PORT}"}  # main() resets these for the port it binds
+DEFAULT_VAULT = "~/rekall/vault"
+ONCE = {"on": False, "vault_picked": False}  # --once: install.sh waits on this page, which exits on Finish
+SECRETS = ["FATHOM_API_KEY", "WORK_EMAIL", "CLAUDE_CODE_OAUTH_TOKEN", "MSGRAPH_CLIENT_ID", "MSGRAPH_TENANT_ID", "MSGRAPH_REFRESH_TOKEN"]
 OPTIONAL = ["MSGRAPH_CLIENT_SECRET"]  # only for an app without public client flows
-INPUTS = ["FATHOM_API_KEY", "WORK_EMAIL"]  # typed on the page; the Graph app values come from the app registration
+INPUTS = ["FATHOM_API_KEY", "WORK_EMAIL", "CLAUDE_CODE_OAUTH_TOKEN"]  # typed on the page (the token only as a fallback); the Graph app values come from the app registration
 GRAPH_NEEDS = ["MSGRAPH_CLIENT_ID", "MSGRAPH_TENANT_ID"]
 STATES = set()  # one-time OAuth state values
 DEVICE = {}     # the pending device-code sign-in: device_code, interval, next poll time
@@ -177,13 +192,108 @@ def device_poll():
     return {"error": out.get("error_description", err or f"HTTP {code}")[:300]}
 
 
+def known_vaults():
+    """Folders Obsidian has open as vaults, from its own registry; missing folders dropped."""
+    try:
+        reg = json.loads((Path.home() / "Library/Application Support/obsidian/obsidian.json").read_text())
+        return [v["path"] for v in reg["vaults"].values() if os.path.isdir(v.get("path", ""))]
+    except Exception:  # no Obsidian, another OS, or a registry shape we don't know
+        return []
+
+
+def save_vault(path):
+    """Point [vault] path at one of Obsidian's vaults or the default new one; nothing else is accepted."""
+    if path != DEFAULT_VAULT and path not in known_vaults():
+        raise ValueError("pick one of the listed vaults")
+    text = CONFIG.read_text(encoding="utf-8")
+    new, n = re.subn(r'(?m)^(\[vault\][^\[]*?^path = ).*$', lambda m: m.group(1) + json.dumps(path), text)
+    assert n == 1 and tomllib.loads(new)["vault"]["path"] == path
+    tmp = CONFIG.with_suffix(".toml.tmp")
+    tmp.write_text(new, encoding="utf-8")
+    tmp.replace(CONFIG)
+    ONCE["vault_picked"] = True
+    return path
+
+
+CLAUDE = {"state": "idle", "error": ""}  # the claude setup-token run: idle | running | saved | failed
+TOKEN_RE = re.compile(rb"sk-ant-oat01-[A-Za-z0-9_-]{20,}")
+ANSI_RE = re.compile(rb"\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07]*\x07")
+
+
+def claude_signin():
+    """Run `claude setup-token` under a pty (it wants a terminal), let it open the browser sign-in,
+    and save the token it prints to the keyring. The token never reaches the page or a log."""
+    exe = shutil.which("claude")
+    if not exe:
+        CLAUDE.update(state="failed", error="claude is not on PATH. Re-run the installer.")
+        return
+    master, slave = os.openpty()
+    # 1000 columns, so the token prints on one line instead of wrapping
+    fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 50, 1000, 0, 0))
+    proc = subprocess.Popen([exe, "setup-token"], stdin=slave, stdout=slave, stderr=slave,
+                            start_new_session=True, close_fds=True)
+    os.close(slave)
+    out, deadline, pressed = b"", time.time() + 600, False
+    try:
+        while time.time() < deadline:
+            try:
+                chunk = os.read(master, 4096)
+            except OSError:  # the child closed its end
+                break
+            if not chunk:
+                break
+            out = ANSI_RE.sub(b"", out + chunk)[-20000:]
+            if not pressed and b"press enter" in out.lower():  # some versions wait before opening the browser
+                os.write(master, b"\r")
+                pressed = True
+            m = TOKEN_RE.search(out)
+            if m:
+                set_secret("CLAUDE_CODE_OAUTH_TOKEN", m.group(0).decode())
+                token_saved()
+                CLAUDE.update(state="saved", error="")
+                return
+        CLAUDE.update(state="failed", error="No token came back. Paste one from `claude setup-token` below.")
+    finally:
+        os.close(master)
+        if proc.poll() is None:
+            proc.kill()
+        proc.wait()
+
+
+def claude_probe():
+    """One headless call the way the scheduled jobs make it: CLAUDE* stripped, stored token added."""
+    env = {k: v for k, v in os.environ.items() if not k.startswith("CLAUDE") and k != "ANTHROPIC_API_KEY"}
+    env["MEMORY_STARTER_CHILD"] = "1"
+    exe = shutil.which("claude")
+    if not exe:
+        return {"ok": False, "error": "claude is not on PATH."}
+    with tempfile.TemporaryDirectory() as d:
+        r = subprocess.run([exe, "-p", "Reply with exactly: ok", "--model", "haiku", "--tools", ""],
+                           cwd=d, env=claude_env(env), capture_output=True, text=True, timeout=120)
+    if r.returncode == 0:
+        return {"ok": True}
+    return {"ok": False, "error": ((r.stdout + r.stderr).strip().splitlines() or ["no output"])[-1][:200]}
+
+
+def finish_missing():
+    """What --once still needs before install.sh can carry on."""
+    missing = [k for k in INPUTS if not find_secret(k)]  # includes the Claude token
+    if known_vaults() and not ONCE["vault_picked"]:
+        missing.append("a vault choice")
+    return missing
+
+
 def status():
-    cfg = tomllib.loads(CONFIG.read_text(encoding="utf-8")).get("graph", {})
+    full = tomllib.loads(CONFIG.read_text(encoding="utf-8"))
+    cfg = full.get("graph", {})
     return {"secrets": [{"name": k, "present": bool(find_secret(k)), "optional": k in OPTIONAL} for k in SECRETS + OPTIONAL],
             "claude": bool(shutil.which("claude")), "graph": graph_status(),
+            "signin": dict(CLAUDE, token=bool(find_secret("CLAUDE_CODE_OAUTH_TOKEN"))),
             "config": {"enabled": bool(cfg.get("enabled")), "folders": cfg.get("mail_folders", ["inbox", "sentitems"]),
                        "chats": cfg.get("chats", [])},
-            "config_path": str(CONFIG)}
+            "config_path": str(CONFIG), "once": ONCE["on"],
+            "vault": {"path": full["vault"]["path"], "known": known_vaults(), "default": DEFAULT_VAULT,
+                      "picked": ONCE["vault_picked"]}}
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -277,7 +387,26 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 saved = [k for k in INPUTS if str(data.get(k, "")).strip()]
                 for k in saved:
                     set_secret(k, str(data[k]).strip())
+                if "CLAUDE_CODE_OAUTH_TOKEN" in saved:
+                    token_saved()
                 return self.send(200, {"saved": saved})
+            if path == "/api/vault":
+                return self.send(200, {"saved": save_vault(str(json.loads(self.rfile.read(n) or b"{}").get("path", "")))})
+            if path == "/api/claude/start":
+                if CLAUDE["state"] != "running":
+                    CLAUDE.update(state="running", error="")
+                    threading.Thread(target=claude_signin, daemon=True).start()
+                return self.send(200, {"started": True})
+            if path == "/api/claude/test":
+                return self.send(200, claude_probe())
+            if path == "/api/finish":
+                missing = finish_missing()
+                if missing:
+                    return self.send(200, {"error": f"Still needed: {', '.join(missing)}."})
+                self.send(200, {"done": True})
+                if ONCE["on"]:  # shutdown() blocks until serve_forever returns, so not on this thread
+                    threading.Thread(target=self.server.shutdown).start()
+                return
             if path == "/api/device/start":
                 return self.send(200, device_start())
             if path == "/api/device/poll":
@@ -377,8 +506,21 @@ footer { font: 500 0.75rem/1.5 var(--font-heading); letter-spacing: 0.08em; text
 </style></head><body><main>
 <p class="masthead">Rekall · <b>settings</b> · this machine only</p>
 <h1>Settings</h1>
-<p class="lead">Rekall can read your mail and the Teams chats you pick, and add new project facts and decisions to the wiki pages they name. It never sends mail or posts to Teams. Come back to this page any time to change what it reads.</p>
+<p class="lead">Choose your vault and save your Fathom key here. Optionally, Rekall can also read your mail and the Teams chats you pick, and add new project facts and decisions to the wiki pages they name. It never sends mail or posts to Teams. Come back to this page any time to change what it reads.</p>
 
+<section aria-labelledby="h-vault">
+  <h2 id="h-vault">Vault</h2>
+  <p class="hint">The Obsidian vault Rekall writes its wiki into. Pick one Obsidian already has open, or start a new one.</p>
+  <div id="vaults"></div>
+  <p id="vaultmsg" role="status" class="hint" style="margin: var(--space-md) 0 0"></p>
+</section>
+<section aria-labelledby="h-claude">
+  <h2 id="h-claude">Claude</h2>
+  <p class="hint">Rekall's scheduled jobs call Claude in the background. Sign in once and the token goes into your system keychain.</p>
+  <div class="account"><div id="claude"><p class="sub">Checking...</p></div>
+    <div><button class="btn btn-secondary" id="claudein" type="button">Sign in to Claude</button> <button class="btn btn-secondary" id="claudetest" type="button">Test</button></div></div>
+  <p id="claudemsg" role="status" class="hint" style="margin: var(--space-md) 0 0"></p>
+</section>
 <section aria-labelledby="h-secrets">
   <h2 id="h-secrets">Secrets</h2>
   <p class="hint">Saved to your system keychain, or read from the environment or <code>.env</code>. Values are never shown here.</p>
@@ -386,7 +528,8 @@ footer { font: 500 0.75rem/1.5 var(--font-heading); letter-spacing: 0.08em; text
   <form id="keys" autocomplete="off" style="margin-top: var(--space-lg)">
     <p class="hint">Fathom API key (Fathom, Settings, Integrations, API) and the email Fathom knows you by. Leave a field blank to keep what's saved.</p>
     <input type="password" id="k-FATHOM_API_KEY" placeholder="FATHOM_API_KEY" aria-label="FATHOM_API_KEY" autocomplete="off" style="margin-bottom: var(--space-sm)">
-    <input type="text" id="k-WORK_EMAIL" placeholder="WORK_EMAIL" aria-label="WORK_EMAIL" autocomplete="off">
+    <input type="text" id="k-WORK_EMAIL" placeholder="WORK_EMAIL" aria-label="WORK_EMAIL" autocomplete="off" style="margin-bottom: var(--space-sm)">
+    <input type="password" id="k-CLAUDE_CODE_OAUTH_TOKEN" placeholder="Claude token, only if Sign in to Claude failed (run claude setup-token in Terminal)" aria-label="CLAUDE_CODE_OAUTH_TOKEN" autocomplete="off">
     <div class="savebar"><button class="btn btn-accent" id="savekeys" type="button">Save keys</button><p id="keymsg" role="status"></p></div>
   </form>
 </section>
@@ -422,7 +565,12 @@ footer { font: 500 0.75rem/1.5 var(--font-heading); letter-spacing: 0.08em; text
   <div class="callout"><p>Check what it would write, without touching the vault:</p><code class="cmd">bash scripts/run-graph-ingest.sh --dry-run --hours 24</code></div>
 </section>
 
-<footer>Runs on 127.0.0.1 and stops when you press Ctrl-C in the terminal.</footer>
+<section id="finish" aria-labelledby="h-finish" hidden>
+  <h2 id="h-finish">Finish setup</h2>
+  <p class="hint">Needs a vault choice, the Claude sign-in, your Fathom API key and your work email. The installer carries on in Terminal once you finish.</p>
+  <div class="savebar"><button class="btn btn-accent" id="finishbtn" type="button">Finish setup</button><p id="finishmsg" role="status"></p></div>
+</section>
+<footer id="foot">Runs on 127.0.0.1 and stops when you press Ctrl-C in the terminal.</footer>
 </main>
 <script>
 let saved = [];
@@ -436,6 +584,16 @@ async function refresh() {
   $("graph").innerHTML = s.graph.ok
     ? `<p class="who">${esc(s.graph.user)}</p><p class="sub">${esc(s.graph.mail)}</p>`
     : `<p class="who">Not signed in</p><p class="sub">${esc(s.graph.error)}</p>`;
+  const v = s.vault, opts = [...new Set(v.known.concat([v.default]))];
+  $("vaults").innerHTML = opts.map(p => `<label class="switch" style="margin-bottom: var(--space-sm)"><input type="radio" name="vault" value="${esc(p)}" ${p === v.path && (v.picked || !v.known.length || !s.once) ? "checked" : ""}>
+    <span><strong>${esc(p === v.default ? "New vault" : p.split("/").pop())}</strong><span class="hint">${esc(p)}</span></span></label>`).join("");
+  $("finish").hidden = !s.once;
+  if (s.once) $("foot").textContent = "Runs on 127.0.0.1 and closes itself when you finish setup.";
+  const c = s.signin;
+  $("claude").innerHTML = c.token ? `<p class="who">Signed in</p><p class="sub">Token saved in your keychain.</p>`
+    : c.state === "running" ? `<p class="who">Waiting for the browser sign-in...</p>`
+    : `<p class="who">Not signed in</p><p class="sub">${esc(c.error || "Click Sign in to Claude.")}</p>`;
+  $("claudein").textContent = c.token ? "Sign in again" : "Sign in to Claude";
   $("signin").textContent = s.graph.ok ? "Switch account" : "Sign in with Microsoft";
   $("enabled").checked = s.config.enabled;
   $("folders").value = s.config.folders.join(", ");
@@ -472,10 +630,32 @@ $("signin").onclick = async () => {
   }, Math.max(3, r.interval) * 1000);
 };
 $("savekeys").onclick = async () => {
-  const r = await post("/api/secrets", {FATHOM_API_KEY: $("k-FATHOM_API_KEY").value, WORK_EMAIL: $("k-WORK_EMAIL").value});
-  $("k-FATHOM_API_KEY").value = $("k-WORK_EMAIL").value = "";
+  const r = await post("/api/secrets", {FATHOM_API_KEY: $("k-FATHOM_API_KEY").value, WORK_EMAIL: $("k-WORK_EMAIL").value, CLAUDE_CODE_OAUTH_TOKEN: $("k-CLAUDE_CODE_OAUTH_TOKEN").value});
+  $("k-FATHOM_API_KEY").value = $("k-WORK_EMAIL").value = $("k-CLAUDE_CODE_OAUTH_TOKEN").value = "";
   $("keymsg").textContent = r.error ? r.error : r.saved.length ? `Saved ${r.saved.join(", ")}.` : "Nothing to save.";
   if (!r.error) refresh();
+};
+$("vaults").addEventListener("change", async e => {
+  const r = await post("/api/vault", {path: e.target.value});
+  $("vaultmsg").textContent = r.error ? r.error : `Rekall will use ${r.saved}.`;
+});
+$("claudein").onclick = async () => {
+  await post("/api/claude/start");
+  $("claudemsg").textContent = "A browser tab opens for the Claude sign-in. Come back here when it's done.";
+  const timer = setInterval(async () => {
+    await refresh();
+    if ($("claude").textContent.indexOf("Waiting") < 0) { clearInterval(timer); $("claudemsg").textContent = ""; }
+  }, 3000);
+};
+$("claudetest").onclick = async () => {
+  $("claudemsg").textContent = "Testing...";
+  const r = await post("/api/claude/test");
+  $("claudemsg").textContent = r.ok ? "Claude answered. Background jobs can use it." : `Claude didn't answer: ${r.error}`;
+};
+$("finishbtn").onclick = async () => {
+  const r = await post("/api/finish");
+  $("finishmsg").textContent = r.error || "Done. You can close this tab; the installer is carrying on in Terminal.";
+  if (r.done) $("finishbtn").disabled = true;
 };
 $("chats").addEventListener("change", count);
 $("filter").addEventListener("input", e => {
@@ -504,9 +684,46 @@ refresh();
 """
 
 
+def notify(text):
+    """A macOS notification; elsewhere, the terminal line is enough."""
+    print(text, flush=True)
+    if sys.platform == "darwin":
+        subprocess.run(["osascript", "-e", f"display notification {json.dumps(text)} with title \"Rekall\""], check=False)
+
+
+def reauth():
+    """--reauth: the one-click path from the expiry dialog. No page; the browser opens on Claude's sign-in."""
+    claude_signin()
+    if CLAUDE["state"] != "saved":
+        notify(f"Claude sign-in didn't finish: {CLAUDE['error']} Run: python3 {Path(__file__)} for the settings page.")
+        sys.exit(1)
+    probe = claude_probe()
+    notify("Signed in to Claude. Rekall's background jobs are running again." if probe["ok"]
+           else f"Signed in, but Claude didn't answer the test: {probe['error']}")
+    sys.exit(0 if probe["ok"] else 1)
+
+
 def main():
-    server = http.server.ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
-    print(f"Rekall setup: open {REDIRECT}  (Ctrl-C to stop)")
+    global HOSTS
+    if "--reauth" in sys.argv:
+        return reauth()
+    ONCE["on"] = "--once" in sys.argv
+    ONCE["vault_picked"] = bool(os.environ.get("REKALL_VAULT"))  # install.sh already wrote it into rekall.toml
+    for port in PORTS:
+        try:
+            server = http.server.ThreadingHTTPServer(("127.0.0.1", port), Handler)
+            break
+        except OSError:
+            continue
+    else:
+        sys.exit(f"Ports {PORTS.start}-{PORTS.stop - 1} are all in use; free one and re-run.")
+    HOSTS = {f"localhost:{port}", f"127.0.0.1:{port}"}
+    url = f"http://localhost:{port}"
+    if ONCE["on"]:
+        print(f"Rekall setup is open in your browser at {url}. Fill it in and click Finish setup.", flush=True)
+        webbrowser.open(url)
+    else:
+        print(f"Rekall setup: open {url}  (Ctrl-C to stop)")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
