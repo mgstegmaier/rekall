@@ -56,6 +56,32 @@ def keyword_leg(db, query):
     return [r[0] for r in rows]
 
 
+# ponytail: a "strong" keyword hit is one of the keyword leg's top STRONG_TOP chunks that holds
+# every rare name-like token of the prompt: written with a capital or a digit (Judah, SNOW-1234),
+# in at most RARE_DF chunks. Measured 2026-10-27 on the live index (14,279 chunks): names
+# sit at 22-24 chunks, while lowercase coding words that are just as rare (recursion, dataclass)
+# would let generic prompts through, hence the capital-or-digit test. A token in no chunk at all
+# still counts as rare, so a prompt naming something the notes lack ("Xyzzy Nonsense") gets
+# nothing. Ceilings: RARE_DF is absolute, so scale it if the index grows several-fold; a name
+# typed in lowercase gets no keyword pass (the meaning leg still applies).
+STRONG_TOP = 3
+RARE_DF = 30
+
+
+def strong_keyword_hits(db, query, keyword_ids):
+    """The keyword-leg rowids that hold every rare name-like query token; empty when there is none."""
+    rare = [t.lower() for t in dict.fromkeys(re.findall(r"\w+", query))
+            if not t.islower() and t.lower() not in STOPWORDS]
+    # ponytail: one count query per token; the first 20 bound the cost of a pasted log
+    rare = [t for t in rare[:20] if db.execute(
+        "SELECT count(*) FROM chunks_fts WHERE chunks_fts MATCH ?", (f'"{t}"',)).fetchone()[0] <= RARE_DF]
+    if not rare or not keyword_ids:
+        return set()
+    match = " AND ".join(f'"{t}"' for t in rare)
+    holding = {r[0] for r in db.execute("SELECT rowid FROM chunks_fts WHERE chunks_fts MATCH ?", (match,))}
+    return {rowid for rowid in keyword_ids[:STRONG_TOP] if rowid in holding}
+
+
 @functools.lru_cache(maxsize=1)  # the MCP server is long-lived; the hook is one process per prompt
 def embedding_model():
     """The configured model: the pinned local dir when it's BGE-small (the
