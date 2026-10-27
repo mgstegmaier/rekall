@@ -66,7 +66,7 @@ UNQUOTED_PROSE = re.compile(r"^(title|description):[ \t]+([^\"'\[{\s].*?)[ \t]*$
 
 
 def quote_prose_scalars(text):
-    """Quote an unquoted title/description that YAML would reject or misread ("at Upland: Radar"
+    """Quote an unquoted title/description that YAML would reject or misread ("at Acme: Radar"
     is a nested mapping, " #" starts a comment). One bad line makes Obsidian drop the whole
     frontmatter block and render it as body text. JSON strings are valid YAML double-quoted."""
     span = frontmatter_span(text)

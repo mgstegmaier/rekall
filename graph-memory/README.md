@@ -48,8 +48,8 @@ To check it, run `python3 graph-memory/test_mcp_server.py`, which calls both too
 |------|---------|
 | Refresh index + graph | `./reindex.sh` (also runs hourly via `com.heckatron.wiki-reindex` LaunchAgent; incremental, with the week's first Sunday run auto-promoted to a full rebuild) |
 | Force a full rebuild | `.venv/bin/python build_index.py --corpus ~/obsidian-vault/heck-db/wiki --full` |
-| Test a query | `.venv/bin/python search.py "what's next on QVal"` |
-| Test graph recall | `.venv/bin/python graph_recall.py "who is involved in QVal"` |
+| Test a query | `.venv/bin/python search.py "what's next on the billing migration"` |
+| Test graph recall | `.venv/bin/python graph_recall.py "who is involved in the billing migration"` |
 | Distil new meeting notes | `.venv/bin/python distil.py ~/obsidian-vault/heck-db/wiki --under meetings` |
 | Check the LaunchAgent | `launchctl list \| grep wiki-reindex`; log at `~/.config/rekall/logs/wiki-reindex.log` |
 | Check digest failures | `cat digest/log/digest.log`; staged retries sit in `digest/pending/` |

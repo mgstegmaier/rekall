@@ -35,6 +35,8 @@ EMBEDDING_MODEL = _cfg.get("index", {}).get("embedding_model", "BAAI/bge-small-e
 GRAPH = _cfg.get("graph", {})
 # Research sweep (fathom-pipeline links wiki/pages/research/ memos onto the pages they name); on unless enabled = false.
 RESEARCH = _cfg.get("research", {})
+# Annual-review evidence miner (scripts/wins-mine.py): work repos, git author, work markers, page tag.
+WINS = _cfg.get("wins", {})
 # Optional command the launchers put in front of each job, e.g. "doppler run --project p --config c --".
 RUN_PREFIX = _cfg.get("secrets", {}).get("run_prefix", "")
 
@@ -84,9 +86,15 @@ def get_secret(name):
 
 
 def claude_env(env):
-    """env with the stored Claude token added, for a claude -p child. The settings page saves it
-    (claude setup-token), so scheduled jobs run without an interactive login. Without one the
-    child falls back to the CLI's own login, as before."""
+    """env made ready for a claude -p child of ours, changed in place and returned.
+
+    ANTHROPIC_API_KEY goes: Doppler injects it, it overrides the subscription login, and the call
+    then fails "Invalid API key" or bills the API (2026-09-24). MEMORY_STARTER_CHILD tells our own
+    recall hook and SessionEnd digest to skip this session. The stored token is added: the settings
+    page saves it (claude setup-token), so scheduled jobs run without an interactive login. Without
+    one the child falls back to the CLI's own login, as before."""
+    env.pop("ANTHROPIC_API_KEY", None)
+    env["MEMORY_STARTER_CHILD"] = "1"
     token = find_secret("CLAUDE_CODE_OAUTH_TOKEN")
     if token:
         env["CLAUDE_CODE_OAUTH_TOKEN"] = token
@@ -100,7 +108,7 @@ TOKEN_INFO = STATE_DIR / "claude-token.json"       # when the settings page last
 REAUTH_PROMPTED = STATE_DIR / "claude-reauth-prompted"
 TOKEN_WARN_DAYS = 330  # ponytail: the CLI calls the token long-lived; warn a month before a year
 AUTH_ERRORS = ("not logged in", "/login", "invalid api key", "oauth token", "authentication_error",
-               "token has expired", "401")
+               "token has expired", "401", "failed to authenticate", "oauth session expired")
 
 
 def token_saved():
@@ -144,6 +152,25 @@ def note_claude_result(ok, output=""):
             prompt_reauth()
     except OSError:
         pass  # bookkeeping must never fail the job
+
+
+def run_claude(cmd, env=None, **kw):
+    """Run one claude -p child to completion, the one way every runner does it: env through
+    claude_env, stdout and stderr both captured (the CLI prints its errors to stdout), the sign-in
+    marker set or cleared. Returns the CompletedProcess, or None when the CLI couldn't authenticate,
+    which is the machine's fault and not the input's, so callers stop rather than count it.
+    fathom-pipeline streams its child instead and uses claude_env and note_claude_result directly."""
+    import subprocess
+    env = claude_env(dict(os.environ if env is None else env))
+    proc = subprocess.run(cmd, env=env, capture_output=True, text=True, encoding="utf-8", errors="replace", **kw)
+    out = proc.stdout + proc.stderr
+    # ponytail: output is only searched for auth wording on a failure, since a good answer can say
+    # "401"; --output-format json reports a failure as is_error with exit 0
+    failed = proc.returncode != 0 or '"is_error":true' in proc.stdout.replace(" ", "")
+    note_claude_result(not failed, out)
+    if failed and any(e in out.lower() for e in AUTH_ERRORS):
+        return None
+    return proc
 
 
 def prompt_reauth():

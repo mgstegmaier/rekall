@@ -26,7 +26,6 @@ Local only, with Radar's /setup guards: binds 127.0.0.1, rejects any Host but lo
 127.0.0.1:8086, every POST needs a matching Origin and `X-Rekall-Setup: 1`, and the OAuth callback
 checks a one-time state value.
 """
-import fcntl
 import http.server
 import importlib.util
 import json
@@ -40,7 +39,6 @@ import tempfile
 import sys
 import time
 import threading
-import termios
 import tomllib
 import webbrowser
 from pathlib import Path
@@ -227,6 +225,7 @@ def claude_signin():
     if not exe:
         CLAUDE.update(state="failed", error="claude is not on PATH. Re-run the installer.")
         return
+    import fcntl, termios  # POSIX only; at module top they kept the settings page from starting on Windows
     master, slave = os.openpty()
     # 1000 columns, so the token prints on one line instead of wrapping
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 50, 1000, 0, 0))

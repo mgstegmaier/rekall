@@ -28,7 +28,7 @@ def label(path, out):
         if os.path.exists(f"{out}/{pid}.json"):
             return
         items = [f"{'M' if r['leg_type'] == 'memory' else 'G'}{r['pos']}: [{r['label']}] {r['excerpt'][:300]}" for r in v]
-        res = subprocess.run(["claude", "-p", "--model", "haiku", "--permission-mode", "bypassPermissions", "--output-format", "text"],
+        res = subprocess.run(["claude", "-p", "--model", "haiku", "--tools", "", "--output-format", "text"],
                              input=ASK.format(prompt=v[0]["prompt"], items="\n".join(items)), capture_output=True, text=True)
         open(f"{out}/{pid}.json", "w").write(res.stdout)
 

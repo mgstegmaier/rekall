@@ -17,7 +17,7 @@ with tempfile.TemporaryDirectory() as tmp:
     env = {**os.environ, "REKALL_CONFIG": str(cfg)}
 
     bad = wiki / "pages" / "system" / "sigma.md"
-    bad.write_text("---\ntype: system\ntitle: \"Sigma\"\ndescription: Sigma at Upland: Radar results\n"
+    bad.write_text("---\ntype: system\ntitle: \"Sigma\"\ndescription: Sigma at Acme: Radar results\n"
                    "date: 2026-10-22\n---\n# Sigma\n\nbody: stays unquoted\n")
     ok = wiki / "pages" / "system" / "loro.md"
     ok_text = "---\ntype: system\ntitle: Loro\ndescription: A plain sentence, no colon.\n---\nbody\n"
@@ -29,20 +29,20 @@ with tempfile.TemporaryDirectory() as tmp:
 
     r = run("--dry-run")
     assert "quoted title/description frontmatter on 1 page(s) (dry-run)" in r.stdout, r.stdout + r.stderr
-    assert "Upland: Radar results\n" in bad.read_text(), "dry run must not write"
+    assert "Acme: Radar results\n" in bad.read_text(), "dry run must not write"
 
     r = run()
     assert r.returncode == 0, r.stderr
     text = bad.read_text()
-    assert 'description: "Sigma at Upland: Radar results"\n' in text, text
+    assert 'description: "Sigma at Acme: Radar results"\n' in text, text
     assert 'title: "Sigma"\n' in text and "body: stays unquoted\n" in text, text
     assert ok.read_text() == ok_text, "safe values are left alone"
-    assert "- [[sigma]] -- Sigma at Upland: Radar results" in (wiki / "index.md").read_text()
+    assert "- [[sigma]] -- Sigma at Acme: Radar results" in (wiki / "index.md").read_text()
 
     try:
         import yaml
     except ImportError:  # the round-trip is a bonus; the asserts above are the check
         yaml = None
     if yaml:
-        assert yaml.safe_load(text.split("---\n")[1])["description"] == "Sigma at Upland: Radar results"
+        assert yaml.safe_load(text.split("---\n")[1])["description"] == "Sigma at Acme: Radar results"
 print("ok")

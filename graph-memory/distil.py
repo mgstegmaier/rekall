@@ -29,13 +29,21 @@ sys.path.insert(0, str(HERE))
 
 from build_index import normalise, note_files, parse_entry, utf8_out  # noqa: E402
 from paths import DISTILLED_DIR  # noqa: E402
-from rekall_config import claude_env, note_claude_result  # noqa: E402  (paths put the repo root on sys.path)
+from rekall_config import run_claude  # noqa: E402  (paths put the repo root on sys.path)
 
 DISTILLED = DISTILLED_DIR
 STATE = DISTILLED / ".state.json"
 PROMPT = HERE / "distil-prompt.md"
-CONFIG = HERE.parent / "digest" / "config.json"
+CONFIG = HERE / "digest" / "config.json"
 CALL_TIMEOUT = 300  # seconds for one claude -p call
+
+
+class NotSignedIn(RuntimeError):
+    """claude -p was refused for want of a sign-in: no note is to blame, so callers stop."""
+
+
+class ClaudeExit(RuntimeError):
+    """claude -p exited non-zero. The note may be to blame, or an outage or rate limit may."""
 
 
 def model_name():
@@ -52,19 +60,13 @@ def model_name():
 
 
 def child_env():
-    """The environment for a claude -p child, with our own markers removed.
+    """The environment for a claude -p child, minus Claude Code's own markers.
 
     Claude Code stamps CLAUDECODE and a set of CLAUDE_* variables into every
     session. Left in place they tell the child it is nested inside the session
-    that started it. MEMORY_STARTER_CHILD goes the other way: it tells our own
-    SessionEnd hook that this session is the digest, so it is not digested.
-    ANTHROPIC_API_KEY goes too: a session started under Doppler passes it down, it
-    overrides the subscription login, and the call fails "Invalid API key" (2026-09-24).
+    that started it. run_claude adds the stored token and our markers after this strip.
     """
-    env = {k: v for k, v in os.environ.items()
-           if not k.startswith("CLAUDE") and k != "ANTHROPIC_API_KEY"}
-    env["MEMORY_STARTER_CHILD"] = "1"
-    return claude_env(env)  # after the CLAUDE* strip, so the stored token survives it
+    return {k: v for k, v in os.environ.items() if not k.startswith("CLAUDE")}
 
 
 def claude_argv(model):
@@ -87,20 +89,18 @@ def ask(model, prompt_text, payload):
     nothing else: no project, no settings, no hooks of ours firing inside it.
     """
     with tempfile.TemporaryDirectory(prefix="memory-starter-") as scratch:
-        proc = subprocess.run(
+        proc = run_claude(
             claude_argv(model),
-            input=prompt_text + "\n\n---\n\n" + payload,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
             env=child_env(),
+            input=prompt_text + "\n\n---\n\n" + payload,
             cwd=scratch,
             timeout=CALL_TIMEOUT,
         )
-    note_claude_result(proc.returncode == 0, proc.stderr + proc.stdout)
+    if proc is None:
+        raise NotSignedIn("claude is not signed in; sign in again with scripts/setup-server.py --reauth")
     if proc.returncode != 0:
-        raise RuntimeError((proc.stderr or "claude failed").strip()[-300:])  # the tail holds the error; the head is warnings
+        # claude -p prints its errors to stdout; the tail holds the error, the head is warnings
+        raise ClaudeExit((proc.stderr + proc.stdout).strip()[-300:] or f"claude exited {proc.returncode}")
     return proc.stdout
 
 
@@ -175,6 +175,7 @@ def run(corpus, paths=None, limit=None, rebuild=True, under=None):
 
     state = load_state()
     counts = {"distilled": 0, "skipped": 0, "dropped": 0}
+    exits = []  # notes whose call exited non-zero; struck only if another note got through
     for path in files:
         if limit is not None and counts["distilled"] + counts["dropped"] >= limit:
             counts["skipped"] += 1
@@ -193,11 +194,17 @@ def run(corpus, paths=None, limit=None, rebuild=True, under=None):
             continue
         try:
             text = distil_one(path, rel, model, prompt_text)
+        except NotSignedIn as exc:  # machine-wide: stop, and quarantine nothing
+            print(f"stopped at {rel}: {exc}")
+            break
         except Exception as exc:  # one bad note never stops the run
             print(f"dropped {rel}: {type(exc).__name__} {exc}")
             counts["dropped"] += 1
-            # no record_failure here: an exception is usually machine-wide (login,
-            # PATH, outage), and quarantining every note it touched would strand them
+            # A timeout or a missing claude is the machine's fault: no strike. A non-zero exit
+            # is a strike only when another note in this run succeeded, so an outage or a 429
+            # that fails every note never quarantines them.
+            if isinstance(exc, ClaudeExit):
+                exits.append((rel, known, digest))
             continue
         if text is None:
             counts["dropped"] += 1
@@ -208,6 +215,9 @@ def run(corpus, paths=None, limit=None, rebuild=True, under=None):
         state[rel] = {"sha256": digest, "slug": slug}
         counts["distilled"] += 1
         print(f"distilled {rel} -> distilled/{slug}")
+    if counts["distilled"]:
+        for rel, known, digest in exits:
+            record_failure(state, rel, known, digest)
     save_state(state)
 
     print(

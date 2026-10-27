@@ -41,6 +41,15 @@ with tempfile.TemporaryDirectory() as tmp:
     got = {p.relative_to(root).as_posix() for p in note_files(root)}
     assert got == {"pages/a.md", "pages/index.md"}, got
 
+    # A leftover top-level distilled/ would collide with the real distillates' "distilled/<name>"
+    # keys and re-embed every run, so it is skipped; a nested one is an ordinary folder.
+    (root / "distilled").mkdir()
+    (root / "distilled" / "a.md").write_text("source: pages/a.md\n")
+    (root / "pages" / "distilled").mkdir()
+    (root / "pages" / "distilled" / "b.md").write_text("# B\n")
+    got = {p.relative_to(root).as_posix() for p in note_files(root)}
+    assert got == {"pages/a.md", "pages/index.md", "pages/distilled/b.md"}, got
+
 # old_vectors: recovers a key's (embed-text hash -> vector blob) before purge()
 # deletes it, so an unchanged chunk skips re-embedding on the next build. A
 # non-distilled key sees only its own chunk rows, a distilled/ key only the

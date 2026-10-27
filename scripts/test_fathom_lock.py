@@ -49,4 +49,20 @@ with tempfile.TemporaryDirectory() as tmp:
     held.close()  # what process exit does
     assert child(lock) == "got", "the lock was not released"
 
+# The callers must keep the handle. `acquire_lock(...) is None` drops it, CPython closes the
+# file at once, and the flock goes with it: this is that bug, then the source check against it.
+with tempfile.TemporaryDirectory() as tmp:
+    lock = str(Path(tmp) / "x.lock")
+    assert mod.acquire_lock(lock) is not None  # handle discarded right here
+    assert child(lock) == "got", "a dropped handle should have released the lock (CPython refcounting)"
+    held = mod.acquire_lock(lock)
+    assert child(lock) == "none", "a held handle must keep a second process out"
+    held.close()
+
+here = Path(__file__).resolve().parent
+for script in ("fathom-pipeline.py", "graph-ingest.py", "granola-sweep.py"):
+    src = (here / script).read_text()
+    assert "acquire_lock(LOCK_FILE) is None" not in src, f"{script} drops its lock handle"
+    assert "= acquire_lock(LOCK_FILE)" in src or "= fp.acquire_lock(LOCK_FILE)" in src, f"{script} must bind its lock"
+
 print("ok")

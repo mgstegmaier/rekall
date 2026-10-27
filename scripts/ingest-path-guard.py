@@ -8,7 +8,11 @@ page, which then replicates through Obsidian Sync. There is no Bash or network t
 the child's allowlist, so a page is the exfiltration route, and this closes it.
 
 Allowed roots arrive as REKALL_GUARD_ROOTS (os.pathsep-separated). Every path-carrying
-tool input must resolve inside one of them or the call is denied.
+tool input must resolve inside one of them or the call is denied. Write and Edit are held
+tighter: only inside a write root (the command's arguments; the pipeline passes VAULT/wiki),
+never a file named CLAUDE.md, which ingest's own rules come from. Any path with a dot-named
+component inside its root (.obsidian/ plugin code, a planted .claude/settings.json) is
+denied for every tool. A root that is not a write root is read-only.
 
 Contract (Claude Code hooks): stdin is the tool call as JSON with `tool_name` and
 `tool_input`; printing a hookSpecificOutput object with permissionDecision "deny" and
@@ -16,6 +20,7 @@ exiting 0 blocks the call and hands the reason back to the model.
 """
 import json
 import os
+import re
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -23,6 +28,7 @@ from pathlib import Path
 # Every key a path can arrive under across Read, Write, Edit, Glob, and Grep. A tool
 # input key that is not here is not a path, so it needs no check.
 PATH_KEYS = ("file_path", "path", "notebook_path")
+WRITE_TOOLS = ("Write", "Edit", "MultiEdit", "NotebookEdit")
 
 
 def roots():
@@ -30,14 +36,37 @@ def roots():
     return [Path(p).resolve() for p in raw.split(os.pathsep) if p]
 
 
-def outside(path, allowed):
-    """True when path escapes every allowed root. Symlinks are resolved first, so a
-    link planted inside the vault cannot point out of it."""
+def where(path, allowed):
+    """(resolved path, the allowed root it sits in), or None when it escapes every root.
+    Symlinks are resolved first, so a link planted inside the vault cannot point out of it."""
     try:
         real = Path(path).expanduser().resolve()
     except (OSError, RuntimeError):
-        return True  # unresolvable is not provably inside
-    return not any(real == root or root in real.parents for root in allowed)
+        return None  # unresolvable is not provably inside
+    for root in allowed:
+        if real == root or root in real.parents:
+            return real, root
+    return None
+
+
+def refusal(tool, value, allowed, writable):
+    """Why this call is refused, or None when it may proceed."""
+    hit = where(value, allowed)
+    if hit is None:
+        return (f"{tool} is restricted to {os.pathsep.join(str(r) for r in allowed)} during "
+                f"automated ingest. Refused: {value}. Work only from the sources named in the prompt.")
+    real, root = hit
+    if any(part.startswith(".") for part in real.relative_to(root).parts):
+        return f"hidden files and folders are off limits during automated ingest. Refused: {value}"
+    if tool in WRITE_TOOLS:
+        if real.name.lower() in ("claude.md", "claude.local.md"):  # APFS is case-insensitive
+            return f"CLAUDE.md files are read-only during automated ingest. Refused: {value}"
+        if real.suffix.lower() != ".md":  # a .canvas or .html page is not ingest's to write
+            return f"ingest writes markdown pages only. Refused: {value}"
+        if where(real, writable) is None:
+            return (f"{tool} is restricted to {os.pathsep.join(str(r) for r in writable)} during "
+                    f"automated ingest. Refused: {value}")
+    return None
 
 
 def main():
@@ -52,15 +81,30 @@ def main():
         # and a guard that allows everything when misconfigured is not a guard.
         return deny("REKALL_GUARD_ROOTS is unset, so no path can be verified")
 
+    writable = [Path(p).resolve() for p in sys.argv[1:]]
+    tool = call.get("tool_name", "tool")
     tool_input = call.get("tool_input") or {}
+    if tool in ("Glob", "Grep"):
+        # Grep searches hidden files, and a pathless call searches cwd (the vault root), which
+        # holds .obsidian/. So a search must name a path under a write root (wiki/, which has no
+        # dot folders) or a read-only root that holds none (the skill).
+        searchable = writable + [r for r in allowed if not any(w == r or r in w.parents for w in writable)]
+        path = tool_input.get("path")
+        if not isinstance(path, str) or not path or where(path, searchable) is None:
+            return deny(f"{tool} must be given a path under {os.pathsep.join(str(r) for r in searchable)} "
+                        f"during automated ingest. Refused path: {path!r}")
+        # Globs: a narrow alphabet, so [.]x, ?x, \x and absolute patterns can't reach a dot folder.
+        g = tool_input.get("pattern") if tool == "Glob" else tool_input.get("glob")
+        if isinstance(g, str) and g and (not re.fullmatch(r"[A-Za-z0-9_*/{},. -]+", g)
+                                         or g[0] in "/~" or re.search(r"(^|[/{,])\.", g)):
+            return deny(f"{tool} glob {g!r} is not allowed during automated ingest; "
+                        f"use letters, digits, _ - . * / {{ }} , only, relative, with no hidden folders")
     for key in PATH_KEYS:
         value = tool_input.get(key)
-        if isinstance(value, str) and value and outside(value, allowed):
-            return deny(
-                f"{call.get('tool_name', 'tool')} is restricted to "
-                f"{os.pathsep.join(str(r) for r in allowed)} during automated ingest. "
-                f"Refused: {value}. Work only from the sources named in the prompt."
-            )
+        if isinstance(value, str) and value:
+            reason = refusal(tool, value, allowed, writable)
+            if reason:
+                return deny(reason)
     sys.exit(0)  # no output, no decision, the call proceeds
 
 

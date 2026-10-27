@@ -21,17 +21,17 @@ def fathom_note(d, name, title, when, attendees, source=None):
 
 def main():
     d = Path(tempfile.mkdtemp())
-    g = {"id": "not_abc", "title": "Jeff / Mike weekly", "dt": datetime(2026, 9, 8, 9, 5, tzinfo=CT),
-         "participants": ["Jeffrey Gottlieb", "Michael Stegmaier"], "summary": "- talked", "url": "https://notes.granola.ai/d/x"}
-    right = fathom_note(d, "2026-09-08-1-1-gottlieb-stegmaier.md", "1:1 Gottlieb / Stegmaier", "2026-09-08 at 9:00 AM",
-                        ["Jeffrey Gottlieb", "Michael Stegmaier"])
+    g = {"id": "not_abc", "title": "Dana / Sam weekly", "dt": datetime(2026, 9, 8, 9, 5, tzinfo=CT),
+         "participants": ["Dana Reyes", "Sam Okafor"], "summary": "- talked", "url": "https://notes.granola.ai/d/x"}
+    right = fathom_note(d, "2026-09-08-1-1-reyes-okafor.md", "1:1 Reyes / Okafor", "2026-09-08 at 9:00 AM",
+                        ["Dana Reyes", "Sam Okafor"])
     fathom_note(d, "2026-09-08-rad-management-call.md", "RAD Management Call", "2026-09-08 at 3:00 PM",
-                ["Mark Jones", "Michael Stegmaier"])                                   # same day, wrong time
+                ["Mark Jones", "Sam Okafor"])                                   # same day, wrong time
     fathom_note(d, "2026-09-08-standup.md", "Standup", "2026-09-08 at 9:00 AM", ["Kiki Wang", "Liam McGrath"])  # right time, disjoint
-    fathom_note(d, "2026-09-09-1-1-gottlieb-stegmaier.md", "1:1 Gottlieb / Stegmaier", "2026-09-09 at 9:00 AM",
-                ["Jeffrey Gottlieb", "Michael Stegmaier"])                            # different day
-    fathom_note(d, "2026-09-08-granola-paste.md", "1:1 Gottlieb / Stegmaier", "2026-09-08 at 9:00 AM",
-                ["Jeffrey Gottlieb", "Michael Stegmaier"], source="granola")           # Granola-origin, never a target
+    fathom_note(d, "2026-09-09-1-1-reyes-okafor.md", "1:1 Reyes / Okafor", "2026-09-09 at 9:00 AM",
+                ["Dana Reyes", "Sam Okafor"])                            # different day
+    fathom_note(d, "2026-09-08-granola-paste.md", "1:1 Reyes / Okafor", "2026-09-08 at 9:00 AM",
+                ["Dana Reyes", "Sam Okafor"], source="granola")           # Granola-origin, never a target
 
     assert gs.find_fathom_match(g, d) == right, gs.find_fathom_match(g, d)
     assert gs.find_fathom_match({**g, "dt": datetime(2026, 9, 10, 9, 0, tzinfo=CT)}, d) is None

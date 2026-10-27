@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Mine a review year's evidence into one markdown dump for drafting the wins page.
 
-Sources, all local: commits by Mike in the Upland repos, Claude Code prompt history
-for work projects, wiki project pages tagged `upland`, meeting-note titles, and any
+Sources, all local: your commits in the work repos, Claude Code prompt history
+for work projects, wiki project pages tagged with the work tag, meeting-note titles, and any
 `### Wins` bullets the session digest has written into wiki/sessions/.
 
     python3 wins-mine.py --since 2025-09-01 > /tmp/wins-evidence.md
@@ -20,13 +20,15 @@ from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from rekall_config import VAULT, WIKI  # noqa: E402
+from rekall_config import USER_NAME, VAULT, WIKI, WINS  # noqa: E402
 
 HOME = Path.home()
-REPOS_DIR = HOME / "github_repos" / "Upland Repos"
+# Personal values live in rekall.toml's [wins] section, not in this public file.
+REPOS_DIR = Path(WINS.get("repos_dir", "~/work-repos")).expanduser()  # a folder of git clones
 HISTORY = HOME / ".claude" / "history.jsonl"
-AUTHOR = "Stegmaier"
-WORK_PATH_MARKERS = ("Upland", "UCG", "OneDrive", "snowflake")
+AUTHOR = WINS.get("author", USER_NAME)  # git log --author pattern
+WORK_PATH_MARKERS = tuple(WINS.get("work_markers", []))  # a prompt's project path containing one counts as work
+WORK_TAG = WINS.get("tag", "work")  # project pages carrying this word in their frontmatter
 
 
 def commits(since):
@@ -76,6 +78,12 @@ def frontmatter(text):
     return m.group(1) if m else ""
 
 
+def tags(fm):
+    """The frontmatter's tags, lowercased: `tags: [a, b]`, `tags: a`, or a `- a` list below it."""
+    m = re.search(r"^tags:[ \t]*(.*)\n?((?:[ \t]*-[^\n]*\n?)*)", fm, re.M)
+    return {t.lower() for t in re.findall(r"[^\s,\[\]'\"-][^\s,\[\]'\"]*", m.group(1) + "\n" + m.group(2))} if m else set()
+
+
 def project_pages():
     pages = []
     for f in sorted((WIKI / "pages").rglob("*.md")):
@@ -83,7 +91,7 @@ def project_pages():
         fm = frontmatter(text)
         if "type: project" not in fm:
             continue
-        if "upland" not in fm:
+        if WORK_TAG.lower() not in tags(fm):
             continue
         desc = re.search(r"^description:\s*(.*)$", fm, re.M)
         state = re.search(r"^## State\n(.*?)(?=^## |\Z)", text, re.M | re.DOTALL)
@@ -118,7 +126,7 @@ def main():
 
     print(f"# Wins evidence since {a.since}\n")
 
-    print("## Commits by month (author: Stegmaier, Upland repos)\n")
+    print(f"## Commits by month (author: {AUTHOR}, {REPOS_DIR.name})\n")
     for month, repos in sorted(commits(a.since).items()):
         print(f"### {month}")
         for repo, lines in sorted(repos.items()):
@@ -133,7 +141,7 @@ def main():
             print(f"- {ts:%Y-%m-%d} [{proj}] {text}")
         print()
 
-    print("## Wiki project pages tagged upland\n")
+    print(f"## Wiki project pages tagged {WORK_TAG}\n")
     for stem, desc, state in project_pages():
         print(f"### [[{stem}]]\n{desc}\n\n{state}\n")
 
