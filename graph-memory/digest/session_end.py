@@ -148,6 +148,79 @@ def spawn(staged):
     )
 
 
+LABEL = re.compile(r"^\[(.+) § (.+)\]$")
+
+
+def recall_use(transcript):
+    """Each recall-hook injection in the session: its prompt, and per [file § section] label
+    whether the session later Read that file and whether a later reply reused the excerpt."""
+    injections, labels = [], []
+    with Path(transcript).open(encoding="utf-8", errors="replace") as handle:
+        for raw in handle:
+            try:
+                event = json.loads(raw)
+            except ValueError:
+                continue
+            if not isinstance(event, dict) or event.get("isSidechain") is True:
+                continue
+            attachment = event.get("attachment")
+            if isinstance(attachment, dict) and attachment.get("type") == "hook_additional_context":
+                found = []
+                for part in attachment.get("content") or []:
+                    for chunk in str(part).split("\n\n"):  # hits are "[file § section]\nexcerpt"
+                        head, _, excerpt = chunk.partition("\n")
+                        m = LABEL.match(head)
+                        if m:
+                            # ponytail: "rarest" = the 5 longest distinct words; df from rag.db is the
+                            # upgrade if this proves noisy (too slow for a hook that must return at once)
+                            words = dict.fromkeys(re.findall(r"\w{4,}", excerpt.lower()))
+                            found.append({"file": m[1], "section": m[2], "score": None, "read": False,
+                                          "reused": False, "_terms": sorted(words, key=len, reverse=True)[:5]})
+                if found:
+                    injections.append({"prompt": None, "labels": found})
+                    labels += found
+                continue
+            message = event.get("message")
+            if not isinstance(message, dict) or event.get("toolUseResult") is not None:
+                continue
+            if (message.get("role") == "user" and not event.get("isMeta")  # isMeta: a skill body, not typing
+                    and injections and injections[-1]["prompt"] is None):
+                text = REMINDER.sub("", text_blocks(message.get("content"))).strip()
+                if text:  # the hook fires before the prompt it answers is written
+                    injections[-1]["prompt"] = text[:200]
+            if message.get("role") != "assistant":
+                continue
+            content = message.get("content") if isinstance(message.get("content"), list) else []
+            for block in content:
+                if isinstance(block, dict) and block.get("type") == "tool_use" and block.get("name") == "Read":
+                    path = str((block.get("input") or {}).get("file_path", "")).replace("\\", "/")
+                    for label in labels:
+                        label["read"] |= path.endswith("/" + label["file"])
+            reply = text_blocks(content).lower()
+            for label in labels:
+                label["reused"] |= sum(t in reply for t in label["_terms"]) >= 2
+    for label in labels:
+        del label["_terms"]
+    return injections
+
+
+def log_recall_use(transcript, session_id):
+    """One line per session in recall-use.jsonl beside the digest log. Never raises.
+    `score` stays null: the injected label carries no score, and adding one costs every prompt."""
+    # ponytail: a session that compacts closes twice and logs twice; the later line is the
+    # superset, so readers keep the last line per session.
+    try:
+        injections = recall_use(transcript)
+        if injections:
+            common.LOG.mkdir(parents=True, exist_ok=True)
+            line = {"session": session_id, "ts": datetime.now().isoformat(timespec="seconds"),
+                    "injections": injections}
+            with (common.LOG / "recall-use.jsonl").open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(line) + "\n")
+    except Exception as exc:
+        common.note_failure("session_end", f"recall-use: {type(exc).__name__} {exc}")
+
+
 def monday_line(session_id):
     """Join the session to its Monday ticket by session id (state written by the monday-nudge
     hook / monday_ticket.py in familiar). Deterministic; the digest never parses URLs out of prose."""
@@ -181,6 +254,7 @@ def main():
     session_id = str(payload.get("session_id") or "session")
     if not transcript or not Path(transcript).is_file():
         return
+    log_recall_use(transcript, session_id)
 
     cfg = common.config()
     notes = common.corpus()
