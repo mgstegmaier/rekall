@@ -175,7 +175,7 @@ def run(corpus, paths=None, limit=None, rebuild=True, under=None):
 
     state = load_state()
     counts = {"distilled": 0, "skipped": 0, "dropped": 0}
-    exits = []  # notes whose call exited non-zero; struck only if another note got through
+    failed = []  # notes whose call exited non-zero or answered badly; struck only if another note got through
     for path in files:
         if limit is not None and counts["distilled"] + counts["dropped"] >= limit:
             counts["skipped"] += 1
@@ -201,14 +201,14 @@ def run(corpus, paths=None, limit=None, rebuild=True, under=None):
             print(f"dropped {rel}: {type(exc).__name__} {exc}")
             counts["dropped"] += 1
             # A timeout or a missing claude is the machine's fault: no strike. A non-zero exit
-            # is a strike only when another note in this run succeeded, so an outage or a 429
-            # that fails every note never quarantines them.
+            # or a bad answer is a strike only when another note in this run succeeded, so an
+            # outage or a 429 that fails every note never quarantines them.
             if isinstance(exc, ClaudeExit):
-                exits.append((rel, known, digest))
+                failed.append((rel, known, digest))
             continue
         if text is None:
             counts["dropped"] += 1
-            record_failure(state, rel, known, digest)
+            failed.append((rel, known, digest))
             continue
         DISTILLED.mkdir(parents=True, exist_ok=True)
         (DISTILLED / slug).write_text(text, encoding="utf-8")
@@ -216,7 +216,7 @@ def run(corpus, paths=None, limit=None, rebuild=True, under=None):
         counts["distilled"] += 1
         print(f"distilled {rel} -> distilled/{slug}")
     if counts["distilled"]:
-        for rel, known, digest in exits:
+        for rel, known, digest in failed:
             record_failure(state, rel, known, digest)
     save_state(state)
 

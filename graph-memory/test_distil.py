@@ -30,22 +30,33 @@ with tempfile.TemporaryDirectory() as tmp:
 
     distil.ask = bad_ask
 
-    counts = distil.run(corpus, rebuild=False)
-    assert counts == {"distilled": 0, "skipped": 0, "dropped": 1}, counts
-    assert len(calls) == 1
+    for _ in range(3):  # every note answers badly: systemic, so no strikes and no quarantine
+        counts = distil.run(corpus, rebuild=False)
+        assert counts == {"distilled": 0, "skipped": 0, "dropped": 1}, counts
+    assert len(calls) == 3
+    assert not distil.load_state().get("flaky.md", {}).get("failures"), "an all-bad run records no strikes"
 
-    counts = distil.run(corpus, rebuild=False)  # 2nd consecutive failure -> quarantined
-    assert counts == {"distilled": 0, "skipped": 0, "dropped": 1}, counts
-    assert len(calls) == 2
+    def bad_unless_ok(model, prompt_text, payload):
+        calls.append(payload)
+        if payload.startswith("file name: ok"):
+            return '- What happened?\nquote: "Fine."\n'
+        return "no question or quote in here"
 
-    counts = distil.run(corpus, rebuild=False)  # quarantined: no 3rd call
-    assert counts == {"distilled": 0, "skipped": 1, "dropped": 0}, counts
-    assert len(calls) == 2
+    distil.ask = bad_unless_ok
+    for i in range(2):  # a success in the run makes the bad answer a strike; the 2nd quarantines
+        (corpus / f"ok{i}.md").write_text("# Ok\n\nFine.\n")
+        counts = distil.run(corpus, rebuild=False)
+        assert counts == {"distilled": 1, "skipped": i, "dropped": 1}, counts
+    n = len(calls)
+    (corpus / "ok2.md").write_text("# Ok\n\nFine.\n")
+    counts = distil.run(corpus, rebuild=False)  # quarantined: flaky.md is not called again
+    assert counts == {"distilled": 1, "skipped": 3, "dropped": 0}, counts
+    assert len(calls) == n + 1
 
     note.write_text("# Flaky\n\nStill no quote, but the hash changed now.\n")
     counts = distil.run(corpus, rebuild=False)  # hash moved -> failure count resets, retried
-    assert counts == {"distilled": 0, "skipped": 0, "dropped": 1}, counts
-    assert len(calls) == 3
+    assert counts == {"distilled": 0, "skipped": 3, "dropped": 1}, counts
+    assert len(calls) == n + 2
 
 # The shipped config sits beside the digest scripts, and model_name() must read that file.
 assert distil.CONFIG.is_file(), f"distil reads a config that isn't there: {distil.CONFIG}"
