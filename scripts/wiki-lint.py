@@ -17,7 +17,7 @@ import os
 import re
 import subprocess
 from collections import Counter
-from datetime import datetime
+from datetime import date, datetime
 import sys
 from pathlib import Path
 
@@ -48,6 +48,7 @@ def dir_md(d):
     """pages/ nests by type (pages/<type>/x.md); meetings/ is flat and its distilled/ is source material."""
     return (WIKI / d).rglob("*.md") if d in TYPED_DIRS else (WIKI / d).glob("*.md")
 LIMIT = 10
+DRIFT_DAYS = 14  # Updates may outrun State by this much before check_state_drift complains
 
 
 def log(msg):
@@ -408,6 +409,38 @@ def check_type_folder(r):
     r.section("type_folder", "Pages outside pages/<type>/", issues, warn=True)
 
 
+def check_state_drift(r):
+    """Warn when a page's newest `## Updates` date is more than DRIFT_DAYS past the newest date in a
+    `(source: ...)` citation in `## State`. The mail and Teams ingest writes only to Updates by
+    design, so facts land there and never reach State, which is what the recall hook surfaces; a
+    page can drift until its State says one thing and its latest Update says the opposite.
+    Skips pages without both sections and pages whose status is retired/archive."""
+    def section(text, name):
+        ms = [m.group(1) for m in re.finditer(rf"(?ms)^## {name}[ \t]*$(.*?)(?=^## |\Z)", text)]
+        return "\n".join(ms) if ms else None  # every section of that name: some pages carry duplicates
+
+    issues = []
+    for f in sorted((WIKI / "pages").rglob("*.md")):
+        text = f.read_text(encoding="utf-8", errors="replace")
+        if fm_field(frontmatter_text(text), "status") in ("retired", "archive"):
+            continue
+        state, updates = section(text, "State"), section(text, "Updates")
+        if state is None or updates is None:
+            continue
+        # ponytail: Updates dates are heading/bullet leads only; State dates only inside `(source: ...)`
+        upd = re.findall(r"(?m)^(?:#{2,4}|[-*])[ \t]+(\d{4}-\d{2}-\d{2})\b", updates)
+        cited = [d for c in re.findall(r"\(source:[^)]*\)", state) for d in re.findall(r"\d{4}-\d{2}-\d{2}", c)]
+        if not upd or not cited:
+            continue
+        try:
+            gap = (date.fromisoformat(max(upd)) - date.fromisoformat(max(cited))).days
+        except ValueError:  # a typo'd date like 2026-13-45 is not drift
+            continue
+        if gap > DRIFT_DAYS:
+            issues.append(f"{f.relative_to(WIKI)}: newest Update {max(upd)}, newest State citation {max(cited)} ({gap} days)")
+    r.section("state_drift", f"State drift (newest Update >{DRIFT_DAYS} days past newest State citation)", issues, warn=True)
+
+
 # ── Main ────────────────────────────────────────────────────
 
 def main():
@@ -442,6 +475,7 @@ def main():
     check_relations(r)
     check_owner_warning(r)
     check_type_folder(r)
+    check_state_drift(r)
 
     total = sum(r.counts.values())
     r.out(f"\nLINT: {total} issues across {len(r.counts)} checks")
