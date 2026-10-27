@@ -70,7 +70,7 @@ generated: {by: PIPELINE_NAME, at: ISO-8601}   # pipeline-written pages only
 
 1. A writer never deletes or moves a wiki page, and never sets `status: archive`. Set `status: retired` when a page should stop changing; the curator marks `archive` for the lifecycle job (below).
 2. Never modify `meetings/` notes after creation, and never touch `raw/`. Sources are immutable; the wiki is where knowledge changes. The lifecycle job is the one exception: it moves marked files to `archive/`.
-3. Cite every factual claim: `(source: filename)`. Flag uncertainty `[unverified]`.
+3. Cite every factual claim: `(source: filename)`. A source that is not a vault file names where it lives: `(source: filename, repo: <repo-name>)` for a file in a git repo, `(source: filename, external)` for anything else (a Confluence export, a vendor PDF, a document someone sent). The repo NAME, not a path — paths rot on refactors. An unmarked `(source: X.md)` therefore means a vault file, which is what makes the citation checkable (Mike, 2026-10-26). Flag uncertainty `[unverified]`.
 4. Note contradictions explicitly; never silently resolve them.
 5. Every ingest or update sets the page's `title` and `description` frontmatter, then regenerates `index.md` from frontmatter with the index script. Never hand-edit index entries. Append the operation to `log.md` at the end of the file: append-only, bare ISO heading, bold `**tag | name**` first line. The log is the audit trail.
 6. Link with basename `[[wikilinks]]` only, never path-style links.

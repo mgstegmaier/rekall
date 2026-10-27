@@ -88,7 +88,7 @@ Runs when the Fathom pipeline finds a new meeting note or `wiki/raw/` file, or w
    - Project entity pages capture: current state, members, decisions, next steps
 4. **Set relation fields** on `project`, `system`, or `pipeline` pages: set or extend `owner`, `people`, `maintainers`, `depends_on`, `part_of` from evidence in the source you're ingesting, and for `pipeline` pages also `runs_on`, `reads_from`, `writes_to` -- see wiki/CLAUDE.md's "Page frontmatter" for the field table and the writers' rule (evidence only, add to lists, never remove without a source). When choosing a type for a new page, use `system` or `pipeline` where they fit before falling back to `entity`.
 5. **Write `about` on the source note** you just ingested (meeting note, session, or plan in the vault): the list of page slugs you created or updated from it. Skip when the source is in `raw/` (read-only).
-6. **Cite every factual claim** with `(source: filename)` after the claim
+6. **Cite every factual claim** with `(source: filename)` after the claim. A source that is not a vault file names where it lives: `(source: filename, repo: <repo-name>)` for a git repo file, `(source: filename, external)` for anything else. An unmarked citation means a vault file
 7. **Note contradictions** explicitly when new source disagrees with existing wiki pages
 8. **Flag unverified claims** with `[unverified]` when source reliability is uncertain
 9. **Regenerate `wiki/index.md`** -- the index is generated from page frontmatter (each page's `description` is its index hook). Run `python3 ~/github_repos/personal_projects/rekall/scripts/wiki-index.py`; never hand-edit index entries
@@ -248,6 +248,7 @@ Main content goes here. Use clear headings and short paragraphs.
 
 Link to related concepts using [[wiki-links]] throughout the text.
 Every factual claim references its source: claim text (source: filename).
+A source outside the vault says so: claim text (source: filename, repo: UCG.DataEngineering.dbtCloud).
 
 If two sources disagree, note the contradiction explicitly:
 > **Contradiction**: Source A says X, but Source B says Y. [needs resolution]
