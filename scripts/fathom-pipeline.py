@@ -32,14 +32,14 @@ from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from rekall_config import claude_env, find_secret, note_claude_result, prompt_reauth, token_age_days, TOKEN_WARN_DAYS, MONDAY_BOARD, MONDAY_GROUP, RESEARCH, STATE_DIR, TIMEZONE, VAULT  # noqa: E402
+from rekall_config import claude_env, FATHOM_STATE, find_secret, note_claude_result, prompt_reauth, token_age_days, TOKEN_WARN_DAYS, MONDAY_BOARD, MONDAY_GROUP, RESEARCH, STATE_DIR, TIMEZONE, VAULT  # noqa: E402
 
 MEETINGS = VAULT / "wiki" / "meetings"
 RAW = VAULT / "wiki" / "raw"
 RESEARCH_DIR = VAULT / "wiki" / "pages" / "research"
 WIKI_LOG = VAULT / "wiki" / "log.md"
 WIKI_TYPED_DIRS = ["pages"]
-STATE_FILE = STATE_DIR / "fathom-pipeline-state.json"
+STATE_FILE = FATHOM_STATE  # shared with rekall_config, which reads last_success for the hook
 LOG_DIR = STATE_DIR / "logs"
 LOCK_FILE = STATE_DIR / "fathom-pipeline.lock"
 CT = ZoneInfo(TIMEZONE)
@@ -653,6 +653,7 @@ def main():
     append_digest(digest_entries)
 
     # 2. wiki ingest: new notes + previously failed + new raw files
+    swept = True  # a run with nothing pending still counts as a healthy sweep
     if not args.no_wiki:
         failures = state.setdefault("ingest_failures", {})  # source path -> consecutive failure count
         state.setdefault("research_ingested", [])
@@ -717,8 +718,9 @@ def main():
             return True
 
         # Research memos sweep separately, under RESEARCH_EXTRA's narrower write boundary.
-        if run_batches(sources) and research:
-            run_batches(research, RESEARCH_EXTRA)
+        swept = run_batches(sources)
+        if swept and research:
+            swept = run_batches(research, RESEARCH_EXTRA)
 
         # Index is derived from page frontmatter; regenerate deterministically after ingest
         # rather than trusting the headless agent to hand-edit a contended catalog file.
@@ -734,6 +736,11 @@ def main():
                            capture_output=True, text=True, timeout=60)
     log(f"  {sweep.stdout.strip() or sweep.stderr.strip()}")
 
+    # Only a clean finish advances last_success, so the hook can tell a quiet day (sweeps
+    # running, nothing to ingest) from a dead scheduler.
+    if swept:
+        state["last_success"] = datetime.now(timezone.utc).isoformat()
+        save_state(state)
     log("done")
 
 
