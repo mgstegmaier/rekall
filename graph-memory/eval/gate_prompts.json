@@ -30,5 +30,15 @@
   {"prompt": "homelab media stack migration history", "expect_file": "pages/concept/homelab-media-stack.md", "expect_section_substring": "Migration History"},
   {"prompt": "can't stream media from the homelab", "expect_file": "pages/concept/homelab.md", "expect_section_substring": "stream media"},
   {"prompt": "worldmind discord bot architecture", "expect_file": "pages/project/worldmind-discord-bot.md", "expect_section_substring": "Architecture"},
-  {"prompt": "gotchas installing rekall on windows", "expect_file": "pages/entity/rekall-windows-onboarding.md", "expect_section_substring": "Gotchas"}
+  {"prompt": "gotchas installing rekall on windows", "expect_file": "pages/entity/rekall-windows-onboarding.md", "expect_section_substring": "Gotchas"},
+  {"prompt": "great thanks", "expect_empty": true},
+  {"prompt": "go ahead", "expect_empty": true},
+  {"prompt": "Ship it", "expect_empty": true},
+  {"prompt": "thanks", "expect_empty": true},
+  {"prompt": "ok go", "expect_empty": true},
+  {"prompt": "yes", "expect_empty": true},
+  {"prompt": "sounds good", "expect_empty": true},
+  {"prompt": "do it", "expect_empty": true},
+  {"prompt": "continue", "expect_empty": true},
+  {"prompt": "nice work", "expect_empty": true}
 ]
