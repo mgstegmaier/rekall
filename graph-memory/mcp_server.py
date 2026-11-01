@@ -38,6 +38,7 @@ def search_wiki(query: str, section: str = "") -> str:
     and open loops, or any page heading such as "Next steps". Graph facts
     are left out when it's set.
     """
+    section = section.strip()  # headings are stored stripped
     try:
         found = hits(query, section or None)
     except Exception as e:  # no index yet, or a locked one
