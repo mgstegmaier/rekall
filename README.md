@@ -48,7 +48,7 @@ If `install.sh` fails partway, fix what its error names and run it again. It ski
 
 Chat in the Claude desktop app has no prompt hook, so it can't receive recall hits the way Claude Code does. It reaches your wiki through Rekall's local MCP server (`graph-memory/mcp_server.py`) instead. The server runs on your machine, reads the same index, and never writes anything. It gives chat two tools:
 
-- `search_wiki(query)` returns the five best matching chunks, each labeled `[file § section]`, plus any entity-graph facts.
+- `search_wiki(query, section)` returns the five best matching chunks, each labeled `[file § section]`, plus any entity-graph facts. `section` is optional. When given, it keeps only chunks under that heading, matched exactly and ignoring case, so `section="Decisions"` or `section="Open loops"` returns just those parts of past session digests.
 - `read_page(name)` returns one whole note by its file name without `.md`, such as `index` or `log`.
 
 The Code tab in the desktop app runs Claude Code, so it already gets the recall hook and doesn't need this.
