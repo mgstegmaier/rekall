@@ -11,6 +11,7 @@ Nothing is thrown away on a failure. The staged file stays where it is and the
 reason lands in digest/log/digest.log, so the next run can try again.
 """
 
+import re
 import sys
 import time
 from datetime import datetime
@@ -24,10 +25,17 @@ import common  # noqa: E402
 import distil  # noqa: E402
 
 
-def append(log, entry, when=None):
-    """Add the entry under its own time heading. The log is only appended to."""
+# session_end.py names each staged file <session id>-<YYYYmmdd-HHMMSS>.md, stamped when it closed
+STAGED = re.compile(r"^(.+)-(\d{8}-\d{6})$")
+
+
+def append(log, entry, when=None, session=""):
+    """Add the entry under its own heading: the close time, then the session id's first 8
+    characters, so two entries written in the same minute stay apart and a later entry can find
+    this one. The log is only appended to."""
     when = when or datetime.now()
-    block = f"\n## Session {when:%H:%M}\n\n{entry.strip()}\n"
+    tag = f" · {session[:8]}" if session else ""
+    block = f"\n## Session {when:%H:%M}{tag}\n\n{entry.strip()}\n"
     with log.open("a", encoding="utf-8") as handle:
         handle.write(block)
 
@@ -54,8 +62,12 @@ def main(staged):
         common.note_failure("headless_run", f"{staged.name}: moved to dropped/, the model wrote {entry.strip()[:80]!r}")
         return
 
-    log = common.today_log(notes, cfg)
-    append(log, entry)
+    # the close time, not now: a drain that flushes a backlog would otherwise stamp every entry
+    # with the flush time and file a session from yesterday under today
+    m = STAGED.match(staged.stem)
+    session, when = (m[1], datetime.strptime(m[2], "%Y%m%d-%H%M%S")) if m else ("", None)
+    log = common.today_log(notes, cfg, when=when)
+    append(log, entry, when=when, session=session)
     staged.unlink(missing_ok=True)
     print(f"wrote {log}")
 
