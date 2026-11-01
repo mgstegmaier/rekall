@@ -172,6 +172,23 @@ def test_device_code_signin():
         os.environ.pop(k, None)
 
 
+def test_restated_fact_not_rewritten():
+    d = TMP / "pages-restate"
+    d.mkdir(exist_ok=True)
+    fact = "Run V2 on all 30k records"
+    (d / "nova-link.md").write_text(PAGE.replace("- something (source: x.md).",
+        f'- {fact} (source: email "NovaLink rollout plan" from Mike, 2026-10-15).'))
+    projects = gi.load_projects(d)
+    t = email("RE: NovaLink rollout plan", ["b1"])  # Ana Lopez restates it, 2026-10-16
+    prompts = []
+    facts, _, _ = gi.plan_thread(t, projects, {"threads": {}}, None,
+                                 ask=lambda p, k: prompts.append(p) or [{"page": "nova-link", "kind": "update", "text": fact + ".", "msg": "m1"}])
+    assert fact in prompts[0], "recent Updates must reach the model"
+    assert len(facts) == 1
+    text = (d / "nova-link.md").read_text()
+    assert gi.insert_update(text, gi.heading(t, "2026-10-16"), [gi.bullet(t, facts[0])]) is None, "restated fact was written"
+
+
 def main():
     projects = gi.load_projects(projects_dir())
     assert set(projects) == {"nova-link", "report-builder"}, projects
@@ -179,6 +196,7 @@ def main():
     test_unmatched_dropped(projects)
     test_dedupe_and_validation(projects)
     test_updates_section_created()
+    test_restated_fact_not_rewritten()
     test_calendar_notices_skipped()
     test_device_code_signin()
     test_setup_writes_only_graph_section()
