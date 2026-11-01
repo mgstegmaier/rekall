@@ -45,7 +45,7 @@ def main(staged):
     notes = common.corpus()
     if notes is None:
         raise RuntimeError("no index yet, so there is nowhere for the entry to live")
-    text = staged.read_text(encoding="utf-8")
+    text = staged.read_text(encoding="utf-8").replace(f"{common.NEW_MARKER}\n", "")  # a first entry has nothing earlier to mark
     if not text.strip():
         staged.unlink(missing_ok=True)
         return
