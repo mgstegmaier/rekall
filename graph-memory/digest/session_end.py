@@ -114,37 +114,74 @@ def turns(transcript):
     return kept
 
 
-def filtered(transcript, cfg):
-    """The last turns, cut to the character budget, keeping the end."""
-    recent = turns(transcript)[-cfg["max_turns"] :]
-    if len(recent) < cfg["min_turns"]:
+def local(when):
+    """A transcript timestamp as naive local time, the clock the staged file names use."""
+    return datetime.fromisoformat(when.replace("Z", "+00:00")).astimezone().replace(tzinfo=None)
+
+
+def filtered(transcript, cfg, since=None):
+    """The whole conversation when it fits max_chars. Otherwise the opening quarter of the budget,
+    where the session's goal was said, then as much of the end as fits, cut at whole turns. When
+    since is the time of an earlier close, common.NEW_MARKER goes before the first kept turn
+    newer than it."""
+    kept = turns(transcript)
+    if len(kept) < cfg["min_turns"]:
         return None
-    text = "\n\n".join(f"**{who}:** {body}" for who, body, _ in recent)
-    if len(text) > cfg["max_chars"]:
-        text = text[-cfg["max_chars"] :]
-        cut = text.find("\n\n**")  # start at a whole turn, never mid sentence
-        if cut > 0:
-            text = text[cut + 2 :]
-    return text
+    budget = cfg["max_chars"]
+    blocks = [f"**{who}:** {body}" for who, body, _ in kept]
+    new = next((i for i, (_, _, when) in enumerate(kept) if since and when and local(when) > since), None)
+    if len("\n\n".join(blocks)) <= budget:
+        if new is not None:
+            blocks[new] = f"{common.NEW_MARKER}\n{blocks[new]}"
+        return "\n\n".join(blocks)
+    budget -= 40  # room for the omitted marker
+    # ponytail: one turn longer than a quarter of the budget (a pasted file, say) is clipped, so
+    # the head and the tail each keep at least one whole turn
+    blocks = [b if len(b) <= budget // 4 else b[: budget // 4 - 6] + " [...]" for b in blocks]
+    head, used = [], 0
+    for block in blocks:
+        if used + len(block) > budget // 4:
+            break
+        head.append(block)
+        used += len(block) + 2
+    tail = []
+    for block in reversed(blocks[len(head) :]):
+        if used + len(block) > budget:
+            break
+        tail.insert(0, block)
+        used += len(block) + 2
+    omitted = len(blocks) - len(head) - len(tail)
+    if new is not None:
+        new = new if new < len(head) or new >= len(blocks) - len(tail) else len(blocks) - len(tail)
+        if new < len(blocks):
+            blocks[new] = f"{common.NEW_MARKER}\n{blocks[new]}"
+        head, tail = blocks[: len(head)], blocks[len(blocks) - len(tail) :]
+    return "\n\n".join(head + [f"[... {omitted} turns omitted ...]"] + tail)
 
 
 CLOSED = re.compile(r"-(\d{8}-\d{6})\.(?:md|out)$")
 
 
-def typed_since_last_close(transcript, safe):
-    """False when this session closed before and nothing was typed since. A reopened session
-    that is closed again without a new prompt would otherwise be written up a second time. The
-    earlier close is the newest <safe>-<stamp> file: the .out log a write-up leaves, or a staged
-    file still waiting in pending/ or set aside in pending/dropped/."""
+def last_close(safe):
+    """When this session last closed, as naive local time, or None. The earlier close is the
+    newest <safe>-<stamp> file: the .out log a write-up leaves, or a staged file still waiting in
+    pending/ or set aside in pending/dropped/."""
     names = [p.name for folder in (common.LOG, common.PENDING, common.PENDING / "dropped")
              for p in folder.glob(f"{glob.escape(safe)}-*")]
     stamps = [m[1] for m in map(CLOSED.search, names) if m]
-    if not stamps:
+    return datetime.strptime(max(stamps), "%Y%m%d-%H%M%S") if stamps else None
+
+
+def typed_since_last_close(transcript, safe):
+    """False when this session closed before and nothing was typed since. A reopened session
+    that is closed again without a new prompt would otherwise be written up a second time. The
+    earlier close is last_close(safe)."""
+    last = last_close(safe)
+    if not last:
         return True
-    last = datetime.strptime(max(stamps), "%Y%m%d-%H%M%S")
     for who, _, when in turns(transcript):
         if who == "You" and when:
-            if datetime.fromisoformat(when.replace("Z", "+00:00")).astimezone().replace(tzinfo=None) > last:
+            if local(when) > last:
                 return True
     return False
 
@@ -287,7 +324,7 @@ def main():
     try:
         if not typed_since_last_close(transcript, safe):
             return
-        text = filtered(transcript, cfg)
+        text = filtered(transcript, cfg, last_close(safe))
     except Exception as exc:
         common.note_failure("session_end", f"{type(exc).__name__} {exc}")
         return

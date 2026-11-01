@@ -18,7 +18,7 @@ Vendored from [Glitch-Cat-Club/graph-memory-starter](https://github.com/Glitch-C
 
 ## Session digest
 
-`digest/session_end.py` runs on the `SessionEnd` hook: it filters the transcript down to your words and the replies (tool calls, results, and thinking dropped), stages it under `digest/pending/`, and spawns a detached `claude -p` (sonnet) that writes a structured digest (`digest/digest-prompt.md` is the voice) into the vault at `wiki/sessions/YYYY-MM-DD.md`. Sessions under 5 turns are skipped. Failures never block a session close; they land in `digest/log/digest.log` and the staged file stays for retry. The reindex sweeps `wiki/sessions/` with the rest of the corpus, so past sessions become searchable memory. This complements `/wrap-up`, which stays the deliberate close-out.
+`digest/session_end.py` runs on the `SessionEnd` hook: it filters the transcript down to your words and the replies (tool calls, results, and thinking dropped), stages it under `digest/pending/`, and spawns a detached `claude -p` (sonnet) that writes a structured digest (`digest/digest-prompt.md` is the voice) into the vault at `wiki/sessions/YYYY-MM-DD.md`. A session that closes again gets a continuation entry that records only what changed and links back to the earlier entry. Sessions under 5 turns are skipped. Failures never block a session close; they land in `digest/log/digest.log` and the staged file stays for retry. The reindex sweeps `wiki/sessions/` with the rest of the corpus, so past sessions become searchable memory. This complements `/wrap-up`, which stays the deliberate close-out.
 
 ## MCP server (Claude Desktop)
 

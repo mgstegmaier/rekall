@@ -13,12 +13,12 @@ from paths import DB as RAG_DB, DIGEST_LOG as LOG, DIGEST_PENDING as PENDING  # 
 
 CONFIG = HERE / "config.json"
 PROMPT = HERE / "digest-prompt.md"
+NEW_MARKER = "[--- new since the last write-up ---]"  # session_end puts it in, headless_run reads it
 
 DEFAULTS = {
     "mode": "session",
     "min_turns": 5,
-    "max_turns": 30,
-    "max_chars": 15000,
+    "max_chars": 40000,
     "model": "sonnet",
     "log_dir": "daily",
     "distil": True,

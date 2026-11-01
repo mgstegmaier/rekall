@@ -1,8 +1,7 @@
 {
   "mode": "headless",
   "min_turns": 5,
-  "max_turns": 30,
-  "max_chars": 15000,
+  "max_chars": 40000,
   "model": "sonnet",
   "distil_model": "haiku",
   "log_dir": "sessions",

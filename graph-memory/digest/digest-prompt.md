@@ -29,6 +29,7 @@ real to put under it.
     - a number, a name, a rule, a path worth finding again
     - if the input opens with a `[monday ticket]` line, repeat it here verbatim; it is the
       session's ticket on the team board, joined by session id, and the only place it appears
+      (in a continuation, see Continuations)
 
     ### Open loops
     - [open] what is still pending, and where it could be checked
@@ -53,6 +54,23 @@ turns these into edges, so the session becomes findable from the entity.
 Unsure of the slug? Guess it in slug form anyway; a link to a page that does
 not exist yet is a marker, not an error. Never force a link onto a passing
 mention — link the things the session was actually about.
+
+## Continuations
+
+This section applies only when the input begins with `Already recorded for this session:`. The
+session closed before and has earlier entries, shown first, then a line `---`, then the
+conversation. Write only what is new since those entries. In the conversation, the line
+`[--- new since the last write-up ---]` marks where the new turns start; the turns before it are
+context. If nothing new is worth recording, output THIN and nothing else.
+
+- Open `### What happened` with one sentence naming the session's goal and project, then describe
+  only the new work. Code adds the link to the earlier entry; do not write one.
+- When an earlier open loop is now done, write it under `### Open loops` as
+  `- [closed] <the loop>`. A loop still open stays out; it is already recorded.
+- Under `### For the index`, list only identifiers that are new.
+- Reuse the same wikilink slug for any project, person or system an earlier entry named.
+- A `[monday ticket]` line, if the input has one, goes under `### Facts` only when its status
+  differs from the one in the earlier entry.
 
 ## Tone
 
