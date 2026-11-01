@@ -50,3 +50,14 @@ def test_every_child_sees_prefix_and_utf8(tmp_path, rel):
         assert "PREFIX=1" in l and "UTF8=1" in l, l
     if rel.endswith("run-wiki-lint.sh"):
         assert [l.split()[1] for l in children] == ["wiki-lint.py", "wiki-cleanup.py"]
+
+
+@pytest.mark.parametrize("rel", LAUNCHERS)
+def test_path_reaches_homebrew_before_prefix(rel):
+    """launchd's PATH is /usr/bin:/bin:/usr/sbin:/sbin, so a Homebrew run_prefix (doppler) needs the
+    launcher to add /opt/homebrew/bin before the first job runs."""
+    text = (ROOT / rel).read_text()
+    path_at = next((i for i, l in enumerate(text.splitlines())
+                    if l.startswith("export PATH=") and "/opt/homebrew/bin" in l), None)
+    first_job = next(i for i, l in enumerate(text.splitlines()) if "$PREFIX" in l and not l.lstrip().startswith("#"))
+    assert path_at is not None and path_at < first_job, rel

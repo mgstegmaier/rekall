@@ -14,7 +14,7 @@ WIKI="$("$PY" "$HERE/../rekall_config.py" WIKI)"
 # [secrets] run_prefix in rekall.toml (e.g. "doppler run ... --") wraps each job; unset runs it bare.
 # Word-split on purpose: the prefix is a command line.
 PREFIX="$("$PY" "$HERE/../rekall_config.py" RUN_PREFIX)"
-export PATH="$HOME/.local/bin:$PATH"  # launchd's PATH lacks claude
+export PATH="/opt/homebrew/bin:/usr/local/bin:/Library/Frameworks/Python.framework/Versions/3.13/bin:$HOME/.local/bin:$PATH"  # launchd's PATH lacks claude and a Homebrew run_prefix (doppler)
 # Windows Python defaults to cp1252 for open/read_text/write_text; UTF-8 mode makes it match macOS.
 export PYTHONUTF8=1
 # session digests that failed to write up (expired sign-in, outage) wait in digest/pending/;
