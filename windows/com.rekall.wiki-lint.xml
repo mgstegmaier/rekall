@@ -1,12 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- Template, the Windows counterpart of launchd/com.rekall.wiki-lint.plist.
-     install.sh fills __BASH__, __REPO_WIN__, __HOME_WIN__ and __VENV_PY_WIN__ (the venv
-     interpreter) and registers it with Register-ScheduledTask. Runs nightly at 21:30:
-     the lint report, then the lifecycle job that moves `status: archive` files to
-     wiki/archive/. -->
+     install.sh fills __BASH__, __REPO_WIN__ and __HOME_WIN__ and registers it with Register-ScheduledTask. Runs nightly at 21:30:
+     scripts/run-wiki-lint.sh runs the lint report, then the lifecycle job
+     that moves `status: archive` files to wiki/archive/ on Sundays. -->
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
-    <Description>Rekall: nightly wiki lint report, then the archive lifecycle job.</Description>
+    <Description>Rekall: nightly wiki lint report, then (Sundays) the archive lifecycle job.</Description>
   </RegistrationInfo>
   <Triggers>
     <CalendarTrigger>
@@ -38,7 +37,7 @@
          directly opens a visible terminal on every run. -->
     <Exec>
       <Command>conhost.exe</Command>
-      <Arguments>--headless "__BASH__" -c "export PYTHONUTF8=1; '__VENV_PY_WIN__' '__REPO_WIN__/scripts/wiki-lint.py' &gt;&gt; '__HOME_WIN__/.config/rekall/logs/wiki-lint.log' 2&gt;&amp;1; '__VENV_PY_WIN__' '__REPO_WIN__/scripts/wiki-cleanup.py' --execute &gt;&gt; '__HOME_WIN__/.config/rekall/logs/wiki-lint.log' 2&gt;&amp;1"</Arguments>
+      <Arguments>--headless "__BASH__" -c "'__REPO_WIN__/scripts/run-wiki-lint.sh' &gt;&gt; '__HOME_WIN__/.config/rekall/logs/wiki-lint.log' 2&gt;&amp;1"</Arguments>
     </Exec>
   </Actions>
 </Task>

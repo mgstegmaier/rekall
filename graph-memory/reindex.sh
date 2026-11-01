@@ -11,19 +11,22 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 PY="$HERE/.venv/bin/python"
 [ -x "$PY" ] || PY="$HERE/.venv/Scripts/python.exe"   # Windows venv layout
 WIKI="$("$PY" "$HERE/../rekall_config.py" WIKI)"
+# [secrets] run_prefix in rekall.toml (e.g. "doppler run ... --") wraps each job; unset runs it bare.
+# Word-split on purpose: the prefix is a command line.
+PREFIX="$("$PY" "$HERE/../rekall_config.py" RUN_PREFIX)"
 export PATH="$HOME/.local/bin:$PATH"  # launchd's PATH lacks claude
 # Windows Python defaults to cp1252 for open/read_text/write_text; UTF-8 mode makes it match macOS.
 export PYTHONUTF8=1
 # session digests that failed to write up (expired sign-in, outage) wait in digest/pending/;
 # retry the ones older than 10 minutes, stopping at the first sign-in failure
-"$PY" "$HERE/digest/headless_run.py" --drain || true
+$PREFIX "$PY" "$HERE/digest/headless_run.py" --drain || true
 # distil any new/changed meeting notes and raw/ sources first (SHA256 state makes
 # this incremental, usually zero claude calls); the index build below picks up its
 # output. raw/ is distilled because a long source can answer questions the compiled
 # wiki page never surfaced (decided 2026-09-03).
-"$PY" "$HERE/distil.py" "$WIKI" --under meetings --no-rebuild
-"$PY" "$HERE/distil.py" "$WIKI" --under raw --no-rebuild
+$PREFIX "$PY" "$HERE/distil.py" "$WIKI" --under meetings --no-rebuild
+$PREFIX "$PY" "$HERE/distil.py" "$WIKI" --under raw --no-rebuild
 # incremental by default; build_index.py promotes the first Sunday run each week
 # to a full rebuild on its own (last_full in rag.db's meta table)
-"$PY" "$HERE/build_index.py" --corpus "$WIKI"
-"$PY" "$HERE/build_graph.py" --corpus "$WIKI"
+$PREFIX "$PY" "$HERE/build_index.py" --corpus "$WIKI"
+$PREFIX "$PY" "$HERE/build_graph.py" --corpus "$WIKI"
