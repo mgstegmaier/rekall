@@ -32,7 +32,7 @@ from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from rekall_config import claude_env, FATHOM_STATE, find_secret, note_claude_result, prompt_reauth, token_age_days, TOKEN_WARN_DAYS, MONDAY_BOARD, MONDAY_GROUP, RESEARCH, STATE_DIR, TIMEZONE, VAULT  # noqa: E402
+from rekall_config import AUTH_ERRORS, AUTH_FAILED, claude_env, FATHOM_STATE, find_secret, note_claude_result, prompt_reauth, token_age_days, TOKEN_WARN_DAYS, MONDAY_BOARD, MONDAY_GROUP, RESEARCH, STATE_DIR, TIMEZONE, VAULT  # noqa: E402
 
 MEETINGS = VAULT / "wiki" / "meetings"
 RAW = VAULT / "wiki" / "raw"
@@ -596,25 +596,34 @@ def ingest_to_wiki(source_paths, extra=""):
     timed_out = threading.Event()
     watchdog = threading.Timer(2400, lambda: (timed_out.set(), proc.kill()))
     watchdog.start()
-    auth_failed, written = False, []
+    auth_failed, result, written = False, {}, []
     with open(logfile, "w") as f:
         for line in proc.stdout:
             line = line.rstrip()
             written += written_paths(line)
-            if '"error":"authentication_failed"' in line:
+            try:
+                ev = json.loads(line)
+            except ValueError:
+                ev = None
+            if not isinstance(ev, dict):
+                ev = {}
+            if ev.get("error") == "authentication_failed":
                 auth_failed = True
+            if ev.get("type") == "result":
+                result = ev
             # The final result line carries the real error text. Truncating it hid an expired
             # OAuth session behind a 0-token "<synthetic>" message for three runs (2026-10-26).
-            keep = line if '"type":"result"' in line else line[:300]  # no backslash in an f-string expression before 3.12
+            keep = line if ev.get("type") == "result" else line[:300]
             f.write(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] {keep}\n")
             f.flush()
     returncode = proc.wait()
     watchdog.cancel()
     strip_remote_images(sorted(set(written)))  # whatever the outcome: a failed run can still have written pages
+    # The CLI exits 0 on an auth-failed result, flagged by an error field or by is_error with
+    # auth wording in result (2026-10-26); either way it is the machine's fault, not the sources'.
+    if result.get("is_error") and any(e in str(result.get("result", "")).lower() for e in AUTH_ERRORS):
+        auth_failed = True
     if auth_failed:
-        # The CLI can exit 0 on an auth-failed result, and its wording ("OAuth session expired and
-        # could not be refreshed") matches none of AUTH_ERRORS, so report this explicitly instead
-        # of letting the exit-code call below clear the marker (2026-10-26).
         note_claude_result(False, "authentication_error")
         log(f"  ingest batch of {len(source_paths)}: NOT AUTHENTICATED (log: {logfile}); "
             f"sign in again with scripts/setup-server.py --reauth")
@@ -623,6 +632,8 @@ def ingest_to_wiki(source_paths, extra=""):
         log(f"  ingest batch of {len(source_paths)}: TIMEOUT after 2400s (log: {logfile})")
         return False
     log(f"  ingest batch of {len(source_paths)}: exit {returncode} (log: {logfile})")
+    if returncode == 0 and result.get("is_error"):
+        return False  # rate limit, overload: a failed batch, but no word on the sign-in, so the marker stays as it was
     note_claude_result(returncode == 0, Path(logfile).read_text(errors="replace")[-3000:] if returncode else "")
     if returncode != 0:
         return False

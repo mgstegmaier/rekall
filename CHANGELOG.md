@@ -4,6 +4,10 @@ The changes that affect an installed Rekall, newest first. Rekall has no version
 
 To upgrade, run `git pull` and then `bash install.sh` in the rekall folder (see "Upgrading" in the README). An entry marked **Re-run install.sh** changes something the installer writes outside the repo, such as the Claude Code hooks, the Claude Desktop MCP entry, or the venv packages, so `git pull` alone doesn't pick it up.
 
+## 2026-11-01
+
+- The Fathom pipeline's ingest now reads the result line as JSON instead of searching for one compact string. An exit-0 result with `is_error` and sign-in wording (`OAuth session expired`, `Not logged in`) records the sign-in failure and stops the run, with or without an `error` field and however the JSON is spaced. A rate-limit or overload result with exit 0 counts as a failed batch but no longer deletes the sign-in failure marker; only a clean result clears it.
+
 ## 2026-10-27
 
 - A skipped OS vault now says so. `find_secret` fell through to `.env` without a word when the `keyring` module was missing or its backend was broken, so a runner whose Python lacks `keyring` read secrets from a file that may not hold them and reported nothing. On 2026-10-26 that hid a stored `CLAUDE_CODE_OAUTH_TOKEN` from every scheduled job for most of a day: the jobs ran as though nobody had signed in. It now prints one line to stderr per process, naming the Python and the `pip install keyring` that fixes it.
