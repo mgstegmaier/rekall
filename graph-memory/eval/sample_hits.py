@@ -1,73 +1,103 @@
-"""Sample real prompts from Claude Code transcripts, run the recall hook's
-memory and graph legs on each, dump (prompt, position, score, legs, excerpt) rows."""
-import csv, glob, json, os, random, re, sqlite3, sys
+"""Sample real prompts from Claude Code transcripts, run each through the recall hook
+itself, and dump one row per item the hook injected (prompt, position, legs, excerpt,
+graph predicate). A prompt the hook stays silent on yields no rows.
+
+    python sample_hits.py hits.csv            # sample (or reuse prompts_fixed.json)
+    python sample_hits.py hits.csv --freeze   # also write the sample to prompts_fixed.json
+"""
+import csv, glob, json, os, random, sys
 from datetime import datetime, timedelta
+from pathlib import Path
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
-from search import fuse, keyword_leg, meaning_leg, query_terms
-from recall_hook import DB, excerpt
-from graph_recall import recall, _seeds
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+sys.path.insert(0, str(HERE.parent))
+from hook_output import emit, items
 
-N, TOPN, DAYS = int(os.environ.get("EVAL_N", 100)), 10, int(os.environ.get("EVAL_DAYS", 21))
-random.seed(7)
-since = datetime.now() - timedelta(days=DAYS)
+N, DAYS = int(os.environ.get("EVAL_N", 100)), int(os.environ.get("EVAL_DAYS", 21))
+COLUMNS = ["prompt_id", "prompt", "n_words", "graph_seeds", "leg_type", "pos", "score", "legs", "label", "excerpt", "pred"]
 
-prompts = []
-for f in glob.glob(os.path.expanduser("~/.claude/projects/*/*.jsonl")):
-    if datetime.fromtimestamp(os.path.getmtime(f)) < since:
-        continue
-    with open(f, errors="ignore") as fh:
-        for line in fh:
-            try:
-                d = json.loads(line)
-            except Exception:
-                continue
-            if d.get("type") != "user" or d.get("isMeta") or d.get("isSidechain"):
-                continue
-            c = d.get("message", {}).get("content")
-            if isinstance(c, list):
-                c = " ".join(x.get("text", "") for x in c if x.get("type") == "text")
-            if not isinstance(c, str):
-                continue
-            c = c.strip()
-            if not c or c.startswith(("<", "[Image", "/")) or "tool_result" in c[:30]:
-                continue
-            prompts.append(c)
 
-prompts = list(dict.fromkeys(prompts))
-import os.path
-FROZEN = os.environ.get("EVAL_PROMPTS", "prompts_fixed.json")
-if os.path.exists(FROZEN):
-    sample = json.load(open(FROZEN))
-    print("using frozen prompts", len(sample), file=sys.stderr)
-else:
-    sample = None
-short = [p for p in prompts if len(p.split()) < 6]
-long_ = [p for p in prompts if len(p.split()) >= 6]
-if sample is None:
-    sample = random.sample(short, min(N // 3, len(short))) + random.sample(long_, min(N - N // 3, len(long_)))
-print(f"{len(prompts)} unique prompts, {len(short)} short; sampled {len(sample)}", file=sys.stderr)
+def transcript_prompts(days=DAYS):
+    since = datetime.now() - timedelta(days=days)
+    prompts = []
+    for f in glob.glob(os.path.expanduser("~/.claude/projects/*/*.jsonl")):
+        if datetime.fromtimestamp(os.path.getmtime(f)) < since:
+            continue
+        with open(f, errors="ignore") as fh:
+            for line in fh:
+                try:
+                    d = json.loads(line)
+                except Exception:
+                    continue
+                if d.get("type") != "user" or d.get("isMeta") or d.get("isSidechain"):
+                    continue
+                c = d.get("message", {}).get("content")
+                if isinstance(c, list):
+                    c = " ".join(x.get("text", "") for x in c if x.get("type") == "text")
+                if not isinstance(c, str):
+                    continue
+                c = c.strip()
+                if not c or c.startswith(("<", "[Image", "/")) or "tool_result" in c[:30]:
+                    continue
+                prompts.append(c)
+    return list(dict.fromkeys(prompts))
 
-db = sqlite3.connect(DB)
-out = csv.writer(open(sys.argv[1] if len(sys.argv) > 1 else "hits.csv", "w", newline=""))
-out.writerow(["prompt_id", "prompt", "n_words", "graph_seeds", "leg_type", "pos", "score", "legs", "label", "excerpt"])
-for i, p in enumerate(sample):
-    terms = query_terms(p)
-    legs = {"keyword": keyword_leg(db, p)}
-    m = meaning_leg(db, p)
-    if m is not None:
-        legs["meaning"] = m
-    seeds = _seeds(db, p)
-    # EVAL_NO_RECENCY=1 ranks the way the hook did before recency weighting, for an A/B
-    ranked, found_by = fuse(legs, None if os.environ.get("EVAL_NO_RECENCY") else db)
-    scores = {}
-    for name, ids in legs.items():
-        for rank, rid in enumerate(ids):
-            scores[rid] = scores.get(rid, 0.0) + 1.0 / (60 + rank)
-    for pos, rid in enumerate(ranked[:TOPN], 1):
-        file, section, text = db.execute("SELECT file, section, text FROM chunks WHERE id=?", (rid,)).fetchone()
-        out.writerow([i, p[:300], len(p.split()), len(seeds), "memory", pos, f"{scores[rid]:.5f}",
-                      "+".join(found_by[rid]), f"{file} § {section}", excerpt(" ".join(text.split()), terms)])
-    typed = recall(p, top_k=20, skip=("mentions",)).triples
-    for pos, (s, pr, t, doc) in enumerate(typed, 1):
-        out.writerow([i, p[:300], len(p.split()), len(seeds), "graph", pos, "", "", doc, f"{s} -[{pr}]-> {t}"])
+
+def draw(prompts, n=N):
+    random.seed(7)
+    short = [p for p in prompts if len(p.split()) < 6]
+    long_ = [p for p in prompts if len(p.split()) >= 6]
+    print(f"{len(prompts)} unique prompts, {len(short)} short", file=sys.stderr)
+    return random.sample(short, min(n // 3, len(short))) + random.sample(long_, min(n - n // 3, len(long_)))
+
+
+def freeze(sample, path):
+    Path(path).write_text(json.dumps(sample, indent=1) + "\n", encoding="utf-8")
+
+
+def hook_rows(i, prompt, output, legs, seeds=0):
+    """Row dicts for what the hook emitted. `legs` lists, per memory item in order, the
+    legs that found it ("keyword+meaning"); the hook's output doesn't say."""
+    rows, pos = [], {"memory": 0, "graph": 0}
+    for kind, label, excerpt, pred in items(output):
+        pos[kind] += 1
+        rows.append({"prompt_id": i, "prompt": prompt[:300], "n_words": len(prompt.split()), "graph_seeds": seeds,
+                     "leg_type": kind, "pos": pos[kind], "score": "",
+                     "legs": (legs[pos[kind] - 1] if pos[kind] <= len(legs) else "") if kind == "memory" else "",
+                     "label": label, "excerpt": excerpt, "pred": pred})
+    return rows
+
+
+def main(argv):
+    import sqlite3
+    from graph_recall import _seeds
+    from recall_hook import DB
+
+    args = [a for a in argv[1:] if a != "--freeze"]
+    frozen = Path(os.environ.get("EVAL_PROMPTS", "prompts_fixed.json"))
+    if "--freeze" in argv or not frozen.exists():
+        sample = draw(transcript_prompts())
+        if "--freeze" in argv:
+            freeze(sample, frozen)
+            print(f"froze {len(sample)} prompts to {frozen}", file=sys.stderr)
+    else:
+        sample = json.loads(frozen.read_text(encoding="utf-8"))
+        print("using frozen prompts", len(sample), file=sys.stderr)
+
+    db = sqlite3.connect(DB)
+    silent = 0
+    with open(args[0] if args else "hits.csv", "w", newline="") as fh:
+        out = csv.DictWriter(fh, COLUMNS)
+        out.writeheader()
+        for i, p in enumerate(sample):
+            trace = {}
+            output = emit(p, trace)
+            rows = hook_rows(i, p, output, trace.get("legs", []), len(_seeds(db, p)) if output else 0)
+            silent += not rows
+            out.writerows(rows)
+    print(f"{len(sample)} prompts, hook silent on {silent}", file=sys.stderr)
+
+
+if __name__ == "__main__":
+    main(sys.argv)
