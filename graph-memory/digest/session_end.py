@@ -13,6 +13,7 @@ This hook returns in well under a second and always exits 0. A session is
 never held up by its own memory.
 """
 
+import glob
 import json
 import os
 import re
@@ -74,7 +75,8 @@ def text_blocks(content):
 
 
 def turns(transcript):
-    """The conversation out of the transcript, in order. Default is to drop."""
+    """The conversation out of the transcript, in order, as (who, text, timestamp or None).
+    Default is to drop."""
     kept = []
     with Path(transcript).open(encoding="utf-8", errors="replace") as handle:
         for raw in handle:
@@ -108,7 +110,7 @@ def turns(transcript):
                     continue
             if not body:
                 continue
-            kept.append(("You" if role == "user" else "Claude", body))
+            kept.append(("You" if role == "user" else "Claude", body, event.get("timestamp")))
     return kept
 
 
@@ -117,13 +119,34 @@ def filtered(transcript, cfg):
     recent = turns(transcript)[-cfg["max_turns"] :]
     if len(recent) < cfg["min_turns"]:
         return None
-    text = "\n\n".join(f"**{who}:** {body}" for who, body in recent)
+    text = "\n\n".join(f"**{who}:** {body}" for who, body, _ in recent)
     if len(text) > cfg["max_chars"]:
         text = text[-cfg["max_chars"] :]
         cut = text.find("\n\n**")  # start at a whole turn, never mid sentence
         if cut > 0:
             text = text[cut + 2 :]
     return text
+
+
+CLOSED = re.compile(r"-(\d{8}-\d{6})\.(?:md|out)$")
+
+
+def typed_since_last_close(transcript, safe):
+    """False when this session closed before and nothing was typed since. A reopened session
+    that is closed again without a new prompt would otherwise be written up a second time. The
+    earlier close is the newest <safe>-<stamp> file: the .out log a write-up leaves, or a staged
+    file still waiting in pending/ or set aside in pending/dropped/."""
+    names = [p.name for folder in (common.LOG, common.PENDING, common.PENDING / "dropped")
+             for p in folder.glob(f"{glob.escape(safe)}-*")]
+    stamps = [m[1] for m in map(CLOSED.search, names) if m]
+    if not stamps:
+        return True
+    last = datetime.strptime(max(stamps), "%Y%m%d-%H%M%S")
+    for who, _, when in turns(transcript):
+        if who == "You" and when:
+            if datetime.fromisoformat(when.replace("Z", "+00:00")).astimezone().replace(tzinfo=None) > last:
+                return True
+    return False
 
 
 def spawn(staged):
@@ -260,7 +283,10 @@ def main():
     notes = common.corpus()
     if notes is None:  # no index yet, so nowhere for an entry to live
         return
+    safe = re.sub(r"[^A-Za-z0-9_-]+", "-", session_id)[:64] or "session"
     try:
+        if not typed_since_last_close(transcript, safe):
+            return
         text = filtered(transcript, cfg)
     except Exception as exc:
         common.note_failure("session_end", f"{type(exc).__name__} {exc}")
@@ -269,9 +295,8 @@ def main():
         return
     text = monday_line(session_id) + text
 
-    # the stamp matters: one long session can close twice, once before a
-    # compaction and once at the end, and neither half may overwrite the other
-    safe = re.sub(r"[^A-Za-z0-9_-]+", "-", session_id)[:64] or "session"
+    # the stamp matters: one session can close more than once, and neither
+    # write-up may overwrite the other
     common.PENDING.mkdir(parents=True, exist_ok=True)
     staged = common.PENDING / f"{safe}-{datetime.now():%Y%m%d-%H%M%S}.md"
     staged.write_text(text, encoding="utf-8")
