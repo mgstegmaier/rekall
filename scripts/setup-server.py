@@ -225,6 +225,9 @@ def claude_signin():
     if not exe:
         CLAUDE.update(state="failed", error="claude is not on PATH. Re-run the installer.")
         return
+    if os.name == "nt":  # no pty here: fall back to the paste-a-token form
+        CLAUDE.update(state="failed", error="This button needs a Unix terminal. Run `claude setup-token` in a terminal, then paste the token below.")
+        return
     import fcntl, termios  # POSIX only; at module top they kept the settings page from starting on Windows
     master, slave = os.openpty()
     # 1000 columns, so the token prints on one line instead of wrapping
