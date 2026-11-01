@@ -125,8 +125,29 @@ What we now own:
 
 The check, two weeks after the continuation-digests PR merges: read the digest entries written since the merge, and pick five whose
 sessions were over 40,000 characters. Each one should state the session's goal from its opening
-turns. Check `digest/log/digest.log` for `claude failed` lines and compare their count with the
-two weeks before the merge, since larger inputs could raise timeouts. If entries got vaguer or
+turns. Count failures in `digest/log/digest.log`.
+
+After the change, every attempt writes one line tagged `digest ok`, `digest dropped <reason>` or
+`digest failed <exception>`. For a date range, report failed over attempted:
+
+```
+grep -c ' digest failed ' digest.log
+grep -cE ' digest (ok|dropped|failed)' digest.log
+```
+
+(filter both by the date prefix of the range.) Before the change there was no success line, so the
+log holds no count of attempts. Old failures look like `<stamp> headless_run: <file>.md: <ExcName> <msg>`
+or `<stamp> drain: <file>.md: ...`, and a sign-in failure reads `claude is not signed in`:
+
+```
+grep -E '^\S+ (headless_run|drain): [^ ]+\.md: ([A-Z][A-Za-z]*(Error|Exit|Expired|Exception)|claude is not signed in)' digest.log
+```
+
+For the "before" denominator use the number of session digests written in those two weeks (the
+`## Session` headings in the day files). That counts sessions, not attempts, so a retried file is
+counted once there and more than once in the failures; read the before rate as an upper bound.
+Untagged failure lines written between PR #34's merge (2026-11-01) and the day this change lands in
+the live checkout belong to the "after" period and are counted with the same old-format grep. If entries got vaguer or
 failures rose, lower `max_chars` in `digest/config.json`. That change needs no code.
 
 ## Changes

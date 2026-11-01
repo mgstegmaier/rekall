@@ -125,6 +125,7 @@ def drop(staged, why):
     dropped.mkdir(exist_ok=True)
     staged.replace(dropped / staged.name)
     common.note_failure("headless_run", f"{staged.name}: moved to dropped/, {why}")
+    common.note_failure("headless_run", f"digest dropped {why}")
 
 
 def main(staged):
@@ -141,6 +142,7 @@ def main(staged):
     text = staged.read_text(encoding="utf-8")
     if not text.strip():
         staged.unlink(missing_ok=True)
+        common.note_failure("headless_run", "digest dropped empty")
         return
     text = payload(earlier, text) if earlier else text.replace(f"{common.NEW_MARKER}\n", "")
 
@@ -165,6 +167,7 @@ def main(staged):
         # dropped distil still leaves a note that should be searchable
         distil.run(notes, paths=[log], rebuild=False)
         distil.rebuild_index(notes)
+    common.note_failure("headless_run", "digest ok")  # last, so a late distil error is the attempt's one tag
 
 
 def drain(min_age=600):
@@ -180,10 +183,10 @@ def drain(min_age=600):
         try:
             main(staged)
         except distil.NotSignedIn as exc:
-            common.note_failure("drain", f"{staged.name}: {exc}; stopping")
+            common.note_failure("drain", f"digest failed NotSignedIn {staged.name}: {exc}; stopping")
             return
         except Exception as exc:
-            common.note_failure("drain", f"{staged.name}: {type(exc).__name__} {exc}")
+            common.note_failure("drain", f"digest failed {type(exc).__name__} {staged.name}: {exc}")
 
 
 if __name__ == "__main__":
@@ -197,5 +200,5 @@ if __name__ == "__main__":
     try:
         main(path)
     except Exception as exc:
-        common.note_failure("headless_run", f"{path.name}: {type(exc).__name__} {exc}")
+        common.note_failure("headless_run", f"digest failed {type(exc).__name__} {path.name}: {exc}")
         sys.exit(1)
