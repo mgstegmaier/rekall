@@ -4,3 +4,6 @@ rekall.toml
 __pycache__/
 *.pyc
 node_modules/
+graph-memory/eval/prompts_fixed.json
+graph-memory/eval/hits*.csv
+graph-memory/eval/labels*/

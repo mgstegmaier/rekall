@@ -18,7 +18,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
 
-from hook_output import emit  # noqa: E402
+from hook_output import emit, items  # noqa: E402
 from recall_hook import DB, hits  # noqa: E402
 
 PROMPTS = HERE / "gate_prompts.json"
@@ -42,7 +42,7 @@ def main():
     cases = json.loads(PROMPTS.read_text(encoding="utf-8"))
     negatives = [c for c in cases if c.get("expect_empty")]
     cases = [c for c in cases if not c.get("expect_empty")]
-    injected = [c["prompt"] for c in negatives if emit(c["prompt"]) is not None]
+    injected = [c["prompt"] for c in negatives if items(emit(c["prompt"]))]  # a sign-in or sweeps notice alone is not an injection
     for prompt in injected:
         print(f"  injected on a negative: {prompt}")
     print(f"negatives {len(negatives) - len(injected)}/{len(negatives)} silent")

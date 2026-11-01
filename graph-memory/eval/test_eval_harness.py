@@ -3,8 +3,10 @@
 prompt injects, and judge.py prints a per-predicate table. No paid calls: the hook,
 the index and claude -p are all stubbed."""
 import csv
+import sqlite3
 import json
 import sys
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -49,12 +51,12 @@ def test_emit_runs_the_hooks_own_main(monkeypatch):
 
 
 def test_hook_rows_carry_predicate_and_legs():
-    rows = sample_hits.hook_rows(3, "how does recency work", OUTPUT, {"pages/project/rekall.md § Recency weighting": "keyword+meaning"})
+    rows = sample_hits.hook_rows(3, "how does recency work", OUTPUT, ["keyword+meaning"])
     assert [r["leg_type"] for r in rows] == ["memory", "memory", "graph", "graph"]
     assert rows[0]["legs"] == "keyword+meaning" and rows[1]["legs"] == ""
     assert [r["pred"] for r in rows] == ["", "", "owns", "hosts"]
     assert [r["pos"] for r in rows] == [1, 2, 1, 2]
-    assert sample_hits.hook_rows(0, "thanks", None, {}) == []
+    assert sample_hits.hook_rows(0, "thanks", None, []) == []
 
 
 def test_freeze_writes_prompts_fixed(tmp_path):
@@ -116,3 +118,60 @@ def test_judge_prints_per_predicate_table(tmp_path, capsys):
     text = capsys.readouterr().out
     assert "owns" in text and "1.000 (n=2)" in text
     assert "hosts" in text and "0.000 (n=1)" in text
+
+
+def fake_hook(monkeypatch, tmp_path, rows, keyword, meaning):
+    """A tiny index and stubbed legs, so the real hits() and fuse() run with no model."""
+    import recall_hook
+    import search
+
+    db_path = tmp_path / "rag.db"
+    con = sqlite3.connect(db_path)
+    con.execute("CREATE TABLE chunks (id INTEGER PRIMARY KEY, file TEXT, section TEXT, text TEXT, date TEXT)")
+    con.executemany("INSERT INTO chunks VALUES (?,?,?,?,?)", rows)
+    con.commit()
+    con.close()
+    monkeypatch.setattr(recall_hook, "DB", db_path)
+    monkeypatch.setattr(recall_hook, "BROKEN", None)
+    monkeypatch.setattr(recall_hook, "graph_facts", lambda p: [])
+    monkeypatch.setattr(recall_hook, "claude_auth_status", lambda: None, raising=False)
+    monkeypatch.setattr(recall_hook, "sweep_status", lambda: None, raising=False)
+    monkeypatch.setattr(search, "keyword_leg", lambda db, q, **kw: keyword)
+
+    def meaning_leg(db, q, scores=None, **kw):
+        if scores is not None:
+            scores.update({r: 0.9 for r in meaning})
+        return meaning
+
+    monkeypatch.setattr(search, "meaning_leg", meaning_leg)
+    monkeypatch.setattr(search, "strong_keyword_hits", lambda db, q, kw: set(keyword))
+
+
+def test_no_recency_flag_changes_ranking(monkeypatch, tmp_path):
+    rows = [(1, "old.md", "S", "old note about widgets", "2000-01-01"),
+            (2, "new.md", "S", "new note about widgets", date.today().isoformat())]
+    fake_hook(monkeypatch, tmp_path, rows, [1, 2], [1, 2])
+    monkeypatch.delenv("EVAL_NO_RECENCY", raising=False)
+    with_recency = [i[1] for i in hook_output.items(hook_output.emit("widgets"))]
+    monkeypatch.setenv("EVAL_NO_RECENCY", "1")
+    without = [i[1] for i in hook_output.items(hook_output.emit("widgets"))]
+    assert with_recency[0].startswith("new.md") and without[0].startswith("old.md")
+
+
+def test_legs_follow_sibling_chunks_with_one_label(monkeypatch, tmp_path):
+    rows = [(3, "big.md", "Same", "first half about widgets", None),
+            (4, "big.md", "Same", "second half about gadgets", None)]
+    fake_hook(monkeypatch, tmp_path, rows, [3], [4])
+    trace = {}
+    out = hook_output.emit("widgets", trace)
+    assert [i[2] for i in hook_output.items(out)] == ["first half about widgets", "second half about gadgets"]
+    assert trace["legs"] == ["keyword", "meaning"]
+
+
+def test_gate_ignores_a_notice_without_items(monkeypatch, tmp_path, capsys):
+    gate_setup(monkeypatch, tmp_path, [POSITIVE, {"prompt": "thanks", "expect_empty": True}], set())
+    notice = {"systemMessage": "rekall: sign in", "hookSpecificOutput": {
+        "hookEventName": "UserPromptSubmit", "additionalContext": "Rekall sign-in: expired. Tell the user."}}
+    monkeypatch.setattr(gate, "emit", lambda p: notice)
+    gate.main()
+    assert "pass" in capsys.readouterr().out

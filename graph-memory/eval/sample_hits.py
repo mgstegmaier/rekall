@@ -56,33 +56,17 @@ def freeze(sample, path):
     Path(path).write_text(json.dumps(sample, indent=1) + "\n", encoding="utf-8")
 
 
-def hook_rows(i, prompt, output, legs_by_label, seeds=0):
-    """Row dicts for what the hook emitted. `legs_by_label` maps "file § section" to the
+def hook_rows(i, prompt, output, legs, seeds=0):
+    """Row dicts for what the hook emitted. `legs` lists, per memory item in order, the
     legs that found it ("keyword+meaning"); the hook's output doesn't say."""
     rows, pos = [], {"memory": 0, "graph": 0}
     for kind, label, excerpt, pred in items(output):
         pos[kind] += 1
         rows.append({"prompt_id": i, "prompt": prompt[:300], "n_words": len(prompt.split()), "graph_seeds": seeds,
                      "leg_type": kind, "pos": pos[kind], "score": "",
-                     "legs": legs_by_label.get(label, "") if kind == "memory" else "",
+                     "legs": (legs[pos[kind] - 1] if pos[kind] <= len(legs) else "") if kind == "memory" else "",
                      "label": label, "excerpt": excerpt, "pred": pred})
     return rows
-
-
-def legs_by_label(db, prompt):
-    from search import fuse, keyword_leg, meaning_leg
-
-    legs = {"keyword": keyword_leg(db, prompt)}
-    m = meaning_leg(db, prompt)
-    if m is not None:
-        legs["meaning"] = m
-    # EVAL_NO_RECENCY=1 ranks the way the hook did before recency weighting, for an A/B
-    ranked, found_by = fuse(legs, None if os.environ.get("EVAL_NO_RECENCY") else db)
-    labels = {}
-    for rid in ranked:
-        file, section = db.execute("SELECT file, section FROM chunks WHERE id=?", (rid,)).fetchone()
-        labels[f"{file} § {section}"] = "+".join(found_by[rid])
-    return labels
 
 
 def main(argv):
@@ -91,7 +75,7 @@ def main(argv):
     from recall_hook import DB
 
     args = [a for a in argv[1:] if a != "--freeze"]
-    frozen = Path(os.environ.get("EVAL_PROMPTS", HERE / "prompts_fixed.json"))
+    frozen = Path(os.environ.get("EVAL_PROMPTS", "prompts_fixed.json"))
     if "--freeze" in argv or not frozen.exists():
         sample = draw(transcript_prompts())
         if "--freeze" in argv:
@@ -107,8 +91,9 @@ def main(argv):
         out = csv.DictWriter(fh, COLUMNS)
         out.writeheader()
         for i, p in enumerate(sample):
-            output = emit(p)
-            rows = hook_rows(i, p, output, legs_by_label(db, p) if output else {}, len(_seeds(db, p)) if output else 0)
+            trace = {}
+            output = emit(p, trace)
+            rows = hook_rows(i, p, output, trace.get("legs", []), len(_seeds(db, p)) if output else 0)
             silent += not rows
             out.writerows(rows)
     print(f"{len(sample)} prompts, hook silent on {silent}", file=sys.stderr)
