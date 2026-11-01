@@ -4,6 +4,10 @@ The changes that affect an installed Rekall, newest first. Rekall has no version
 
 To upgrade, run `git pull` and then `bash install.sh` in the rekall folder (see "Upgrading" in the README). An entry marked **Re-run install.sh** changes something the installer writes outside the repo, such as the Claude Code hooks, the Claude Desktop MCP entry, or the venv packages, so `git pull` alone doesn't pick it up.
 
+## 2026-11-01
+
+- Re-running install.sh no longer adds a second recall hook. The installer matched a hook by the first command of each group, so when another tool's hook came first in the `UserPromptSubmit` group, the recall command wasn't recognised: every re-run appended another group and two `recall_hook.py` commands fired per prompt, and `--uninstall` left the original behind. It now matches every hook entry by script path, removes only the matching entries and drops a group only when it empties, so other tools' hooks are never touched. **Re-run install.sh**; if your `settings.json` already holds two recall commands, the re-run collapses them to one.
+
 ## 2026-10-27
 
 - A skipped OS vault now says so. `find_secret` fell through to `.env` without a word when the `keyring` module was missing or its backend was broken, so a runner whose Python lacks `keyring` read secrets from a file that may not hold them and reported nothing. On 2026-10-26 that hid a stored `CLAUDE_CODE_OAUTH_TOKEN` from every scheduled job for most of a day: the jobs ran as though nobody had signed in. It now prints one line to stderr per process, naming the Python and the `pip install keyring` that fixes it.
