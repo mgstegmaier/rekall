@@ -65,7 +65,11 @@ fails. Never skip a failed step and never overwrite a file that already exists.
    http://localhost:8086 for me, and ask whether I have a Fathom API key. If not, tell me
    where in Fathom to create one (Settings, Integrations, API) and wait for me. I paste
    FATHOM_API_KEY and WORK_EMAIL into the page and click Save keys. Wait until the page shows
-   both as Present, then stop the server. Leave Monday and Jira alone.
+   both as Present. Then tell me to click Sign in to Claude on the same page (it opens my
+   browser and stores a long-lived token from `claude setup-token`, so the background jobs
+   can run under launchd or Task Scheduler) and then Test, and wait until Test passes. If
+   the sign-in fails, I paste a token from `claude setup-token` into the page's Claude token
+   field. Then stop the server. Leave Monday and Jira alone.
 5. Install: run `bash install.sh` in the rekall folder and show me its output. It checks
    for python 3.11 or newer, builds graph-memory/.venv, downloads the embedding model,
    merges the hooks into ~/.claude/settings.json, copies the skills and commands into
