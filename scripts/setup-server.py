@@ -17,6 +17,7 @@ permissions. Either way the new refresh token goes into the OS keyring (rekall_c
   http://localhost:8086 as a "Mobile and desktop applications" redirect URI on the app.
 `--reauth` (the expiry dialog's Sign in button runs it): no page; runs the Claude sign-in, saves the
 token, tests it, and posts a notification.
+`--probe` (install.sh runs it last): one headless Claude call; prints a warning only when it fails.
 `--once` (install.sh --standard runs it): opens the browser itself, adds the vault picker's Finish
 button, and exits when a vault is picked and FATHOM_API_KEY and WORK_EMAIL are saved. If 8086 is
 taken it uses the next free port up to 8095; only 8086 works for the auth-code Graph sign-in.
@@ -266,10 +267,14 @@ def claude_probe():
     exe = shutil.which("claude")
     if not exe:
         return {"ok": False, "error": "claude is not on PATH."}
-    with tempfile.TemporaryDirectory() as d:
-        r = subprocess.run([exe, "-p", "Reply with exactly: ok", "--model", "haiku", "--tools", ""],
-                           cwd=d, env=claude_env(env), capture_output=True, text=True, timeout=120)
-    if r.returncode == 0:
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            r = subprocess.run([exe, "-p", "Reply with exactly: ok", "--model", "haiku", "--tools", ""],
+                               cwd=d, env=claude_env(env), capture_output=True, text=True, timeout=120)
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "error": "no answer within 120 seconds."}
+    # exit 0 is not enough: a signed-out CLI can print "Not logged in" and still exit 0
+    if r.returncode == 0 and r.stdout.strip().rstrip(".").lower() == "ok":
         return {"ok": True}
     return {"ok": False, "error": ((r.stdout + r.stderr).strip().splitlines() or ["no output"])[-1][:200]}
 
@@ -702,10 +707,20 @@ def reauth():
     sys.exit(0 if probe["ok"] else 1)
 
 
+def probe_warn():
+    """--probe (install.sh runs it last): silent when Claude answers, one warning when it doesn't."""
+    probe = claude_probe()
+    if not probe["ok"]:
+        print(f"WARNING: Claude didn't answer the test call ({probe['error']}). Rekall's background jobs need a Claude "
+              f"sign-in: run `python3 {Path(__file__)}` and click Sign in to Claude, then Test.")
+
+
 def main():
     global HOSTS
     if "--reauth" in sys.argv:
         return reauth()
+    if "--probe" in sys.argv:
+        return probe_warn()
     ONCE["on"] = "--once" in sys.argv
     ONCE["vault_picked"] = bool(os.environ.get("REKALL_VAULT"))  # install.sh already wrote it into rekall.toml
     for port in PORTS:
