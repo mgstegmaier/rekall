@@ -295,9 +295,10 @@ def heading(thread, day):
 
 
 def fact_key(bullet_text):
-    """The fact alone, lowercased to letters, digits and spaces: no sender, date or source, so a restatement matches."""
+    """The fact alone, lowercased: no sender, date or source, so a restatement matches. Keeps . / $ % - so
+    "$1.5M" and "$15M", or "11/1" and "1/11", stay different facts."""
     t = re.sub(r"\s*\(source:.*$", "", bullet_text.removeprefix("- ").removeprefix("Decision: "))
-    return " ".join("".join(c for c in t.lower() if c.isalnum() or c.isspace()).split())
+    return " ".join("".join(c for c in t.lower() if c.isalnum() or c.isspace() or c in "./$%-").split()).rstrip(".")
 
 
 def insert_update(text, head, bullets):

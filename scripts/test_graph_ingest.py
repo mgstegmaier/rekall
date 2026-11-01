@@ -189,6 +189,13 @@ def test_restated_fact_not_rewritten():
     assert gi.insert_update(text, gi.heading(t, "2026-10-16"), [gi.bullet(t, facts[0])]) is None, "restated fact was written"
 
 
+def test_fact_key_keeps_numbers_apart():
+    k = lambda t: gi.fact_key(f"- {t} (source: email \"X\" from A, 2026-10-16).")
+    assert k("Budget raised to $1.5M") != k("Budget raised to $15M")
+    assert k("Go-live set to 11/1") != k("Go-live set to 1/11")
+    assert k("Run V2 on all 30k records.") == k("run v2 on all 30k records")
+
+
 def main():
     projects = gi.load_projects(projects_dir())
     assert set(projects) == {"nova-link", "report-builder"}, projects
