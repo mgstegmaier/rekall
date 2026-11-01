@@ -115,17 +115,33 @@ def turns(transcript):
 
 
 def filtered(transcript, cfg):
-    """The last turns, cut to the character budget, keeping the end."""
-    recent = turns(transcript)[-cfg["max_turns"] :]
-    if len(recent) < cfg["min_turns"]:
+    """The whole conversation when it fits max_chars. Otherwise the opening quarter of the budget,
+    where the session's goal was said, then as much of the end as fits, cut at whole turns."""
+    kept = turns(transcript)
+    if len(kept) < cfg["min_turns"]:
         return None
-    text = "\n\n".join(f"**{who}:** {body}" for who, body, _ in recent)
-    if len(text) > cfg["max_chars"]:
-        text = text[-cfg["max_chars"] :]
-        cut = text.find("\n\n**")  # start at a whole turn, never mid sentence
-        if cut > 0:
-            text = text[cut + 2 :]
-    return text
+    budget = cfg["max_chars"]
+    blocks = [f"**{who}:** {body}" for who, body, _ in kept]
+    if len("\n\n".join(blocks)) <= budget:
+        return "\n\n".join(blocks)
+    budget -= 40  # room for the omitted marker
+    # ponytail: one turn longer than a quarter of the budget (a pasted file, say) is clipped, so
+    # the head and the tail each keep at least one whole turn
+    blocks = [b if len(b) <= budget // 4 else b[: budget // 4 - 6] + " [...]" for b in blocks]
+    head, used = [], 0
+    for block in blocks:
+        if used + len(block) > budget // 4:
+            break
+        head.append(block)
+        used += len(block) + 2
+    tail = []
+    for block in reversed(blocks[len(head) :]):
+        if used + len(block) > budget:
+            break
+        tail.insert(0, block)
+        used += len(block) + 2
+    omitted = len(blocks) - len(head) - len(tail)
+    return "\n\n".join(head + [f"[... {omitted} turns omitted ...]"] + tail)
 
 
 CLOSED = re.compile(r"-(\d{8}-\d{6})\.(?:md|out)$")

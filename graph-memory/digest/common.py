@@ -17,8 +17,7 @@ PROMPT = HERE / "digest-prompt.md"
 DEFAULTS = {
     "mode": "session",
     "min_turns": 5,
-    "max_turns": 30,
-    "max_chars": 15000,
+    "max_chars": 40000,
     "model": "sonnet",
     "log_dir": "daily",
     "distil": True,
