@@ -58,13 +58,18 @@ def emit(prompt, trace=None):
 
     out, old = io.StringIO(), sys.stdin
     sys.stdin = io.StringIO(json.dumps({"prompt": prompt}))
+    # the notices read and write live state (hook-presence.json counts this as you at the keyboard)
+    # and items() discards them, so the eval runs without them
+    real_status = recall_hook.claude_auth_status, recall_hook.sweep_status
     search.fuse, recall_hook.hits = fuse, hits
+    recall_hook.claude_auth_status = recall_hook.sweep_status = lambda: None
     try:
         with contextlib.redirect_stdout(out):
             recall_hook.main()
     finally:
         sys.stdin = old
         search.fuse, recall_hook.hits = real_fuse, real_hits
+        recall_hook.claude_auth_status, recall_hook.sweep_status = real_status
     text = out.getvalue().strip()
     return json.loads(text) if text else None
 

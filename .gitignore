@@ -7,3 +7,6 @@ node_modules/
 graph-memory/eval/prompts_fixed.json
 graph-memory/eval/hits*.csv
 graph-memory/eval/labels*/
+# eval output holds real transcript prompts, wherever it is run from
+prompts_fixed.json
+hits*.csv
