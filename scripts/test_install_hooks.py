@@ -21,7 +21,7 @@ def run(mode, path):
 
 
 def cmds(s, event):
-    return [h["command"] for g in s["hooks"].get(event, []) for h in g["hooks"]]
+    return [h["command"] for g in s["hooks"].get(event, []) for h in g.get("hooks", [])]
 
 
 def count(s, needle):
