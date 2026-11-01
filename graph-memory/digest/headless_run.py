@@ -45,6 +45,14 @@ def main(staged):
     entry = distil.ask(cfg["model"], common.PROMPT.read_text(encoding="utf-8"), text)
     if not entry.strip():
         raise RuntimeError("the model returned nothing")
+    if entry.strip() == "THIN" or "### " not in entry:
+        # filler, not an entry. A retry gets the same answer, so it leaves pending/ for
+        # pending/dropped/, which drain() never reads; the text stays there in case the check was wrong
+        dropped = staged.parent / "dropped"
+        dropped.mkdir(exist_ok=True)
+        staged.replace(dropped / staged.name)
+        common.note_failure("headless_run", f"{staged.name}: moved to dropped/, the model wrote {entry.strip()[:80]!r}")
+        return
 
     log = common.today_log(notes, cfg)
     append(log, entry)

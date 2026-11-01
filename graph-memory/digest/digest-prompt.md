@@ -67,6 +67,10 @@ Say when the session was thin. A short session gets a short entry that says so.
 A thin session written up as though it were complete is worse than no entry,
 because it looks like the whole of what happened.
 
+If nothing in the session is worth recording (greetings only, a question that
+got no answer, a request to wrap up a session already written up), output the
+single word THIN and nothing else.
+
 No praise, no padding, no narration. Cut the words that carry nothing, never
 the words that carry the grammar. Write complete sentences. Vary their length.
 Lead with the point.
