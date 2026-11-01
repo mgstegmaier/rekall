@@ -1,8 +1,7 @@
 """Label sampled hits with a headless Claude judge.
 Usage: python judge.py hits.csv outdir            -> one JSON per prompt in outdir
        python judge.py --score hits.csv out1 [out2 ...]  -> precision per row, averaged over label dirs
-Run sample_hits.py first (--freeze writes prompts_fixed.json so runs compare). Graph rows carry
-the predicate, so --score also prints graph precision per predicate."""
+Run sample_hits.py first (it freezes prompts to prompts_fixed.json so runs compare)."""
 import collections, csv, glob, json, os, re, subprocess, sys
 from concurrent.futures import ThreadPoolExecutor
 
@@ -69,10 +68,6 @@ def score(path, outs):
     gr = [r for r in rows if r["leg_type"] == "graph"]
     if gr:
         print("graph hook slice (pos 1-8):", prec([r for r in gr if int(r["pos"]) <= 8]))
-        if any(r.get("pred") for r in gr):
-            print("graph precision per predicate:")
-            for pred in sorted({r.get("pred") or "(none)" for r in gr}):
-                print(f"  {pred:<20}", prec([r for r in gr if (r.get("pred") or "(none)") == pred]))
 
 
 if __name__ == "__main__":

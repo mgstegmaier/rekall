@@ -1,6 +1,7 @@
 """What the three digest scripts all need: the config, your notes, the log."""
 
 import json
+import re
 import sqlite3
 from datetime import datetime
 import sys
@@ -70,3 +71,52 @@ def note_failure(name, message):
             handle.write(f"{stamp} {name}: {message}\n")
     except Exception:
         pass
+
+
+HEX8 = re.compile(r"[0-9a-f]{8}")
+RECORDED_SHARE = 4  # the already-recorded block gets at most 1/RECORDED_SHARE of max_chars
+
+
+def section(text, name):
+    """The body under `### name`, up to the next heading, or ''."""
+    m = re.search(rf"^### {re.escape(name)}[ \t]*\n(.*?)(?=^#{{2,3}} |\Z)", text, re.M | re.S)
+    return m[1].strip() if m else ""
+
+
+def session_entries(folder, id8):
+    """Every entry already written for this session, oldest first: (day, heading, body) for each
+    `## Session HH:MM · <id8>` block in folder/*.md, running to the next `## ` line."""
+    found = []
+    head = re.compile(rf"^## (Session \d\d:\d\d · {re.escape(id8)})[ \t]*\n(.*?)(?=^## |\Z)", re.M | re.S)
+    for day in sorted(Path(folder).glob("*.md")):
+        found += [(day.stem, m[1], m[2].strip()) for m in head.finditer(day.read_text(encoding="utf-8"))]
+    return found
+
+
+def recorded(earlier, cap):
+    """What the model is told is already recorded, at most cap chars (separator included), or ''
+    when there is nothing or no room. Each older entry gives its Decisions and Open loops and the
+    latest gives its whole body. Over cap, older entries shrink to one heading line each, then the
+    latest to its Decisions and Open loops, then the older ones go and the latest is cut."""
+    if not earlier or cap < 200:
+        return ""
+    sep = "\n\n---\n\n"
+
+    def keep(body):
+        return "\n".join(f"### {n}\n{section(body, n)}" for n in ("Decisions", "Open loops") if section(body, n))
+
+    def build(older, latest_body):
+        d, h, _ = earlier[-1]
+        blocks = older + [f"[{d} {h[8:13]}, latest entry]\n{latest_body}"]
+        return "Already recorded for this session:\n\n" + "\n\n".join(blocks) + sep
+
+    older = [(f"[{d} {h[8:13]}, earlier entry]", keep(b)) for d, h, b in earlier[:-1]]
+    latest = earlier[-1][2]
+    for blocks, body in (([f"{t}\n{k}" for t, k in older if k], latest),
+                         ([t for t, _ in older], latest),
+                         ([t for t, _ in older], keep(latest)),
+                         ([], keep(latest))):
+        out = build(blocks, body)
+        if len(out) <= cap:
+            return out
+    return out[: cap - len(sep) - 6] + " [...]" + sep

@@ -41,6 +41,12 @@ digest now reads about 18,000 characters (roughly 4,600 tokens), against a ceili
 characters (roughly 3,750 tokens) before. The largest digests read up to 40,000 characters
 (roughly 10,000 tokens).
 
+The budget covers the whole input the model reads, not only the transcript. A continuation adds the
+Monday line and an "Already recorded" block, and the block takes at most a quarter of the budget:
+older entries shrink to a heading line each, then the latest entry to its Decisions and Open loops,
+then it is cut. The transcript fits what remains, and the new-since-last-write-up marker counts
+against it.
+
 ### Other options
 
 | Option | Trade-off |
@@ -152,6 +158,7 @@ failures rose, lower `max_chars` in `digest/config.json`. That change needs no c
 
 ## Changes
 
+- 2026-11-01: the budget now covers the assembled input (Monday line, already-recorded block, marker), not only the transcript (R-cost-1).
 - 2026-10-31: proposed and decided in the same session. Built on `claude/session-digest-sweep-aaad6e`.
 - 2026-11-01: ships with continuation digests rather than alone. The check date is two weeks after
   that PR merges; `validation_by` is set in a follow-up commit once the merge date is known.

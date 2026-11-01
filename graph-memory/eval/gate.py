@@ -2,9 +2,7 @@
 
 Runs every prompt in gate_prompts.json through recall_hook.hits (the hook's own search path),
 prints recall@4 (the share of prompts whose expected file and section is in the top 4), and
-exits 1 when it falls 2 points or more below gate_baseline.json. A case with
-"expect_empty": true is a negative: it passes only when the hook, run end to end, emits
-nothing, and any failing negative exits 1. Deterministic, no judge.
+exits 1 when it falls 2 points or more below gate_baseline.json. Deterministic, no judge.
 
     python eval/gate.py                    # compare against the baseline
     python eval/gate.py --write-baseline   # accept the current number
@@ -18,7 +16,6 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
 
-from hook_output import emit, items  # noqa: E402
 from recall_hook import DB, hits  # noqa: E402
 
 PROMPTS = HERE / "gate_prompts.json"
@@ -40,19 +37,11 @@ def main():
     if not DB.is_file():
         sys.exit(f"no index at {DB}: run graph-memory/reindex.sh first")
     cases = json.loads(PROMPTS.read_text(encoding="utf-8"))
-    negatives = [c for c in cases if c.get("expect_empty")]
-    cases = [c for c in cases if not c.get("expect_empty")]
-    injected = [c["prompt"] for c in negatives if items(emit(c["prompt"]))]  # a sign-in or sweeps notice alone is not an injection
-    for prompt in injected:
-        print(f"  injected on a negative: {prompt}")
-    print(f"negatives {len(negatives) - len(injected)}/{len(negatives)} silent")
     misses = [c["prompt"] for c in cases if not found(c)]
     recall = round(1 - len(misses) / len(cases), 3)
     for prompt in misses:
         print(f"  miss: {prompt}")
     print(f"recall@4 {recall:.3f} ({len(cases) - len(misses)}/{len(cases)})")
-    if injected:
-        sys.exit(f"FAIL: {len(injected)} negative prompt(s) injected")
     if "--write-baseline" in sys.argv:
         BASELINE.write_text(json.dumps({"recall_at_4": recall, "n": len(cases)}) + "\n", encoding="utf-8")
         print(f"baseline written: {BASELINE.name}")

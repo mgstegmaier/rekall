@@ -157,4 +157,48 @@ with tempfile.TemporaryDirectory() as tmp:
     assert "401" in REAL_ASK("haiku", "p", "x"), "the child must run without the API key and with our marker"
     assert not rekall_config.AUTH_FAILED.exists(), "a success clears the marker"
 
+# ask() runs lean and reads the json envelope: the text still comes back, one usage row per call,
+# and an is_error envelope with sign-in wording raises NotSignedIn.
+import subprocess
+
+with tempfile.TemporaryDirectory() as tmp:
+    tmp = Path(tmp)
+    distil.USAGE_LOG = tmp / "distil-usage.jsonl"
+    argvs = []
+
+    def envelope(result, is_error=False):
+        out = json.dumps({"type": "result", "is_error": is_error, "result": result, "total_cost_usd": 0.01,
+                          "usage": {"input_tokens": 12, "output_tokens": 5, "cache_read_input_tokens": 3}})
+        return lambda argv, **kw: (argvs.append(argv), subprocess.CompletedProcess(argv, 0, out, ""))[1]
+
+    distil.ask = REAL_ASK
+    note = tmp / "launch.md"
+    note.write_text("# Launch\n\nThe launch moved to May.\n")
+    distil.run_claude = envelope('- When is the launch?\nquote: "The launch moved to May."\n')
+    entry = distil.distil_one(note, "launch.md", "haiku", "prompt")
+    assert "When is the launch?" in entry and 'quote: "The launch moved to May."' in entry, entry
+    assert all(f in argvs[-1] for f in ("--strict-mcp-config", "--no-session-persistence", "--system-prompt")), argvs[-1]
+    assert argvs[-1][argvs[-1].index("--setting-sources") + 1] == "project"
+    assert argvs[-1][argvs[-1].index("--output-format") + 1] == "json"
+    rows = [json.loads(line) for line in distil.USAGE_LOG.read_text().splitlines()]
+    assert len(rows) == 1 and rows[0]["input_tokens"] == 12 and rows[0]["total_cost_usd"] == 0.01, rows
+    REAL_ASK("haiku", "p", "x")
+    assert len(distil.USAGE_LOG.read_text().splitlines()) == 2, "one usage row per call"
+
+    distil.run_claude = envelope("Failed to authenticate: OAuth session expired", is_error=True)
+    try:
+        REAL_ASK("haiku", "p", "x")
+        raise AssertionError("an is_error envelope with sign-in text must raise NotSignedIn")
+    except distil.NotSignedIn:
+        pass
+    distil.run_claude = envelope("overloaded_error", is_error=True)
+    try:
+        REAL_ASK("haiku", "p", "x")
+        raise AssertionError("any other is_error must raise")
+    except distil.NotSignedIn:
+        raise AssertionError("an overload is not a sign-in failure")
+    except distil.ClaudeExit:
+        pass
+    distil.run_claude = rekall_config.run_claude
+
 print("ok")
