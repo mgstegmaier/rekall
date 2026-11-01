@@ -1,17 +1,17 @@
 # Obsidian vault CLI reference
 
-Full command syntax and conventions for the `heck-db` vault. Load this before writing to the
+Full command syntax and conventions for the `VAULT_NAME` vault. Load this before writing to the
 vault. The always-on rule (`identity/obsidian-vault.md`, deployed to
 `~/.claude/rules/familiar-obsidian-vault.md`) carries only the vault path, the write
 restrictions, and a pointer here — this file is canonical for everything else.
 
-**Vault:** `~/obsidian-vault/heck-db/` · **Requirement:** Obsidian must be running, or the CLI
+**Vault:** `<vault path>` · **Requirement:** Obsidian must be running, or the CLI
 fails and you fall back to the Write/Read tools.
 
 **PATH note:** the Bash tool may not have `obsidian` in PATH. On `command not found`, use the
 full path. Mac: `/Applications/Obsidian.app/Contents/MacOS/obsidian`. Windows:
 `%LOCALAPPDATA%\Programs\Obsidian\Obsidian.exe` (verify, the installer location varies).
-Always pass `vault="heck-db"` to target the right vault.
+Always pass `vault="VAULT_NAME"` to target the right vault.
 
 ## Creating notes
 
@@ -19,32 +19,32 @@ Two steps, in this order. Do not hand-write YAML frontmatter; Obsidian manages i
 
 ```bash
 # 1. Body content
-obsidian create vault="heck-db" path="memory/learnings/coding/2026-02-28-slug.md" content="# Title\n\nBody content"
+obsidian create vault="VAULT_NAME" path="memory/learnings/coding/2026-02-28-slug.md" content="# Title\n\nBody content"
 
 # 2. Typed properties, one call each
-obsidian property:set vault="heck-db" path="memory/learnings/coding/2026-02-28-slug.md" name="type" value="learning" type=text
-obsidian property:set vault="heck-db" path="memory/learnings/coding/2026-02-28-slug.md" name="date" value="2026-02-28" type=date
-obsidian property:set vault="heck-db" path="memory/learnings/coding/2026-02-28-slug.md" name="tags" value="coding,relevant-tag" type=list
+obsidian property:set vault="VAULT_NAME" path="memory/learnings/coding/2026-02-28-slug.md" name="type" value="learning" type=text
+obsidian property:set vault="VAULT_NAME" path="memory/learnings/coding/2026-02-28-slug.md" name="date" value="2026-02-28" type=date
+obsidian property:set vault="VAULT_NAME" path="memory/learnings/coding/2026-02-28-slug.md" name="tags" value="coding,relevant-tag" type=list
 ```
 
 ## Reading and searching
 
 ```bash
-obsidian search vault="heck-db" query="topic" format=json             # vault-indexed search
-obsidian search:context vault="heck-db" query="topic" format=json     # search with matching lines
-obsidian read vault="heck-db" path="memory/learnings/coding/file.md"  # note content
-obsidian backlinks vault="heck-db" path="file.md" format=json         # incoming links
-obsidian tags vault="heck-db" format=json                             # all vault tags
-obsidian orphans vault="heck-db"                                      # notes with no incoming links
+obsidian search vault="VAULT_NAME" query="topic" format=json             # vault-indexed search
+obsidian search:context vault="VAULT_NAME" query="topic" format=json     # search with matching lines
+obsidian read vault="VAULT_NAME" path="memory/learnings/coding/file.md"  # note content
+obsidian backlinks vault="VAULT_NAME" path="file.md" format=json         # incoming links
+obsidian tags vault="VAULT_NAME" format=json                             # all vault tags
+obsidian orphans vault="VAULT_NAME"                                      # notes with no incoming links
 ```
 
 ## Appending, prepending, moving
 
 ```bash
-obsidian append vault="heck-db" path="file.md" content="New content"
-obsidian prepend vault="heck-db" path="file.md" content="New content"
-obsidian daily:append vault="heck-db" content="- Quick note"          # today's daily note
-obsidian move vault="heck-db" path="old/path.md" to="new/path.md"      # auto-updates wikilinks
+obsidian append vault="VAULT_NAME" path="file.md" content="New content"
+obsidian prepend vault="VAULT_NAME" path="file.md" content="New content"
+obsidian daily:append vault="VAULT_NAME" content="- Quick note"          # today's daily note
+obsidian move vault="VAULT_NAME" path="old/path.md" to="new/path.md"      # auto-updates wikilinks
 ```
 
 ## CLI conventions
@@ -69,7 +69,7 @@ obsidian move vault="heck-db" path="old/path.md" to="new/path.md"      # auto-up
 | `wiki/daily-notes-archive/` | Archived daily notes | `{YYYY-MM-DD}.md` |
 | `wiki/meetings/` | Fathom meeting notes (pipeline + `/today`) | `{YYYY-MM-DD}-{slug}.md` |
 | `recipes/` | Recipes (`/recipe`) | `{slug}.md` |
-| `wiki/{people\|projects\|entities\|concepts\|summaries}/` | Wiki pages (`/wiki`), one level deep per type — see `wiki/CLAUDE.md` for placement rules | `{slug}.md` |
+| `wiki/pages/<type>/` | Wiki pages (`/wiki`), one folder per frontmatter `type` — see `wiki/CLAUDE.md` for placement rules | `{slug}.md` |
 
 Notes with no specified home go in `notes/`, never the vault root.
 

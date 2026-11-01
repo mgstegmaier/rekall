@@ -48,6 +48,7 @@ USAGE_LOG = fp.LOG_DIR / "graph-usage.jsonl"
 MODEL = "haiku"
 BODY_CAP = 2000     # characters per message sent to the model
 STATE_CAP = 1500    # characters of a page's ## State sent to the model
+UPDATES_CAP = 1000  # characters of a page's newest ## Updates bullets sent to the model
 PRUNE_DAYS = 30
 MAX_LOOKBACK_DAYS = 7
 MAX_TERM_WORDS = 6
@@ -203,6 +204,7 @@ def load_projects(pages_dir=PAGES):
         terms = {p.stem, fm.get("title"), fm.get("monday_label"), *aliases}
         projects[p.stem] = {"path": p, "title": fm.get("title") or p.stem, "description": fm.get("description", ""),
                             "state": section(text, "State")[:STATE_CAP],
+                            "updates": "\n".join(l for l in section(text, "Updates").splitlines() if l.startswith("- "))[:UPDATES_CAP],
                             "terms": {compact(t) for t in terms if t and len(compact(t)) >= 3}}
     owners = defaultdict(set)
     for slug, pr in projects.items():
@@ -228,7 +230,9 @@ SYSTEM = ("You extract new project facts and decisions from workplace email and 
 
 def build_prompt(thread, msgs, cands, projects):
     pages = "\n\n".join(f"PAGE {s}: {projects[s]['title']}\nDescription: {projects[s]['description']}\n"
-                        f"What the page already says:\n{projects[s]['state'] or '(nothing)'}" for s in cands)
+                        f"What the page already says:\n{projects[s]['state'] or '(nothing)'}"
+                        + (f"\nRecent updates already recorded:\n{projects[s]['updates']}" if projects[s]["updates"] else "")
+                        for s in cands)
     src = "Email thread" if thread["kind"] == "email" else "Teams chat"
     body = "\n\n".join(f"[m{i}] {m['from']}, {m['date'][:10]}" + (f" (to: {', '.join(m['to'][:6])})" if m["to"] else "")
                        + f"\n{(m['body'] or '')[:BODY_CAP]}" for i, m in enumerate(msgs, 1))
@@ -290,10 +294,22 @@ def heading(thread, day):
     return f"### {day} {'Email' if thread['kind'] == 'email' else 'Teams chat'}: {thread['name']}"
 
 
+def fact_key(bullet_text):
+    """The fact alone, lowercased: no sender, date or source, so a restatement matches. Keeps . / $ % - so
+    "$1.5M" and "$15M", or "11/1" and "1/11", stay different facts."""
+    t = re.sub(r"\s*\(source:.*$", "", bullet_text.removeprefix("- ").removeprefix("Decision: "))
+    return " ".join("".join(c for c in t.lower() if c.isalnum() or c.isspace() or c in "./$%-").split()).rstrip(".")
+
+
 def insert_update(text, head, bullets):
     """Page text with `bullets` under `head` at the top of ## Updates. None when nothing is new."""
     lines = text.split("\n")
-    new = [b for b in bullets if b not in lines]
+    seen = {fact_key(l) for l in lines if l.startswith("- ")}
+    new = []
+    for b in bullets:  # ponytail: whole-page bullets by fact text; a rewording still gets through
+        if fact_key(b) not in seen:
+            seen.add(fact_key(b))
+            new.append(b)
     if not new:
         return None
     if head in lines:  # same entry from an earlier run today: add under its bullets
