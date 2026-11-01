@@ -6,7 +6,7 @@ status: DECIDED
 decider: mgstegmaier
 recorded_by: Claude Code, in the session-digest-sweep session
 ticket:
-validation_by:
+validation_by: 2026-11-15
 decided: 2026-10-31, session-digest-sweep chat session
 reversible: yes
 ---
@@ -134,3 +134,4 @@ failures rose, lower `max_chars` in `digest/config.json`. That change needs no c
 - 2026-10-31: proposed and decided in the same session. Built on `claude/session-digest-sweep-aaad6e`.
 - 2026-11-01: ships with continuation digests rather than alone. The check date is two weeks after
   that PR merges; `validation_by` is set in a follow-up commit once the merge date is known.
+- 2026-11-01: continuation digests merged as PR #34 (`8b69e2a`); `validation_by` set to 2026-11-15.
