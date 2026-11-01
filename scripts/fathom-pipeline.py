@@ -465,8 +465,8 @@ def verify_ingest(source_paths):
 
 # ── Research write boundary ─────────────────────────────────
 # RESEARCH_EXTRA is prompt text; nothing in the guard limits a Write to one section. So the
-# sweep snapshots the wiki, runs the batch, and diffs: a run that did more than add lines under
-# `## Research` on pages its memos name (plus a log.md append) is reverted.
+# sweep snapshots wiki/pages, runs the batch, and diffs: a run that did more than add lines under
+# `## Research` on pages its memos name (plus a log.md append) fails the batch and is logged.
 
 def wiki_snapshot():
     """wiki/pages/ plus log.md: the only files a research child can be blamed for. Session
@@ -533,30 +533,16 @@ def research_violations(before, after, memos):
 
 
 def ingest_research(batch, extra=""):
-    """ingest_to_wiki for research memos, reverting pages the run changed beyond its boundary.
-    A violation counts as a failed source, so the memo stays pending. Never deletes a file and
-    never touches log.md; a page is restored only if it still holds the bytes the verdict was
-    computed from, so another writer's later change survives."""
+    """ingest_to_wiki for research memos, failing the batch when the run left its boundary.
+    Detect and hold: the memo stays pending and every violating path is logged, but nothing is
+    restored or deleted, since an edit the agent made can't be told from one Mike made in
+    Obsidian during the batch."""
     before = wiki_snapshot()
     ok = ingest_to_wiki(batch, extra)
-    after = wiki_snapshot()
-    bad = research_violations(before, after, batch)
-    if not bad:
-        return ok
+    bad = research_violations(before, wiki_snapshot(), batch)
     for f, why in bad.items():
-        rel = f.relative_to(VAULT).as_posix()
-        if f == WIKI_LOG or f not in before:
-            done = "left in place"  # a created page is not ours to delete
-        elif f.exists() and f.read_bytes() == after.get(f):
-            f.write_bytes(before[f])
-            done = "restored"
-        elif not f.exists():
-            f.write_bytes(before[f])
-            done = "restored"
-        else:
-            done = "left in place (changed again after the check)"
-        log(f"  research write boundary: {rel} {why}; {done}")
-    return False
+        log(f"  research write boundary: {f.relative_to(VAULT).as_posix()} {why}; left in place for review, memo stays pending")
+    return False if bad else ok
 
 
 # A remote image is a beacon: Obsidian fetches it when the page renders, so an injected

@@ -107,10 +107,10 @@ def research(fp, monkeypatch):
     return fp, run, v / "pages/project/doc-extraction.md", v / "pages/research/memo-a.md", v / "log.md"
 
 
-def test_research_extra_state_edit_is_reverted(research):
+def test_research_extra_state_edit_fails_the_batch_and_is_kept(research):
     fp, run, proj, memo, log = research
     assert run(lambda: proj.write_text(PROJECT.replace("Running.", "Done."))) is False
-    assert proj.read_text() == PROJECT
+    assert proj.read_text() == PROJECT.replace("Running.", "Done.")
 
 
 def test_research_created_page_fails_the_batch_but_is_not_deleted(research):
@@ -138,13 +138,13 @@ def test_research_concurrent_writers_outside_pages_are_left_alone(research):
     assert new.read_text() == "new session\n" and old.read_text() == "digest\nappended\n" and raw.exists()
 
 
-def test_research_page_changed_again_after_the_verdict_is_not_overwritten(research, monkeypatch):
+def test_research_never_writes_after_the_verdict(research, monkeypatch):
     fp, run, proj, memo, log = research
     real = fp.research_violations
 
     def late_writer(*a):
         bad = real(*a)
-        proj.write_text("Mike's later edit\n")  # lands between the verdict and the restore
+        proj.write_text("Mike's later edit\n")  # lands after the verdict; nothing may overwrite it
         return bad
     monkeypatch.setattr(fp, "research_violations", late_writer)
     assert run(lambda: proj.write_text(PROJECT.replace("Running.", "Done."))) is False
@@ -157,11 +157,10 @@ def test_research_never_rewrites_log(research):
     assert log.read_text() == "# replaced\n"
 
 
-def test_research_memo_edit_is_reverted(research):
+def test_research_memo_edit_fails_the_batch_and_is_kept(research):
     fp, run, proj, memo, log = research
-    before = memo.read_bytes()
     assert run(lambda: memo.write_text("# changed\n")) is False
-    assert memo.read_bytes() == before
+    assert memo.read_text() == "# changed\n"
 
 
 def test_research_valid_run_with_log_append_is_accepted(research):
