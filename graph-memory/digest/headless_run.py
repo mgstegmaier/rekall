@@ -142,6 +142,7 @@ def main(staged):
     text = staged.read_text(encoding="utf-8")
     if not text.strip():
         staged.unlink(missing_ok=True)
+        common.note_failure("headless_run", "digest dropped empty")
         return
     text = payload(earlier, text) if earlier else text.replace(f"{common.NEW_MARKER}\n", "")
 
@@ -159,7 +160,6 @@ def main(staged):
     log = common.today_log(notes, cfg, when=when)
     append(log, entry, when=when, session=session)
     staged.unlink(missing_ok=True)
-    common.note_failure("headless_run", "digest ok")
     print(f"wrote {log}")
 
     if cfg["distil"]:
@@ -167,6 +167,7 @@ def main(staged):
         # dropped distil still leaves a note that should be searchable
         distil.run(notes, paths=[log], rebuild=False)
         distil.rebuild_index(notes)
+    common.note_failure("headless_run", "digest ok")  # last, so a late distil error is the attempt's one tag
 
 
 def drain(min_age=600):
