@@ -469,7 +469,10 @@ def verify_ingest(source_paths):
 # `## Research` on pages its memos name (plus a log.md append) is reverted.
 
 def wiki_snapshot():
-    return {f: f.read_bytes() for f in (VAULT / "wiki").rglob("*.md")}
+    """wiki/pages/ plus log.md: the only files a research child can be blamed for. Session
+    digests, meeting notes, raw/ drops and Obsidian edits land elsewhere during a batch."""
+    pages = (VAULT / "wiki" / "pages").rglob("*.md")
+    return {f: f.read_bytes() for f in [*pages, *([WIKI_LOG] if WIKI_LOG.exists() else [])]}
 
 
 def memo_targets(memo):
@@ -508,46 +511,52 @@ def research_edit_ok(old, new, limit):
     return added <= limit
 
 
-def research_violations(before, memos):
-    """What a research batch changed beyond its boundary, as short strings; empty when clean."""
-    after = wiki_snapshot()
+def research_violations(before, after, memos):
+    """What a research batch changed beyond its boundary, as {path: reason}; empty when clean."""
     memo_files = {(VAULT / m).resolve() for m in memos}
     wanted = {n for m in memo_files for n in memo_targets(m)}
-    out = []
+    out = {}
     for f in sorted(set(before) | set(after)):
-        rel = f.relative_to(VAULT).as_posix()
         if f == WIKI_LOG:
             if f in before and not (f in after and after[f].startswith(before[f])):
-                out.append(f"{rel} rewritten, not appended")
+                out[f] = "rewritten, not appended"
         elif f not in before:
-            out.append(f"{rel} created")
+            out[f] = "created"
         elif f not in after:
-            out.append(f"{rel} deleted")
+            out[f] = "deleted"
         elif before[f] != after[f]:
             if f.resolve() in memo_files or f.stem.lower() not in wanted:
-                out.append(f"{rel} changed")
+                out[f] = "changed"
             elif not research_edit_ok(before[f].decode(errors="replace"), after[f].decode(errors="replace"), len(memos)):
-                out.append(f"{rel} changed beyond lines under ## Research")
+                out[f] = "changed beyond lines under ## Research"
     return out
 
 
 def ingest_research(batch, extra=""):
-    """ingest_to_wiki for research memos, reverting the wiki when the run left its boundary.
-    A violation counts as a failed source, so the memo stays pending."""
+    """ingest_to_wiki for research memos, reverting pages the run changed beyond its boundary.
+    A violation counts as a failed source, so the memo stays pending. Never deletes a file and
+    never touches log.md; a page is restored only if it still holds the bytes the verdict was
+    computed from, so another writer's later change survives."""
     before = wiki_snapshot()
     ok = ingest_to_wiki(batch, extra)
-    bad = research_violations(before, batch)
-    if bad:
-        log(f"  research write boundary violated, reverting: {bad}")
-        for f in wiki_snapshot():
-            if f not in before:
-                f.unlink()
-        for f, data in before.items():
-            if not f.exists() or f.read_bytes() != data:
-                f.parent.mkdir(parents=True, exist_ok=True)
-                f.write_bytes(data)
-        return False
-    return ok
+    after = wiki_snapshot()
+    bad = research_violations(before, after, batch)
+    if not bad:
+        return ok
+    for f, why in bad.items():
+        rel = f.relative_to(VAULT).as_posix()
+        if f == WIKI_LOG or f not in before:
+            done = "left in place"  # a created page is not ours to delete
+        elif f.exists() and f.read_bytes() == after.get(f):
+            f.write_bytes(before[f])
+            done = "restored"
+        elif not f.exists():
+            f.write_bytes(before[f])
+            done = "restored"
+        else:
+            done = "left in place (changed again after the check)"
+        log(f"  research write boundary: {rel} {why}; {done}")
+    return False
 
 
 # A remote image is a beacon: Obsidian fetches it when the page renders, so an injected

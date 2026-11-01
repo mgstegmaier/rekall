@@ -113,11 +113,48 @@ def test_research_extra_state_edit_is_reverted(research):
     assert proj.read_text() == PROJECT
 
 
-def test_research_created_page_is_removed(research):
+def test_research_created_page_fails_the_batch_but_is_not_deleted(research):
     fp, run, proj, memo, log = research
     new = fp.VAULT / "wiki/pages/project/new.md"
     assert run(lambda: new.write_text("# new\n")) is False
-    assert not new.exists()
+    assert new.exists()
+
+
+def test_research_concurrent_writers_outside_pages_are_left_alone(research):
+    fp, run, proj, memo, log = research
+    (fp.VAULT / "wiki/sessions").mkdir()
+    old = fp.VAULT / "wiki/sessions/2026-11-01.md"
+    old.write_text("digest\n")
+    new = fp.VAULT / "wiki/sessions/2026-11-02.md"
+    raw = fp.VAULT / "wiki/raw/drop.md"
+    edited = PROJECT.replace("## Related pages", "## Research\n\n- [[memo-a]] evidence.\n\n## Related pages")
+
+    def agent():
+        new.write_text("new session\n")
+        old.write_text("digest\nappended\n")
+        raw.write_text("dropped\n")
+        proj.write_text(edited)
+    assert run(agent) is True
+    assert new.read_text() == "new session\n" and old.read_text() == "digest\nappended\n" and raw.exists()
+
+
+def test_research_page_changed_again_after_the_verdict_is_not_overwritten(research, monkeypatch):
+    fp, run, proj, memo, log = research
+    real = fp.research_violations
+
+    def late_writer(*a):
+        bad = real(*a)
+        proj.write_text("Mike's later edit\n")  # lands between the verdict and the restore
+        return bad
+    monkeypatch.setattr(fp, "research_violations", late_writer)
+    assert run(lambda: proj.write_text(PROJECT.replace("Running.", "Done."))) is False
+    assert proj.read_text() == "Mike's later edit\n"
+
+
+def test_research_never_rewrites_log(research):
+    fp, run, proj, memo, log = research
+    assert run(lambda: log.write_text("# replaced\n")) is False
+    assert log.read_text() == "# replaced\n"
 
 
 def test_research_memo_edit_is_reverted(research):
