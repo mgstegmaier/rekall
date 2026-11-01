@@ -22,6 +22,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
 try:
+    from harness_prompt import is_harness  # noqa: E402
     from paths import DB  # noqa: E402
     from rekall_config import claude_auth_status, sweep_status  # noqa: E402
     BROKEN = None
@@ -209,7 +210,7 @@ def main():
         prompt = json.load(sys.stdin).get("prompt", "")
     except Exception:
         return
-    if not isinstance(prompt, str) or not prompt.strip() or BUTTON_PROMPT.match(prompt):
+    if not isinstance(prompt, str) or is_harness(prompt) or BUTTON_PROMPT.match(prompt):
         return
     if BROKEN:
         return unavailable(BROKEN)

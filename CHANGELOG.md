@@ -6,6 +6,7 @@ To upgrade, run `git pull` and then `bash install.sh` in the rekall folder (see 
 
 ## 2026-11-01
 
+- The recall hook no longer searches on prompts the harness wrote. Task notifications, cross-session messages, "Tool loaded.", session-continuation summaries, skill bodies and slash-command echoes used to get a full search and about 1,500 characters of context each, mostly noise. The hook now strips reminder blocks and returns before searching when nothing typed is left or the remainder starts with one of those markers; a question typed after a reminder block still gets recall. The session digest shares the same list (`graph-memory/harness_prompt.py`). `git pull` is enough.
 - Re-running install.sh no longer adds a second recall hook. The installer matched a hook by the first command of each group, so when another tool's hook came first in the `UserPromptSubmit` group, the recall command wasn't recognised: every re-run appended another group and two `recall_hook.py` commands fired per prompt, and `--uninstall` left the original behind. It now matches every hook entry by script path, removes only the matching entries and drops a group only when it empties, so other tools' hooks are never touched. **Re-run install.sh**; if your `settings.json` already holds two recall commands, the re-run collapses them to one.
 
 ## 2026-10-27
