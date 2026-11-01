@@ -125,8 +125,11 @@ What we now own:
 
 The check, two weeks after the continuation-digests PR merges: read the digest entries written since the merge, and pick five whose
 sessions were over 40,000 characters. Each one should state the session's goal from its opening
-turns. Check `digest/log/digest.log` for `claude failed` lines and compare their count with the
-two weeks before the merge, since larger inputs could raise timeouts. If entries got vaguer or
+turns. Count failures in `digest/log/digest.log`, where every attempt writes one line tagged `digest ok`,
+`digest dropped <reason>` or `digest failed <exception>`: report `digest failed` over all three for the two weeks
+before and the two weeks after the merge, since larger inputs could raise timeouts. Lines from
+before the outcome tags shipped carry no tag, so take the "before" rate from the log's untagged failure
+lines (`headless_run:` or `drain:` lines ending in an exception name) over the sessions digested then. If entries got vaguer or
 failures rose, lower `max_chars` in `digest/config.json`. That change needs no code.
 
 ## Changes
