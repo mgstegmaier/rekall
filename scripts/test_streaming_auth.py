@@ -78,6 +78,18 @@ def test_rate_limit_fails_batch_and_leaves_marker(fp, monkeypatch):
     assert rekall_config.AUTH_FAILED.read_text() == "2026-10-26T00:00"
 
 
+def test_retried_auth_error_then_clean_result_succeeds(fp, monkeypatch):
+    import rekall_config
+    rekall_config.STATE_DIR.mkdir(parents=True, exist_ok=True)
+    rekall_config.AUTH_FAILED.write_text("2026-10-26T00:00")
+    retry = json.dumps({"type": "system", "subtype": "api_retry", "attempt": 1, "error_status": 401,
+                        "error": "authentication_failed"}, **COMPACT)
+    clean = json.dumps({"type": "result", "is_error": False, "result": "ok"}, **COMPACT)
+    monkeypatch.setattr(fp.subprocess, "Popen", lambda *a, **k: FakeProc([retry, clean], 0))
+    assert fp.ingest_to_wiki(["wiki/raw/a.md"]) is not None
+    assert not rekall_config.AUTH_FAILED.exists()
+
+
 def test_clean_result_clears_marker(fp, monkeypatch):
     import rekall_config
     rekall_config.STATE_DIR.mkdir(parents=True, exist_ok=True)

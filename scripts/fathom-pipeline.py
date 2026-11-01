@@ -607,8 +607,8 @@ def ingest_to_wiki(source_paths, extra=""):
                 ev = None
             if not isinstance(ev, dict):
                 ev = {}
-            if ev.get("error") == "authentication_failed":
-                auth_failed = True
+            if ev.get("error") == "authentication_failed" and ev.get("subtype") != "api_retry":
+                auth_failed = True  # api_retry precedes a retry that may succeed; the result decides
             if ev.get("type") == "result":
                 result = ev
             # The final result line carries the real error text. Truncating it hid an expired
@@ -621,7 +621,9 @@ def ingest_to_wiki(source_paths, extra=""):
     strip_remote_images(sorted(set(written)))  # whatever the outcome: a failed run can still have written pages
     # The CLI exits 0 on an auth-failed result, flagged by an error field or by is_error with
     # auth wording in result (2026-10-26); either way it is the machine's fault, not the sources'.
-    if result.get("is_error") and any(e in str(result.get("result", "")).lower() for e in AUTH_ERRORS):
+    if result and not result.get("is_error"):
+        auth_failed = False  # a clean final result wins over any earlier auth event
+    elif result.get("is_error") and any(e in str(result.get("result", "")).lower() for e in AUTH_ERRORS):
         auth_failed = True
     if auth_failed:
         note_claude_result(False, "authentication_error")
