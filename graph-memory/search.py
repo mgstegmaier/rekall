@@ -44,14 +44,21 @@ def query_terms(query):
     return [t for t in re.findall(r"\w+", query.lower()) if t not in STOPWORDS]
 
 
-def keyword_leg(db, query):
+# Restricts a leg to chunks whose heading is `section`, case-insensitively. Exact, not prefix:
+# digest sections are fixed names ("Decisions", "Open loops"), and a prefix would let
+# "Decision" pull in "Decision matrix" and other one-off headings.
+IN_SECTION = " IN (SELECT id FROM chunks WHERE section = ? COLLATE NOCASE)"
+
+
+def keyword_leg(db, query, section=None):
     terms = query_terms(query)
     if not terms:
         return []
     match = " OR ".join(f'"{t}"' for t in terms)
+    where, args = ("AND rowid" + IN_SECTION, (match, section)) if section else ("", (match,))
     rows = db.execute(
-        "SELECT rowid FROM chunks_fts WHERE chunks_fts MATCH ? ORDER BY bm25(chunks_fts) LIMIT 10",
-        (match,),
+        f"SELECT rowid FROM chunks_fts WHERE chunks_fts MATCH ? {where} ORDER BY bm25(chunks_fts) LIMIT 10",
+        args,
     ).fetchall()
     return [r[0] for r in rows]
 
@@ -101,15 +108,19 @@ def embedding_model():
         return TextEmbedding(model_name=EMBEDDING_MODEL)  # first run downloads
 
 
-def meaning_leg(db, query, scores=None):
+def meaning_leg(db, query, scores=None, section=None):
     """Top rowids by cosine similarity. When `scores` is a dict, it's filled
     with {rowid: cosine} for the returned ids so a caller can threshold on
-    the raw similarity instead of just the rank (recall_hook does)."""
+    the raw similarity instead of just the rank (recall_hook does). With
+    `section`, only chunks under that heading are scored."""
     try:
         from fastembed import TextEmbedding  # noqa: F401 — availability check
     except ImportError:
         return None
-    rows = db.execute("SELECT id, vec FROM vectors").fetchall()
+    if section:
+        rows = db.execute("SELECT id, vec FROM vectors WHERE id" + IN_SECTION, (section,)).fetchall()
+    else:
+        rows = db.execute("SELECT id, vec FROM vectors").fetchall()
     if not rows:
         return None
     stored_model = db.execute("SELECT value FROM meta WHERE key='model'").fetchone()

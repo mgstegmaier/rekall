@@ -24,7 +24,7 @@ mcp = FastMCP("rekall")
 
 
 @mcp.tool()
-def search_wiki(query: str) -> str:
+def search_wiki(query: str, section: str = "") -> str:
     """Search the user's wiki (projects, people, systems, meetings, past sessions).
 
     Call this BEFORE answering any question about a named project, person,
@@ -32,13 +32,19 @@ def search_wiki(query: str) -> str:
     [file § section] with their full text, then graph facts as
     "subject -[predicate]-> object (doc)" lines. Use read_page to open a whole
     page named in a label.
+
+    section (optional) keeps only chunks under that heading, matched exactly,
+    ignoring case: "Decisions" or "Open loops" for past sessions' decisions
+    and open loops, or any page heading such as "Next steps". Graph facts
+    are left out when it's set.
     """
+    section = section.strip()  # headings are stored stripped
     try:
-        found = hits(query)
+        found = hits(query, section or None)
     except Exception as e:  # no index yet, or a locked one
         return f"Search failed: {e}"
     parts = [f"{label}\n{text}" for label, text in found]
-    facts = [f"{s} -[{p}]-> {t} ({doc})" for s, p, t, doc in graph_facts(query)]
+    facts = [] if section else [f"{s} -[{p}]-> {t} ({doc})" for s, p, t, doc in graph_facts(query)]
     if facts:
         parts.append("Wiki graph:\n" + "\n".join(facts))
     return "\n\n".join(parts) or "No matches."

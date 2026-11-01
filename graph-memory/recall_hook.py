@@ -58,8 +58,12 @@ BUTTON_PROMPT = re.compile(
 MEANING_THRESHOLD = 0.68
 
 
-def hits(query):
+def hits(query, section=None):
     """The top rows for a query, as (label, one-line text) pairs.
+
+    `section` keeps only chunks under that heading, matched exactly but
+    case-insensitively ("decisions" finds "### Decisions"), and its keyword
+    hits skip MEANING_THRESHOLD. The hook never passes it.
 
     When the meaning leg is available, a candidate must clear
     MEANING_THRESHOLD on cosine similarity to be kept — this is what drops a
@@ -73,12 +77,15 @@ def hits(query):
 
     db = sqlite3.connect(DB, timeout=READ_TIMEOUT)
     try:
-        legs = {"keyword": keyword_leg(db, query)}
+        only = {"section": section} if section else {}  # unfiltered calls stay exactly as before
+        legs = {"keyword": keyword_leg(db, query, **only)}
         scores = {}
-        meaning = meaning_leg(db, query, scores=scores)
+        meaning = meaning_leg(db, query, scores=scores, **only)
         if meaning is not None:
             legs["meaning"] = meaning
-            strong = strong_keyword_hits(db, query, legs["keyword"])
+            # a filtered keyword hit holds a query word under the heading the caller asked for,
+            # so it passes; the floor is for unasked recall, and a section's cosines run lower
+            strong = set(legs["keyword"]) if section else strong_keyword_hits(db, query, legs["keyword"])
         ranked, _ = fuse(legs, db)
         out = []
         for rowid in ranked:
