@@ -71,10 +71,13 @@ for event, entries in ours.items():
         # ponytail: another tool's hook ending in the same graph-memory/... path would be replaced as well
         script = "/" + re.search(re.escape(repo) + r'/([^"]+\.py)', e["hooks"][0]["command"]).group(1)
         # entry level: our hook may sit beside another tool's in one group; drop a group only once it empties
+        emptied = []
         for g in have:
             if any(script in x.get("command", "") for x in g.get("hooks", [])):
                 g["hooks"] = [x for x in g["hooks"] if script not in x.get("command", "")]
-        have[:] = [g for g in have if g.get("hooks")]
+                if not g["hooks"]:
+                    emptied.append(g)
+        have[:] = [g for g in have if not any(g is d for d in emptied)]
         if mode == "add":
             have.append(e)
     if not have:
