@@ -271,6 +271,8 @@ if [ -n "$WIN" ]; then
 else
   launchctl list | grep rekall || echo "  (none listed: run 'launchctl list | grep rekall' yourself)"
 fi
+# Warns (never fails the install) when a headless Claude call doesn't answer, i.e. nobody has signed in.
+"$PY" "$REPO/scripts/setup-server.py" --probe || true
 # --standard on a new install: pull the last 30 days of meetings now instead of waiting for the hourly
 # run, which only looks back 26 hours. nohup, so closing Terminal doesn't stop it; the pipeline's
 # own lock keeps the hourly job from running beside it.
