@@ -202,46 +202,55 @@ def main():
     by_name = {}
     aliases = {}
     ident_by_rel = {}
-    db = sqlite3.connect(DB)
-    # WAL so the recall hook can read the last committed index while this
-    # build holds its write transaction. Persistent in the DB header, so one
-    # writer setting it is enough; a filesystem that cannot do WAL (a network
-    # mount) just keeps its old mode and everything still works, more slowly.
-    db.execute("PRAGMA journal_mode=WAL")
-    db.executescript(SCHEMA)
+    db = sqlite3.connect(DB, timeout=60)
+    try:
+        # WAL so the recall hook can read the last committed index while this
+        # build holds its write transaction. Persistent in the DB header, so one
+        # writer setting it is enough; a filesystem that cannot do WAL (a network
+        # mount) just keeps its old mode and everything still works, more slowly.
+        db.execute("PRAGMA journal_mode=WAL")
+        # One explicit transaction, so the drop and the inserts commit together: readers
+        # keep the last committed graph until then, and a failed or killed run changes
+        # nothing. SCHEMA must not go back through executescript(): it commits any open
+        # transaction before it runs.
+        db.execute("BEGIN IMMEDIATE")
+        for stmt in SCHEMA.split(";"):
+            if stmt.strip():
+                db.execute(stmt)
 
-    for rel, slug, kind, meta, _, relations in rows:
-        name = meta.get("title") or slug.replace("-", " ")
-        ident = eid(kind, name)
-        ident_by_rel[rel] = ident
-        by_slug.setdefault(slug, ident)  # wiki pages come first; a session never shadows one
-        by_name.setdefault(name.lower(), ident)
-        db.execute(
-            "INSERT OR IGNORE INTO entities VALUES (?,?,?,?,?)",
-            (ident, name, kind, meta.get("description", ""), rel),
-        )
-        spaced = slug.replace("-", " ")
-        # slug spacing plus the page's own `aliases:` list (how pages/me.md
-        # says your full name without it living in this repo)
-        for alias in [spaced] + relations.get("aliases", []):
-            if alias.lower() != name.lower():
-                db.execute("INSERT INTO aliases VALUES (?,?)", (ident, alias))
-                aliases.setdefault(alias.lower(), ident)
+        for rel, slug, kind, meta, _, relations in rows:
+            name = meta.get("title") or slug.replace("-", " ")
+            ident = eid(kind, name)
+            ident_by_rel[rel] = ident
+            by_slug.setdefault(slug, ident)  # wiki pages come first; a session never shadows one
+            by_name.setdefault(name.lower(), ident)
+            db.execute(
+                "INSERT OR IGNORE INTO entities VALUES (?,?,?,?,?)",
+                (ident, name, kind, meta.get("description", ""), rel),
+            )
+            spaced = slug.replace("-", " ")
+            # slug spacing plus the page's own `aliases:` list (how pages/me.md
+            # says your full name without it living in this repo)
+            for alias in [spaced] + relations.get("aliases", []):
+                if alias.lower() != name.lower():
+                    db.execute("INSERT INTO aliases VALUES (?,?)", (ident, alias))
+                    aliases.setdefault(alias.lower(), ident)
 
-    edges = set()
-    for rel, slug, kind, _, body, _ in rows:
-        src = ident_by_rel[rel]
-        for target in WIKILINK.findall(body):
-            t = target.strip().lower()
-            # digests may write [[Familiar Cost Watch]]; slugs are hyphenated
-            tid = by_slug.get(t) or by_slug.get(t.replace(" ", "-"))
-            if tid and tid != src:
-                edges.add((src, tid, "mentions", rel))
-    edges |= relation_edges(rows, by_slug, by_name, aliases, ident_by_rel)
-    db.executemany("INSERT INTO relations VALUES (?,?,?,?)", sorted(edges))
+        edges = set()
+        for rel, slug, kind, _, body, _ in rows:
+            src = ident_by_rel[rel]
+            for target in WIKILINK.findall(body):
+                t = target.strip().lower()
+                # digests may write [[Familiar Cost Watch]]; slugs are hyphenated
+                tid = by_slug.get(t) or by_slug.get(t.replace(" ", "-"))
+                if tid and tid != src:
+                    edges.add((src, tid, "mentions", rel))
+        edges |= relation_edges(rows, by_slug, by_name, aliases, ident_by_rel)
+        db.executemany("INSERT INTO relations VALUES (?,?,?,?)", sorted(edges))
 
-    db.commit()
-    db.close()
+        db.commit()
+    finally:
+        db.close()  # an uncommitted run is discarded here and the write lock released
     print(f"graph: {len(rows)} entities, {len(edges)} edges")
 
 
