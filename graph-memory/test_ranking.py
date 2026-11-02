@@ -101,3 +101,15 @@ def test_keyword_query_is_bounded(tmp_path):
 
     search.keyword_leg(Spy(), " ".join(f"term{i}" for i in range(60)))
     assert seen and seen[0].count(" OR ") + 1 <= search.MAX_QUERY_TERMS
+
+
+def test_unknown_terms_do_not_fill_the_cap(tmp_path):
+    db = make_db(tmp_path / "rag.db", [(1, "a.md", "S", "snowflake load error", "snowflake load error")])
+    q = "snowflake load error " + " ".join(f"zzq{i}" for i in range(15))
+    assert search.keyword_leg(db, q) == [1]
+    assert search.keyword_leg(db, " ".join(f"zzq{i}" for i in range(15))) == []
+
+
+def test_diacritics_fold_in_body_check(tmp_path):
+    db = make_db(tmp_path / "rag.db", [(1, "a.md", "S", "Zoë owns the rollout", "Zoë owns the rollout")])
+    assert search.strong_keyword_hits(db, "ask Zoe", [1]) == {1}

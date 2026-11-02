@@ -8,6 +8,7 @@ import functools
 import re
 import sqlite3
 import sys
+import unicodedata
 from datetime import date
 from pathlib import Path
 
@@ -60,7 +61,9 @@ def keyword_leg(db, query, section=None):
     if len(terms) > MAX_QUERY_TERMS:  # keep the rarest: they carry the match
         df = {t: db.execute("SELECT count(*) FROM chunks_fts WHERE chunks_fts MATCH ?", (f'"{t}"',)).fetchone()[0]
               for t in terms}
-        terms = sorted(terms, key=df.get)[:MAX_QUERY_TERMS]
+        terms = sorted((t for t in terms if df[t]), key=df.get)[:MAX_QUERY_TERMS]  # unknown terms match nothing
+        if not terms:
+            return []
     match = " OR ".join(f'"{t}"' for t in terms)
     where, args = ("AND rowid" + IN_SECTION, (match, section)) if section else ("", (match,))
     rows = db.execute(
@@ -81,6 +84,11 @@ def keyword_leg(db, query, section=None):
 # typed in lowercase gets no keyword pass (the meaning leg still applies).
 STRONG_TOP = 3
 RARE_DF = 30
+
+
+def fold(s):
+    """Drop diacritics, as FTS5's unicode61 does (Zoë matches Zoe)."""
+    return "".join(c for c in unicodedata.normalize("NFKD", s) if not unicodedata.combining(c))
 
 
 def strong_keyword_hits(db, query, keyword_ids):
@@ -106,7 +114,7 @@ def strong_keyword_hits(db, query, keyword_ids):
             continue
         # the FTS row also holds the label and title/description prefix; the names must be in the body
         body = db.execute("SELECT text FROM chunks WHERE id=?", (rowid,)).fetchone()
-        if body and all(re.search(rf"\b{re.escape(t)}\b", body[0], re.I) for t in rare):
+        if body and all(re.search(rf"\b{re.escape(fold(t))}\b", fold(body[0]), re.I) for t in rare):
             strong.add(rowid)
     return strong
 
