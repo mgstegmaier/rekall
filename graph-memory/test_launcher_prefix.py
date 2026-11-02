@@ -30,7 +30,7 @@ def test_every_child_sees_prefix_and_utf8(tmp_path, rel):
     py.parent.mkdir(parents=True)
     py.write_text(STUB)
     py.chmod(py.stat().st_mode | stat.S_IEXEC)
-    (tmp_path / "vault").mkdir()
+    (tmp_path / "vault" / "wiki").mkdir(parents=True)
     (tmp_path / "home").mkdir()
     (tmp_path / "rekall.toml").write_text(
         f'[user]\nname = "t"\ntimezone = "UTC"\n[vault]\npath = "{tmp_path / "vault"}"\n[data]\npath = "{tmp_path / "data"}"\n'
@@ -61,3 +61,40 @@ def test_path_reaches_homebrew_before_prefix(rel):
                     if l.startswith("export PATH=") and "/opt/homebrew/bin" in l), None)
     first_job = next(i for i, l in enumerate(text.splitlines()) if "$PREFIX" in l and not l.lstrip().startswith("#"))
     assert path_at is not None and path_at < first_job, rel
+
+
+FAIL_INDEX_STUB = f"""#!/bin/bash
+case "$1" in *rekall_config.py) exec {sys.executable} "$@";; *build_index.py) exit 1;; esac
+echo "CHILD $(basename "$1")"
+"""
+
+
+@pytest.mark.parametrize("has_wiki", [True, False])
+def test_reindex_reports_failed_builder(tmp_path, has_wiki):
+    """A failed builder logs FAILED <step> rc=<n> and makes reindex.sh exit non-zero, while the
+    other builder still runs; a missing wiki folder stops the script before any build step."""
+    t = tmp_path / "repo"
+    (t / "graph-memory").mkdir(parents=True)
+    shutil.copy2(ROOT / "graph-memory/reindex.sh", t / "graph-memory/reindex.sh")
+    shutil.copy2(ROOT / "rekall_config.py", t / "rekall_config.py")
+    py = t / "graph-memory/.venv/bin/python"
+    py.parent.mkdir(parents=True)
+    py.write_text(FAIL_INDEX_STUB)
+    py.chmod(py.stat().st_mode | stat.S_IEXEC)
+    (tmp_path / "vault").mkdir()
+    if has_wiki:
+        (tmp_path / "vault" / "wiki").mkdir()
+    (tmp_path / "home").mkdir()
+    (tmp_path / "rekall.toml").write_text(
+        f'[user]\nname = "t"\ntimezone = "UTC"\n[vault]\npath = "{tmp_path / "vault"}"\n[data]\npath = "{tmp_path / "data"}"\n')
+    env = {k: v for k, v in os.environ.items() if k not in ("PYTHONUTF8", "PYTHON")}
+    env.update(REKALL_CONFIG=str(tmp_path / "rekall.toml"), HOME=str(tmp_path / "home"))
+    r = subprocess.run(["bash", str(t / "graph-memory/reindex.sh")], env=env, capture_output=True, text=True, timeout=60)
+    if has_wiki:
+        assert r.returncode == 1, r.stdout + r.stderr
+        assert "FAILED build_index rc=1" in r.stdout, r.stdout
+        assert "CHILD build_graph.py" in r.stdout, r.stdout
+    else:
+        assert r.returncode == 2, r.stdout + r.stderr
+        assert "FAILED config" in r.stdout, r.stdout
+        assert "CHILD " not in r.stdout, r.stdout  # no step ran, build_index included

@@ -150,7 +150,7 @@ def meaning_leg(db, query, scores=None, section=None):
     stored_model = db.execute("SELECT value FROM meta WHERE key='model'").fetchone()
     if stored_model and stored_model[0] != EMBEDDING_MODEL:  # stale vectors: keyword leg only
         print(f"warning: index built with {stored_model[0]!r}, config wants "
-              f"{EMBEDDING_MODEL!r} — meaning leg off until build_index.py --full runs",
+              f"{EMBEDDING_MODEL!r} — meaning leg off until the next index run re-embeds",
               file=sys.stderr)
         return None
     if section:

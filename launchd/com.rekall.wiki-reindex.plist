@@ -11,7 +11,8 @@
         <string>__REPO__/graph-memory/reindex.sh</string>
     </array>
     <!-- hourly; build_index.py is incremental (seconds), and promotes the first
-         Sunday run each week to a full rebuild on its own (it reuses unchanged vectors) -->
+         Sunday run each week to a full rebuild on its own (it reuses unchanged vectors).
+         A non-zero exit means a builder failed; `grep FAILED` in the log shows which. -->
     <key>StartInterval</key>
     <integer>3600</integer>
     <key>StandardOutPath</key>

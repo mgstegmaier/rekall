@@ -265,11 +265,11 @@ def run(corpus, paths=None, limit=None, rebuild=True, under=None):
 
 
 def rebuild_index(corpus):
-    """Rebuild the index over a folder. The index is disposable, always."""
-    subprocess.run(
+    """Rebuild the index over a folder. Returns build_index's exit code (0 on success)."""
+    return subprocess.run(
         [sys.executable, str(HERE / "build_index.py"), "--corpus", str(corpus)],
         check=False,
-    )
+    ).returncode
 
 
 def main():

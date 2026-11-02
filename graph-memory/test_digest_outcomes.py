@@ -111,3 +111,16 @@ def test_adr_old_format_grep_matches_old_lines():
            "x drain: a.md: claude is not signed in; sign in again; stopping"]
     assert all(re.search(pat, line) for line in old)
     assert not re.search(pat, "x headless_run: a.md: moved to dropped/, why")
+
+
+def test_failed_rebuild_is_noted():
+    def body(tags):
+        distil.ask = lambda *a: "### What happened\nFixed."
+        distil.run = lambda *a, **k: None
+        distil.rebuild_index = lambda *a: 1
+        (common.PENDING / "a.md").write_text("**You:** hi")
+        headless_run.drain(min_age=0)
+        assert "build_index: rebuild failed rc=1" in (common.LOG / "digest.log").read_text()
+        assert tags() == ["ok"]
+
+    _run(body, distil=True)

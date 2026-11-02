@@ -11,6 +11,9 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 PY="$HERE/.venv/bin/python"
 [ -x "$PY" ] || PY="$HERE/.venv/Scripts/python.exe"   # Windows venv layout
 WIKI="$("$PY" "$HERE/../rekall_config.py" WIKI)"
+# an empty WIKI would make --corpus "" index launchd's working directory (/), and a missing
+# folder would commit an empty index; stop before any step runs
+[ -n "$WIKI" ] && [ -d "$WIKI" ] || { echo "FAILED config: WIKI is empty or missing ($WIKI)"; exit 2; }
 # [secrets] run_prefix in rekall.toml (e.g. "doppler run ... --") wraps each job; unset runs it bare.
 # Word-split on purpose: the prefix is a command line.
 PREFIX="$("$PY" "$HERE/../rekall_config.py" RUN_PREFIX)"
@@ -20,13 +23,20 @@ export PYTHONUTF8=1
 # session digests that failed to write up (expired sign-in, outage) wait in digest/pending/;
 # retry the ones older than 10 minutes, stopping at the first sign-in failure
 $PREFIX "$PY" "$HERE/digest/headless_run.py" --drain || true
+# distil failures go to the digest log, and a signed-out distil exits 0, so neither
+# distil step counts toward this script's exit status.
 # distil any new/changed meeting notes and raw/ sources first (SHA256 state makes
 # this incremental, usually zero claude calls); the index build below picks up its
 # output. raw/ is distilled because a long source can answer questions the compiled
 # wiki page never surfaced (decided 2026-09-03).
 $PREFIX "$PY" "$HERE/distil.py" "$WIKI" --under meetings --no-rebuild
 $PREFIX "$PY" "$HERE/distil.py" "$WIKI" --under raw --no-rebuild
-# incremental by default; build_index.py promotes the first Sunday run each week
-# to a full rebuild on its own (last_full in rag.db's meta table)
-$PREFIX "$PY" "$HERE/build_index.py" --corpus "$WIKI"
-$PREFIX "$PY" "$HERE/build_graph.py" --corpus "$WIKI"
+# incremental by default; build_index.py promotes a run to a full rebuild on its own:
+# the first Sunday run each week, every run once the last full is more than 7 days old,
+# and the next run after an embedding-model change (re-embeds everything).
+# A failed builder changes nothing in rag.db; it logs one FAILED line and the script
+# exits non-zero (launchd's "last exit code"), while the other builder still runs.
+rc=0
+$PREFIX "$PY" "$HERE/build_index.py" --corpus "$WIKI" || { echo "FAILED build_index rc=$?"; rc=1; }
+$PREFIX "$PY" "$HERE/build_graph.py" --corpus "$WIKI" || { echo "FAILED build_graph rc=$?"; rc=1; }
+exit $rc
