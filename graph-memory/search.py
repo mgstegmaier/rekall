@@ -119,6 +119,9 @@ def strong_keyword_hits(db, query, keyword_ids):
     return strong
 
 
+ALLOW_DOWNLOAD = True  # the recall hook turns this off: a prompt must not wait on a model fetch
+
+
 @functools.lru_cache(maxsize=1)  # the MCP server is long-lived; the hook is one process per prompt
 def embedding_model():
     """The configured model: the pinned local dir when it's BGE-small (the
@@ -130,6 +133,8 @@ def embedding_model():
     try:  # cached copy first: the hub check alone costs ~1.3 s per hook call
         return TextEmbedding(model_name=EMBEDDING_MODEL, local_files_only=True)
     except Exception:
+        if not ALLOW_DOWNLOAD:
+            raise
         return TextEmbedding(model_name=EMBEDDING_MODEL)  # first run downloads
 
 
@@ -142,17 +147,18 @@ def meaning_leg(db, query, scores=None, section=None):
         from fastembed import TextEmbedding  # noqa: F401 — availability check
     except ImportError:
         return None
+    stored_model = db.execute("SELECT value FROM meta WHERE key='model'").fetchone()
+    if stored_model and stored_model[0] != EMBEDDING_MODEL:  # stale vectors: keyword leg only
+        print(f"warning: index built with {stored_model[0]!r}, config wants "
+              f"{EMBEDDING_MODEL!r} — meaning leg off until build_index.py --full runs",
+              file=sys.stderr)
+        return None
     if section:
         rows = db.execute("SELECT id, vec FROM vectors WHERE id" + IN_SECTION, (section,)).fetchall()
     else:
         rows = db.execute("SELECT id, vec FROM vectors").fetchall()
     if not rows:
         return None
-    stored_model = db.execute("SELECT value FROM meta WHERE key='model'").fetchone()
-    if stored_model and stored_model[0] != EMBEDDING_MODEL:
-        print(f"warning: index built with {stored_model[0]!r}, config wants "
-              f"{EMBEDDING_MODEL!r} — vectors are stale until build_index.py --full runs",
-              file=sys.stderr)
     model = embedding_model()
     q = np.array(list(model.embed([QUERY_PREFIX + query]))[0], dtype=np.float32)
     q /= np.linalg.norm(q) or 1.0

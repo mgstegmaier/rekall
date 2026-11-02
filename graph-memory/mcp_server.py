@@ -15,7 +15,7 @@ sys.path.insert(0, str(HERE))
 
 from mcp.server.fastmcp import FastMCP  # noqa: E402
 
-from paths import ARCHIVE, WIKI  # noqa: E402
+from paths import ARCHIVE, DB, WIKI  # noqa: E402
 from recall_hook import graph_facts, hits  # noqa: E402
 
 VAULT = WIKI.parent  # read_page covers the whole vault: wiki/, guide/, today.md, ...
@@ -41,7 +41,9 @@ def search_wiki(query: str, section: str = "") -> str:
     section = section.strip()  # headings are stored stripped
     try:
         found = hits(query, section or None)
-    except Exception as e:  # no index yet, or a locked one
+    except Exception as e:
+        if not DB.is_file():
+            return "No index yet: run graph-memory/reindex.sh."
         return f"Search failed: {e}"
     parts = [f"{label}\n{text}" for label, text in found]
     facts = [] if section else [f"{s} -[{p}]-> {t} ({doc})" for s, p, t, doc in graph_facts(query)]
