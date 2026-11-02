@@ -364,8 +364,13 @@ def main():
     # Repair: a file whose rows repeat (an old --extra walked sessions/ twice) and a distillate
     # whose source is now excluded are re-chunked clean below. Nothing is committed until the end
     # of the run, so an interrupted repair leaves the index as it was.
-    dup = {(f, k == "distilled") for f, k in db.execute(
-        "SELECT file, kind FROM chunks GROUP BY file, section, start_line, end_line, text, kind HAVING count(*) > 1")}
+    per_src = {}  # distillates tracked per source: several may legitimately share one text
+    for _, src in tracked.values():
+        if src:
+            per_src[src] = per_src.get(src, 0) + 1
+    dup = {(f, k == "distilled") for f, k, n in db.execute(
+        "SELECT file, kind, count(*) FROM chunks GROUP BY file, section, start_line, end_line, text, kind")
+        if n > (per_src.get(f, 1) if k == "distilled" else 1)}
     force = {key for key, (_, src) in tracked.items()
              if (src, True) in dup or (key, False) in dup
              or (key.startswith("distilled/") and src and Path(src).parts[:2] == TRANSCRIPTS)}

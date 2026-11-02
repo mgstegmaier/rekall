@@ -97,3 +97,29 @@ def test_incremental_run_repairs_duplicated_rows(tmp_path, monkeypatch):
     assert _rows(tmp_path) == want
     _run(monkeypatch, tmp_path)  # idempotent
     assert _rows(tmp_path) == want
+
+
+def test_two_distillates_of_one_source_are_stable_but_doubled_row_is_repaired(tmp_path, monkeypatch):
+    _corpus(tmp_path)
+    d = _distillate(tmp_path, "meetings/m.md")
+    (tmp_path / "wiki" / "meetings" / "m.md").write_text(f"# M\n\n{QUOTE}\n")
+    (d / "y.md").write_text((d / "x.md").read_text())  # same source, identical text
+    _run(monkeypatch, tmp_path)
+    want = _rows(tmp_path)
+    assert sum(r[5] == "distilled" for r in want) == 2
+
+    changed = []
+    real = build_index.file_docs
+    monkeypatch.setattr(build_index, "file_docs", lambda *a: changed.append(a[0]) or real(*a))
+    orig = build_index.distilled_doc
+    monkeypatch.setattr(build_index, "distilled_doc", lambda *a: changed.append(a[0]) or orig(*a))
+    _run(monkeypatch, tmp_path)
+    assert changed == [] and _rows(tmp_path) == want  # nothing forced
+
+    with sqlite3.connect(tmp_path / "rag.db") as db:  # a genuinely doubled distilled row
+        r = db.execute("SELECT file, section, start_line, end_line, text, kind FROM chunks WHERE kind='distilled'").fetchone()
+        cur = db.execute("INSERT INTO chunks (file, section, start_line, end_line, text, kind) VALUES (?,?,?,?,?,?)", r)
+        db.execute("INSERT INTO chunks_fts (rowid, text, file, section) VALUES (?,?,?,?)", (cur.lastrowid, r[4], r[0], r[1]))
+        db.commit()
+    _run(monkeypatch, tmp_path)
+    assert _rows(tmp_path) == want
