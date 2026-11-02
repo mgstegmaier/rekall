@@ -127,10 +127,10 @@ with tempfile.TemporaryDirectory() as tmp:
         got = hits("qval status")
         assert [label for label, _ in got] == ["[pages/qval.md § Status]"], got
 
-        # with the meaning leg off entirely, keyword hits pass through unfiltered
+        # with the meaning leg off entirely, only strong keyword hits pass; these are lowercase words
         search.meaning_leg = lambda db, query, scores=None: None
         got = hits("qval status")
-        assert len(got) == 2, got
+        assert got == [], got
     finally:
         search.keyword_leg, search.meaning_leg, search.fuse = real_keyword_leg, real_meaning_leg, real_fuse
 

@@ -77,8 +77,8 @@ def hits(query, section=None):
     nonsense prompt's stray keyword-only match (see MEANING_THRESHOLD) — or be
     a strong keyword hit: a top keyword chunk holding the prompt's rare names
     or IDs (search.strong_keyword_hits), which an embedding scores low. With
-    no meaning leg (fastembed missing), there's no cosine to gate on, so
-    keyword hits pass through as before.
+    no meaning leg (model missing or mismatched), nothing clears the cosine
+    floor, so only strong keyword hits pass.
     """
     import search
     from search import fuse, keyword_leg, meaning_leg, strong_keyword_hits
@@ -92,13 +92,13 @@ def hits(query, section=None):
         meaning = meaning_leg(db, query, scores=scores, **only)
         if meaning is not None:
             legs["meaning"] = meaning
-            # a filtered keyword hit holds a query word under the heading the caller asked for,
-            # so it passes; the floor is for unasked recall, and a section's cosines run lower
-            strong = set(legs["keyword"]) if section else strong_keyword_hits(db, query, legs["keyword"])
+        # a filtered keyword hit holds a query word under the heading the caller asked for,
+        # so it passes; the floor is for unasked recall, and a section's cosines run lower
+        strong = set(legs["keyword"]) if section else strong_keyword_hits(db, query, legs["keyword"])
         ranked, _ = fuse(legs, db)
         out = []
         for rowid in ranked:
-            if meaning is not None and scores.get(rowid, 0.0) < MEANING_THRESHOLD and rowid not in strong:
+            if scores.get(rowid, 0.0) < MEANING_THRESHOLD and rowid not in strong:  # no meaning leg: no scores
                 continue
             file, section, text = db.execute(
                 "SELECT file, section, text FROM chunks WHERE id=?", (rowid,)
