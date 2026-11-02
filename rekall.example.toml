@@ -6,13 +6,13 @@ timezone = "America/Chicago"  # IANA name; meeting notes are dated in this zone
 
 [vault]
 # The folder that holds wiki/ (session digests land in wiki/sessions/). An Obsidian vault if you have one,
-# otherwise any folder; setup copies vault-template/ into it.
+# otherwise any folder; setup copies vault-template/ into it. Change it, then re-run install.sh.
 path = "~/rekall/vault"
 
 [data]
 # Index (rag.db), embedding model, distillates, digest staging. Regenerable, kept out of the vault.
 path = "~/rekall/data"
-# Pipeline state, lint state, locks and logs. Default is fine unless you run two installs on one machine.
+# Where this install keeps pipeline state, locks and logs. Change it, then re-run install.sh; the old folder isn't moved.
 # state = "~/.config/rekall"
 
 [wiki]

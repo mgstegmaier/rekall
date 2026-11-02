@@ -15,6 +15,10 @@ https://github.com/mgstegmaier/rekall (fresh single-commit history since 2026-09
   templates (`com.rekall.*`). `vault-template/` — what setup copies into a new vault.
 - `SETUP.md` — the guided install (paste into Claude Code). `install.sh` — every step that writes
   outside the repo (hooks, skills, plists, allow rules); idempotent, `--uninstall` reverses it.
+  One install per machine and what a re-run refreshes: README "Upgrading". Maintainer rule: every
+  skill, command, plist or task template install.sh writes goes through its substitution list,
+  and skills and commands go through `place` (records in gitignored `.installed/`). A new
+  placeholder goes in `subst_args`.
   `.claude/settings.json` — project ask rule so `bash install.sh` always prompts (loads only when
   Claude Code runs inside the rekall folder). `docs/obsidian-vault-cli.md` —
   vault CLI reference; read before any vault write. Wiki structure rules: vault `wiki/CLAUDE.md`.

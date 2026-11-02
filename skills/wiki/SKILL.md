@@ -11,7 +11,7 @@ Maintain a persistent, interlinked knowledge base in the Obsidian vault. Unlike 
 
 Based on Andrej Karpathy's LLM Wiki pattern. The wiki is a "codebase" maintained by AI: Obsidian is the IDE, Claude is the programmer, the wiki is the code.
 
-**Vault path:** `~/obsidian-vault/heck-db/`
+**Vault path:** `__VAULT__/`
 
 ## When to Invoke
 
@@ -27,7 +27,7 @@ Based on Andrej Karpathy's LLM Wiki pattern. The wiki is a "codebase" maintained
 ## Architecture
 
 ```
-heck-db/
+__VAULT_NAME__/
 └── wiki/                 # Claude-maintained knowledge base = one OKF-style bundle
     │                     # layout, placement, page format: see wiki/CLAUDE.md
     └── raw/              # User-curated sources (IMMUTABLE to Claude -- Mike adds/removes files himself)
@@ -51,21 +51,21 @@ On first invocation, check if `wiki/index.md` and `wiki/log.md` exist. If not, c
 
 ```bash
 # Check if wiki directory exists
-ls ~/obsidian-vault/heck-db/wiki/index.md 2>/dev/null
+ls "__VAULT__/wiki/index.md" 2>/dev/null
 
 # If missing, bootstrap:
-obsidian create vault="heck-db" path="wiki/index.md" content="# Wiki Index\n\nContent catalog for the LLM-maintained wiki.\n\n---\n\n## Entities\n\n_No entity pages yet._\n\n## Concepts\n\n_No concept pages yet._\n\n## Summaries\n\n_No summary pages yet._"
-obsidian property:set vault="heck-db" path="wiki/index.md" name="okf_version" value="0.2" type=text
+obsidian create vault="__VAULT_NAME__" path="wiki/index.md" content="# Wiki Index\n\nContent catalog for the LLM-maintained wiki.\n\n---\n\n## Entities\n\n_No entity pages yet._\n\n## Concepts\n\n_No concept pages yet._\n\n## Summaries\n\n_No summary pages yet._"
+obsidian property:set vault="__VAULT_NAME__" path="wiki/index.md" name="okf_version" value="0.2" type=text
 
-obsidian create vault="heck-db" path="wiki/log.md" content="# Wiki Log\n\nChronological record of all wiki operations.\n\n---"
-obsidian property:set vault="heck-db" path="wiki/log.md" name="type" value="log" type=text
-obsidian property:set vault="heck-db" path="wiki/log.md" name="date" value="{YYYY-MM-DD}" type=date
-obsidian property:set vault="heck-db" path="wiki/log.md" name="tags" value="wiki,log" type=list
+obsidian create vault="__VAULT_NAME__" path="wiki/log.md" content="# Wiki Log\n\nChronological record of all wiki operations.\n\n---"
+obsidian property:set vault="__VAULT_NAME__" path="wiki/log.md" name="type" value="log" type=text
+obsidian property:set vault="__VAULT_NAME__" path="wiki/log.md" name="date" value="{YYYY-MM-DD}" type=date
+obsidian property:set vault="__VAULT_NAME__" path="wiki/log.md" name="tags" value="wiki,log" type=list
 ```
 
 Also check that `wiki/raw/` exists:
 ```bash
-mkdir -p ~/obsidian-vault/heck-db/wiki/raw
+mkdir -p "__VAULT__/wiki/raw"
 ```
 
 ---
@@ -76,8 +76,8 @@ Runs when the Fathom pipeline finds a new meeting note or `wiki/raw/` file, or w
 
 ### Workflow
 
-1. **Read the source** via `obsidian read vault="heck-db" path="wiki/raw/{filename}"` (or Read tool for PDFs/images; meeting notes live in `wiki/meetings/`)
-2. **Check for existing pages** by grepping `wiki/index.md` or `wiki/pages/` (recursively) for the entity/topic names (or `obsidian search vault="heck-db" query="{concept}"`) -- never Read `wiki/index.md` whole; update existing pages rather than creating duplicates
+1. **Read the source** via `obsidian read vault="__VAULT_NAME__" path="wiki/raw/{filename}"` (or Read tool for PDFs/images; meeting notes live in `wiki/meetings/`)
+2. **Check for existing pages** by grepping `wiki/index.md` or `wiki/pages/` (recursively) for the entity/topic names (or `obsidian search vault="__VAULT_NAME__" query="{concept}"`) -- never Read `wiki/index.md` whole; update existing pages rather than creating duplicates
 3. **Create or update wiki pages** for each major entity, concept, or topic:
    - System pages: named platforms, services, or tools other things run on or call (vendor SaaS, an internal application, a homelab host)
    - Pipeline pages: scheduled or event-driven data flows with a source and a destination
@@ -160,7 +160,7 @@ When the user asks a question about topics covered by the wiki.
 
 ### Workflow
 
-1. **For cross-cutting questions**, run `obsidian search vault="heck-db" query="{topic}"` (or Grep over `wiki/`) before walking index links -- it catches pages the index's category grouping can miss
+1. **For cross-cutting questions**, run `obsidian search vault="__VAULT_NAME__" query="{topic}"` (or Grep over `wiki/`) before walking index links -- it catches pages the index's category grouping can miss
 2. **Grep `wiki/index.md`** (or `wiki/pages/`, recursively) for the entity/topic names to find relevant pages -- never Read `wiki/index.md` whole
 3. **Read relevant wiki pages** via `obsidian read`
 4. **Synthesize an answer** with citations to both wiki pages and raw sources
@@ -202,7 +202,7 @@ about: [page-slug, ...]  # optional -- see wiki/CLAUDE.md's relation fields
 **How:**
 
 1. Prepend the frontmatter to the plan file (`~/.claude/plans/*.md` or `docs/plans/*.md`) and write
-   it to `wiki/plans/` with `obsidian create vault="heck-db" path="wiki/plans/{file}" content="..."`.
+   it to `wiki/plans/` with `obsidian create vault="__VAULT_NAME__" path="wiki/plans/{file}" content="..."`.
    If Obsidian is closed and the CLI fails, use the Write tool on the vault path; Obsidian picks it
    up on next launch.
 2. Append to `wiki/log.md` at the END: `## YYYY-MM-DD` heading if today's is missing, then
@@ -271,10 +271,10 @@ Set via `obsidian property:set` after creating each wiki page. See wiki/CLAUDE.m
 
 ```bash
 # After creating wiki/pages/concept/llm-wiki-pattern.md
-obsidian property:set vault="heck-db" path="wiki/pages/concept/llm-wiki-pattern.md" name="type" value="concept" type=text
-obsidian property:set vault="heck-db" path="wiki/pages/concept/llm-wiki-pattern.md" name="date" value="2026-04-14" type=date
-obsidian property:set vault="heck-db" path="wiki/pages/concept/llm-wiki-pattern.md" name="tags" value="knowledge-management,ai,patterns" type=list
-obsidian property:set vault="heck-db" path="wiki/pages/concept/llm-wiki-pattern.md" name="sources" value="karpathy-llm-wiki.md" type=list
+obsidian property:set vault="__VAULT_NAME__" path="wiki/pages/concept/llm-wiki-pattern.md" name="type" value="concept" type=text
+obsidian property:set vault="__VAULT_NAME__" path="wiki/pages/concept/llm-wiki-pattern.md" name="date" value="2026-04-14" type=date
+obsidian property:set vault="__VAULT_NAME__" path="wiki/pages/concept/llm-wiki-pattern.md" name="tags" value="knowledge-management,ai,patterns" type=list
+obsidian property:set vault="__VAULT_NAME__" path="wiki/pages/concept/llm-wiki-pattern.md" name="sources" value="karpathy-llm-wiki.md" type=list
 ```
 
 ---
@@ -283,7 +283,7 @@ obsidian property:set vault="heck-db" path="wiki/pages/concept/llm-wiki-pattern.
 
 When a new source adds information to an existing wiki page:
 
-1. Read the existing page via `obsidian read vault="heck-db" path="wiki/{slug}.md"`
+1. Read the existing page via `obsidian read vault="__VAULT_NAME__" path="wiki/{slug}.md"`
 2. Merge new information with existing content -- never silently drop existing claims; note contradictions instead
 3. Write the updated page via Write tool (Obsidian CLI `create` overwrites; use Write tool for targeted edits to preserve properties)
 4. Update the `sources` property to include the new source

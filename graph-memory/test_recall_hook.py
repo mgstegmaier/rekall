@@ -274,9 +274,9 @@ with tempfile.TemporaryDirectory() as tmp:
     end_cmd = template["SessionEnd"][0]["hooks"][0]["command"]
     assert run([sys.executable, str(tmp / "gone.py")], tmp).returncode == 2  # the failure being guarded
     for repo, py in [(tmp / "no-repo", sys.executable), (HOOK.parents[1], str(tmp / "no-venv" / "python"))]:
-        log = tmp / ".config" / "rekall" / "logs" / "hook.log"
+        log = tmp / "state" / "logs" / "hook.log"
         log.unlink(missing_ok=True)
-        cmd = recall_cmd.replace("__REPO__", str(repo)).replace("__VENV_PY__", py)
+        cmd = recall_cmd.replace("__REPO__", str(repo)).replace("__VENV_PY__", py).replace("__STATE__", str(tmp / "state"))
         assert_unavailable(run(cmd, tmp, shell=True), log, f"settings command, repo={repo} py={py}")
         r = run(end_cmd.replace("__REPO__", str(repo)).replace("__VENV_PY__", py), tmp, shell=True)
         assert r.returncode == 0, ("session_end command", r.returncode, r.stderr)

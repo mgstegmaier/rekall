@@ -18,7 +18,7 @@ def cli_set(rel, name, value):
         args = [f"value={','.join(value)}", "type=list"]
     else:
         args = [f"value={value}", "type=text"]
-    r = subprocess.run([OBS, "property:set", 'vault=heck-db', f"path=wiki/{rel}", f"name={name}", *args],
+    r = subprocess.run([OBS, "property:set", f"vault={VAULT.name}", f"path=wiki/{rel}", f"name={name}", *args],
                        capture_output=True, text=True, timeout=20)
     return r.returncode == 0
 

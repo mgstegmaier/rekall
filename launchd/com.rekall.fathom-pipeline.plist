@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!-- Template. Replace __REPO__ (this repo's absolute path) and __HOME__ (your home folder),
+<!-- Template. Replace __REPO__ (this repo's absolute path), __HOME__ (your home folder) and __STATE__ (the state folder),
      then copy to ~/Library/LaunchAgents/ and `launchctl load` it. Runs hourly, 7am-7pm. -->
 <plist version="1.0">
 <dict>
@@ -28,8 +28,8 @@
         <dict><key>Hour</key><integer>19</integer><key>Minute</key><integer>15</integer></dict>
     </array>
     <key>StandardOutPath</key>
-    <string>__HOME__/.config/rekall/logs/launchd.log</string>
+    <string>__STATE__/logs/launchd.log</string>
     <key>StandardErrorPath</key>
-    <string>__HOME__/.config/rekall/logs/launchd.log</string>
+    <string>__STATE__/logs/launchd.log</string>
 </dict>
 </plist>

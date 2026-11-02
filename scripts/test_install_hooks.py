@@ -15,7 +15,8 @@ def merge_py():
 
 
 def run(mode, path):
-    subprocess.run([sys.executable, "-c", merge_py(), mode, str(ROOT), str(path), "/v/bin/python", "Bash(x:*)"],
+    subprocess.run([sys.executable, "-c", merge_py(), mode, str(ROOT), str(path), "/v/bin/python", "Bash(x:*)",
+                    str(path.parent / "state")],
                    check=True)
     return json.loads(path.read_text())
 
