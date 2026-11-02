@@ -55,4 +55,32 @@ with tempfile.TemporaryDirectory() as tmp:
     assert text.index("turns omitted ...]") < text.index(marker), "the middle is gone; the marker opens the tail"
     assert f"{marker}\n" in text and text.count(marker) == 1
 
+    # one budget for the whole input: the marker counts, and a budget under the marker keeps no turns
+    marker, since = session_end.common.NEW_MARKER, base + timedelta(minutes=2, seconds=30)
+    write([f"turn {i}" for i in range(10)])
+    whole = len("\n\n".join(f"**{'You' if i % 2 == 0 else 'Claude'}:** turn {i}" for i in range(10)))
+    exact = {**cfg, "max_chars": whole + len(marker) + 1}
+    text = session_end.filtered(path, exact, since)
+    assert "omitted" not in text and len(text) == exact["max_chars"], (len(text), exact["max_chars"])
+    text = session_end.filtered(path, {**cfg, "max_chars": exact["max_chars"] - 1}, since)
+    assert "omitted" in text and len(text) <= exact["max_chars"] - 1, "one char short goes through the cut"
+    tiny = session_end.filtered(path, {**cfg, "max_chars": 30}, since)
+    assert tiny is None or len(tiny) <= 30, "a budget under the markers keeps no turns"
+
+    # six closes of one session: the monday line, the recorded block and the transcript stay under max_chars
+    headless_run = __import__("headless_run")
+    common = session_end.common
+    entry = "### What happened\n" + "Wired it. " * 30 + "\n\n### Decisions\n" + "".join(
+        f"- decision {i} {'d' * 60}\n" for i in range(6)) + "\n### Open loops\n- [open] " + "o" * 80 + "\n"
+    write([f"goal {'x' * 90}"] + [f"turn {i} {'y' * 90}" for i in range(1, 200)])
+    monday = "[monday ticket] #1 \"T\" http://x (open)\n\n"
+    earlier = []
+    for close in range(6):
+        prefix = common.recorded(earlier, cfg["max_chars"] // common.RECORDED_SHARE)
+        room = cfg["max_chars"] - len(monday) - len(prefix)
+        text = monday + session_end.filtered(path, cfg, base + timedelta(minutes=100), budget=room)
+        sent = headless_run.payload(earlier, text, cfg["max_chars"]) if earlier else text
+        assert len(sent) <= cfg["max_chars"], (close, len(sent))
+        earlier.append(("2026-01-01", f"Session 12:0{close} \u00b7 a177508f", entry))
+
 print("ok")

@@ -11,6 +11,7 @@ Nothing is thrown away on a failure. The staged file stays where it is and the
 reason lands in digest/log/digest.log, so the next run can try again.
 """
 
+import json
 import re
 import sys
 import time
@@ -23,6 +24,7 @@ sys.path.insert(0, str(HERE.parent))  # flat vendored layout, no rag/ subdir
 
 import common  # noqa: E402
 import distil  # noqa: E402
+from rekall_config import STATE_DIR  # noqa: E402  (distil put the repo root on sys.path)
 
 
 # session_end.py names each staged file <session id>-<YYYYmmdd-HHMMSS>.md, stamped when it closed
@@ -40,38 +42,17 @@ def append(log, entry, when=None, session=""):
         handle.write(block)
 
 
-HEX8 = re.compile(r"[0-9a-f]{8}")
 BULLET = re.compile(r"^\s*- ")
 ONLY_NEW = ("Decisions", "Facts", "Lessons", "Wins")  # dedupe runs here; Open loops is judged, not filtered
 RECORDS = ONLY_NEW + ("Open loops",)  # a continuation needs a bullet under one of these
+section, session_entries, HEX8 = common.section, common.session_entries, common.HEX8
 
 
-def section(text, name):
-    """The body under `### name`, up to the next heading, or ''."""
-    m = re.search(rf"^### {re.escape(name)}[ \t]*\n(.*?)(?=^#{{2,3}} |\Z)", text, re.M | re.S)
-    return m[1].strip() if m else ""
-
-
-def session_entries(folder, id8):
-    """Every entry already written for this session, oldest first: (day, heading, body) for each
-    `## Session HH:MM · <id8>` block in folder/*.md, running to the next `## ` line."""
-    found = []
-    head = re.compile(rf"^## (Session \d\d:\d\d · {re.escape(id8)})[ \t]*\n(.*?)(?=^## |\Z)", re.M | re.S)
-    for day in sorted(Path(folder).glob("*.md")):
-        found += [(day.stem, m[1], m[2].strip()) for m in head.finditer(day.read_text(encoding="utf-8"))]
-    return found
-
-
-def payload(earlier, text):
-    """What the model reads for a continuation: what is already recorded, then the transcript."""
-    blocks = []
-    for day, heading, body in earlier[:-1]:
-        kept = [f"### {n}\n{section(body, n)}" for n in ("Decisions", "Open loops") if section(body, n)]
-        if kept:
-            blocks.append(f"[{day} {heading[8:13]}, earlier entry]\n" + "\n".join(kept))
-    day, heading, body = earlier[-1]
-    blocks.append(f"[{day} {heading[8:13]}, latest entry]\n{body}")
-    return "Already recorded for this session:\n\n" + "\n\n".join(blocks) + "\n\n---\n\n" + text
+def payload(earlier, text, max_chars):
+    """What the model reads for a continuation: what is already recorded, then the transcript,
+    all of it at most max_chars. The recorded block gives way, never the transcript."""
+    cap = min(max_chars // common.RECORDED_SHARE, max_chars - len(text))
+    return common.recorded(earlier, cap) + text
 
 
 def norm(bullet):
@@ -144,7 +125,7 @@ def main(staged):
         staged.unlink(missing_ok=True)
         common.note_failure("headless_run", "digest dropped empty")
         return
-    text = payload(earlier, text) if earlier else text.replace(f"{common.NEW_MARKER}\n", "")
+    text = payload(earlier, text, cfg["max_chars"]) if earlier else text.replace(f"{common.NEW_MARKER}\n", "")
 
     entry = distil.ask(cfg["model"], common.PROMPT.read_text(encoding="utf-8"), text)
     if not entry.strip():
@@ -170,23 +151,54 @@ def main(staged):
     common.note_failure("headless_run", "digest ok")  # last, so a late distil error is the attempt's one tag
 
 
+STRIKE_LIMIT = 3
+STRIKES = STATE_DIR / "digest-strikes.json"  # staged file name -> consecutive non-auth failures
+
+
 def drain(min_age=600):
     """Write up staged files older than min_age seconds, oldest first, one at a time. Younger
     ones may still have their own headless_run going. Stops at a sign-in failure, since every
-    later file would fail the same way. ponytail: a file that always fails is retried each hour;
-    its reason is in digest.log, and deleting it is the fix."""
+    later file would fail the same way. A file whose claude call fails STRIKE_LIMIT times, in drains
+    where another file succeeded (so not an outage, a timeout or a sign-in failure),
+    moves to pending/failed/, which this never reads; the text stays there, the reasons are in
+    digest.log, and moving it back retries it."""
     if common.config()["mode"] != "headless":
         return  # session mode leaves staged text for your next session on purpose
+    try:
+        strikes = json.loads(STRIKES.read_text(encoding="utf-8"))
+    except Exception:
+        strikes = {}
+    done, failed = 0, []
     for staged in sorted(common.PENDING.glob("*.md"), key=lambda p: p.stat().st_mtime):
         if time.time() - staged.stat().st_mtime < min_age:
             continue
         try:
             main(staged)
+            strikes.pop(staged.name, None)
+            done += 1
         except distil.NotSignedIn as exc:
             common.note_failure("drain", f"digest failed NotSignedIn {staged.name}: {exc}; stopping")
-            return
+            break
         except Exception as exc:
             common.note_failure("drain", f"digest failed {type(exc).__name__} {staged.name}: {exc}")
+            # distil.run's rule: a timeout, a missing index or claude, is the machine's fault, no
+            # strike; a failed call strikes only if another file in this drain got through
+            if isinstance(exc, distil.ClaudeExit):
+                failed.append(staged)
+    for staged in failed if done else []:
+        strikes[staged.name] = strikes.get(staged.name, 0) + 1
+        if strikes[staged.name] >= STRIKE_LIMIT:  # not a second outcome tag: the attempt's line is above
+            (staged.parent / "failed").mkdir(exist_ok=True)
+            staged.replace(staged.parent / "failed" / staged.name)
+            strikes.pop(staged.name)
+            common.note_failure("drain", f"gave up on {staged.name} after {STRIKE_LIMIT} failures: now in pending/failed/")
+    if not (strikes or STRIKES.exists()):
+        return
+    try:
+        STRIKES.parent.mkdir(parents=True, exist_ok=True)
+        STRIKES.write_text(json.dumps(strikes), encoding="utf-8")
+    except OSError:
+        pass  # a missing count only means one more retry
 
 
 if __name__ == "__main__":

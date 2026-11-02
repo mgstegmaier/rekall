@@ -98,22 +98,26 @@ def local(when):
     return datetime.fromisoformat(when.replace("Z", "+00:00")).astimezone().replace(tzinfo=None)
 
 
-def filtered(transcript, cfg, since=None):
-    """The whole conversation when it fits max_chars. Otherwise the opening quarter of the budget,
-    where the session's goal was said, then as much of the end as fits, cut at whole turns. When
+def filtered(transcript, cfg, since=None, budget=None):
+    """The whole conversation when it fits budget (default max_chars), marker included. Otherwise
+    the opening quarter of the budget, where the session's goal was said, then as much of the end as fits, cut at whole turns. When
     since is the time of an earlier close, common.NEW_MARKER goes before the first kept turn
     newer than it."""
     kept = turns(transcript)
     if len(kept) < cfg["min_turns"]:
         return None
-    budget = cfg["max_chars"]
+    budget = cfg["max_chars"] if budget is None else budget
     blocks = [f"**{who}:** {body}" for who, body, _ in kept]
     new = next((i for i, (_, _, when) in enumerate(kept) if since and when and local(when) > since), None)
+    if new is not None:
+        budget -= len(common.NEW_MARKER) + 1  # the marker and its newline count against the budget
     if len("\n\n".join(blocks)) <= budget:
         if new is not None:
             blocks[new] = f"{common.NEW_MARKER}\n{blocks[new]}"
         return "\n\n".join(blocks)
     budget -= 40  # room for the omitted marker
+    if budget < 40:  # no room for even one turn
+        return None
     # ponytail: one turn longer than a quarter of the budget (a pasted file, say) is clipped, so
     # the head and the tail each keep at least one whole turn
     blocks = [b if len(b) <= budget // 4 else b[: budget // 4 - 6] + " [...]" for b in blocks]
@@ -303,13 +307,18 @@ def main():
     try:
         if not typed_since_last_close(transcript, safe):
             return
-        text = filtered(transcript, cfg, last_close(safe))
+        # a continuation sends the already-recorded block ahead of this text (headless_run.payload),
+        # so the Monday line and that block come off the budget first
+        monday = monday_line(session_id)
+        earlier = common.session_entries(notes / cfg["log_dir"], safe[:8]) if common.HEX8.fullmatch(safe[:8]) else []
+        room = cfg["max_chars"] - len(monday) - len(common.recorded(earlier, cfg["max_chars"] // common.RECORDED_SHARE))
+        text = filtered(transcript, cfg, last_close(safe), budget=room)
     except Exception as exc:
         common.note_failure("session_end", f"{type(exc).__name__} {exc}")
         return
     if not text:
         return
-    text = monday_line(session_id) + text
+    text = monday + text
 
     # the stamp matters: one session can close more than once, and neither
     # write-up may overwrite the other
