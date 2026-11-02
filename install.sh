@@ -91,9 +91,11 @@ guard() {
   me="$(cd "$REPO" && pwd -P)"
   owners="$(owner_paths)" || { echo "can't read $SETTINGS; fix or move it, then re-run" >&2; return 1; }
   while IFS= read -r o; do
+    o="${o%$'\r'}"  # Windows Python may end lines with CRLF
     [ -n "$o" ] || continue
     o="$(cd "$o" 2>/dev/null && pwd -P || echo "$o")"
-    [ "$o" != "$me" ] || continue
+    # -ef compares the folders themselves, so a path typed in another letter case is still this clone
+    [ "$o" -ef "$me" ] && continue
     if [ -f "$o/install.sh" ] && [ -f "$o/rekall.toml" ]; then
       echo "Rekall is already installed from $o. One machine runs one install." >&2
       echo "To move it here: bash $o/install.sh --uninstall, then re-run this." >&2
