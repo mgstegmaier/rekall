@@ -8,7 +8,7 @@ https://github.com/mgstegmaier/rekall (fresh single-commit history since 2026-09
   `rekall.example.toml`) through `rekall_config.py`. `REKALL_CONFIG=/other.toml` points every
   script at another vault. Secrets: `.env` at the repo root (see `.env.example`) or Doppler.
 - `graph-memory/` — the LIVE copy (hooks in `~/.claude/settings.json` and the hourly
-  `com.heckatron.wiki-reindex` LaunchAgent point here). See `graph-memory/README.md`.
+  `com.rekall.wiki-reindex` LaunchAgent point here). See `graph-memory/README.md`.
 - `scripts/` — ingest pipeline, indexers, wiki lint/cleanup, wins mining.
 - The chief of staff (ledger, prep, status, the plate) moved to its own private repo
   `~/github_repos/cos-desk` on 2026-09-07; wiki page `pages/chief-of-staff.md` is the reference. `launchd/` — plist
@@ -24,7 +24,7 @@ https://github.com/mgstegmaier/rekall (fresh single-commit history since 2026-09
 Shipped: MCP server for Claude Desktop chat (`graph-memory/mcp_server.py`, `search_wiki` and `read_page`),
 registered by `install.sh` step 6 (`7f55d1b`, `4e4d84f`, `0dea1ca`). README section "Use your wiki from
 Claude Desktop chat" merged in PR #7. Cost audit 2026-09-24 numbers live on wiki `pages/rekall.md`.
-Live plists keep `com.heckatron.*` labels; `install.sh` would duplicate them, so don't re-run it here.
+This machine runs the released install (`bash install.sh --with-graph`, `com.rekall.*` labels) since 2026-11-01; the old `com.heckatron.*` plists sit in `~/.config/rekall/backup-plists/`. Re-running `install.sh` is safe.
 Changes go through a PR; never merge into `main` locally.
 
 Open: eval prompt set contaminated and Haiku judge uncalibrated (recheck 0.68 with

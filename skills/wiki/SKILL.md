@@ -221,7 +221,7 @@ test: strip the fences and confirm the backtick count is even and no span contai
 
 ## Mode: Lint
 
-Lint is automated: `rekall/scripts/wiki-lint.py` runs nightly via launchd (`com.heckatron.wiki-lint`) and notifies on regressions. To run it manually:
+Lint is automated: `rekall/scripts/wiki-lint.py` runs nightly via launchd (`com.rekall.wiki-lint`) and notifies on regressions. To run it manually:
 
 ```bash
 python3 ~/github_repos/personal_projects/rekall/scripts/wiki-lint.py --verbose
