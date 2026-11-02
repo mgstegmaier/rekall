@@ -75,7 +75,8 @@ def read_page(name: str, offset: int = 0) -> str:
     if "/" in name or name.endswith(".md"):
         if not name.endswith(".md") or name.startswith("/") or any(part.startswith(".") for part in name.split("/")):
             return "Rejected: a path must be vault-relative, end in .md, and have no hidden parts."
-        found = [VAULT / name] if (VAULT / name).is_file() else []
+        # vault path first, else a search_wiki label (relative to wiki/)
+        found = [q for q in (VAULT / name, VAULT / WIKI.name / name) if q.is_file()][:1]
     else:
         # ponytail: full vault walk per call (a few thousand files); cache stems if it gets slow
         found = [p for p in VAULT.rglob("*.md")  # compare stems, so glob characters in name match nothing
@@ -86,10 +87,10 @@ def read_page(name: str, offset: int = 0) -> str:
     if not found:
         return f"Page not found: {name}"
     if len(found) > 1:
-        return "Multiple pages match:\n" + "\n".join(str(p.relative_to(VAULT)) for p in sorted(found))
+        return "Multiple pages match:\n" + "\n".join(p.relative_to(VAULT).as_posix() for p in sorted(found))
     text = found[0].read_text(encoding="utf-8")
     offset = max(offset, 0)
-    head = f"[{found[0].relative_to(VAULT)}]\n"
+    head = f"[{found[0].relative_to(VAULT).as_posix()}]\n"
     room = max(READ_CAP - len(head) - 120, 0)  # 120 leaves space for the trailer
     body = text[offset:offset + room]
     end = offset + len(body)

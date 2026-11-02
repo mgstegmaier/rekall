@@ -80,3 +80,11 @@ def test_chunks_never_exceed_budget(tmp_path):
     assert chunks and all(len(c[3]) <= build_index.CHUNK_BUDGET for c in chunks)
     joined = "".join(c[3] for c in chunks)
     assert joined.count("a") == 1000 and joined.count("b") == 1000 and joined.count("c") == 5000
+
+
+def test_read_page_accepts_search_label_path(tmp_path, monkeypatch):
+    v = vault(tmp_path, monkeypatch)
+    label = "pages/a/x.md"  # search_wiki labels are relative to wiki/
+    out = mcp_server.read_page(label)
+    assert out.startswith("[wiki/pages/a/x.md]") and "body of wiki/pages/a/x.md" in out
+    assert "\\" not in mcp_server.read_page("x") and "\\" not in out.split("\n", 1)[0]
