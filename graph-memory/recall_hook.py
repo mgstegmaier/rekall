@@ -114,10 +114,10 @@ def excerpt(text, terms):
     if len(text) <= PER_HIT:
         return text
     low = text.lower()
-    spots = [low.index(t) for t in terms if t in low]
+    spots = [m.start() for t in terms for m in re.finditer(re.escape(t), low)]
     if not spots:
         return text[:PER_HIT] + "..."
-    # of the windows anchored on each match, the one covering the most terms
+    # of the windows anchored on every occurrence, the one covering the most distinct terms
     start = max(
         (max(0, spot - PER_HIT // 4) for spot in spots),
         key=lambda s: sum(1 for t in terms if t in low[s : s + PER_HIT]),
@@ -135,16 +135,21 @@ def excerpt(text, terms):
     return ("..." if start else "") + text[start:end] + ("..." if end < len(text) else "")
 
 
-def block(found, query):
-    """The hits trimmed to the budget. Whole hits only, never a half one."""
+def block(found, query, room=BUDGET):
+    """The hits trimmed to `room` characters. Whole hits only, except a first
+    hit too big for the room, which is cut to fit."""
     from search import query_terms
 
     terms = query_terms(query)
     kept, used = [], 0
     for label, text in found:
         entry = f"{label}\n{excerpt(text, terms)}"
-        if kept and used + len(entry) > BUDGET:
-            break
+        if used + len(entry) > room:
+            if kept:
+                break
+            entry = entry[: max(room - 3, 0)] + "..." if room > 3 else ""
+            if not entry:
+                break
         kept.append(entry)
         used += len(entry) + 2
     return kept
@@ -165,18 +170,29 @@ def graph_facts(prompt):
         return []
 
 
-def graph_block(facts):
-    """Facts trimmed to GRAPH_BUDGET. Whole triples only, never a half one.
+GRAPH_HEADING = "Wiki graph:\n"
+
+
+def graph_block(facts, budget=GRAPH_BUDGET):
+    """Facts trimmed so the section, heading included, fits `budget`. Whole
+    triples only, except a first one longer than any section allows, which
+    is cut to fit (keeping its source when it can).
 
     graph_facts already only returns anything when the prompt named an
     entity in the graph (graph_recall._seeds requires a name match), so no
     extra gate is needed here beyond the character cap.
     """
+    room = min(budget, GRAPH_BUDGET) - len(GRAPH_HEADING)
     lines, used = [], 0
     for s, p, t, doc in facts:
         line = f"{s} -[{p}]-> {t}  ({doc})"
-        if lines and used + len(line) > GRAPH_BUDGET:
-            break
+        if used + len(line) > room:
+            # cut only a first fact too long for any section; one that merely misses the leftover room is dropped
+            if lines or len(line) <= GRAPH_BUDGET - len(GRAPH_HEADING) or room < 40:
+                break
+            tail = f"  ({doc})"
+            head = f"{s} -[{p}]-> {t}"
+            line = head[: room - 3 - len(tail)] + "..." + tail if len(tail) <= room // 2 else line[: room - 3] + "..."
         lines.append(line)
         used += len(line) + 1
     return lines
@@ -217,7 +233,7 @@ def main():
     if not DB.is_file():
         return unavailable(f"no index at {DB}, run graph-memory/reindex.sh")
     try:
-        kept = block(hits(prompt), prompt)
+        found = hits(prompt)
     except Exception as e:
         return unavailable(f"search failed ({type(e).__name__}: {e})")
     facts = graph_facts(prompt)
@@ -231,7 +247,7 @@ def main():
         sweep = None if auth else sweep_status()
     except Exception:
         sweep = None
-    if not kept and not facts and not auth and not sweep:
+    if not found and not facts and not auth and not sweep:
         return
     parts = []
     if auth:
@@ -239,11 +255,15 @@ def main():
                      "it opens the Claude sign-in in their browser.")
     if sweep:
         parts.append(f"Rekall sweeps: {sweep} Tell the user.")
+    # one budget for the whole context: notices, header, labels and graph all count (2 = the "\n\n" joiner)
+    left = BUDGET - sum(len(p) + 2 for p in parts)
+    kept = block(found, prompt, left - len(HEADER) - 4) if found else []
     if kept:
         parts.append(HEADER + "\n\n" + "\n\n".join(kept))
-    graph_lines = graph_block(facts) if facts else []
+        left -= len(parts[-1]) + 2
+    graph_lines = graph_block(facts, left - 2) if facts else []
     if graph_lines:
-        parts.append("Wiki graph:\n" + "\n".join(graph_lines))
+        parts.append(GRAPH_HEADING + "\n".join(graph_lines))
     count = len(kept)
     label = f"memory: {count} hit{'' if count == 1 else 's'}"
     if graph_lines:

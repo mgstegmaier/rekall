@@ -38,7 +38,7 @@ If `install.sh` fails partway, fix what its error names and run it again. It ski
 - **Mail and Teams (optional)** - a read-only Microsoft Graph ingest adds new facts and decisions from email threads and the Teams chats you pick to the project pages they name; `scripts/setup-server.py` is its local setup page (see SETUP.md)
 - **Wiki** - a headless Claude call compiles those sources into interlinked pages (people, projects, entities, concepts), every claim cited, in Karpathy's LLM Wiki pattern
 - **Index** - a local SQLite index over the wiki: keyword search, embeddings from a 67 MB model on your CPU, and an entity graph built from the wikilinks
-- **Recall** - a hook that runs before every Claude Code prompt and hands Claude the five best hits, so it answers from your notes without being asked to look
+- **Recall** - a hook that runs before every Claude Code prompt and hands Claude up to five of the best hits, so it answers from your notes without being asked to look
 - **MCP server** - Claude Desktop chat has no prompt hook, so `install.sh` registers a read-only MCP server there with two tools, `search_wiki` and `read_page`, over the same index (see "Use your wiki from Claude Desktop chat" below)
 
 ## What it is not

@@ -30,6 +30,7 @@ WITH RECURSIVE walk(entity_id, depth) AS (
   WHERE w.depth < ?
     AND (w.depth = 0 OR e.type != 'person')  -- people are reached, not expanded: the
                                               -- owner's page links every project he has
+    AND r.predicate NOT IN ({skip})
 )
 SELECT e1.name, r.predicate, e2.name, r.source_doc,
        MIN((SELECT MIN(depth) FROM walk WHERE entity_id = r.source_id),
@@ -43,6 +44,7 @@ JOIN entities e1 ON e1.id = r.source_id
 JOIN entities e2 ON e2.id = r.target_id
 WHERE r.source_id IN (SELECT entity_id FROM walk)
   AND r.target_id IN (SELECT entity_id FROM walk)
+  AND r.predicate NOT IN ({skip})
 ORDER BY near, far
 """
 
@@ -78,7 +80,7 @@ PRIORITY = {"owns": 0, "maintains": 1, "part_of": 2, "depends_on": 3, "runs_on":
 
 
 def recall(question, hops=2, top_k=8, skip=()):
-    """`skip`: predicates dropped before the top_k cut, e.g. ("mentions",)."""
+    """`skip`: predicates left out of the walk and the result, e.g. ("mentions",)."""
     t0 = time.perf_counter()
     db = sqlite3.connect(DB, timeout=0.25)  # see READ_TIMEOUT in recall_hook
     try:
@@ -86,8 +88,9 @@ def recall(question, hops=2, top_k=8, skip=()):
         if not seeds:
             return Facts([], (time.perf_counter() - t0) * 1000)
         marks = ",".join("?" * len(seeds))
-        rows = db.execute(WALK.format(seeds=marks), (*seeds, hops)).fetchall()
-        rows = sorted((r for r in rows if r[1] not in skip), key=lambda r: (r[4], r[5], PRIORITY.get(r[1], 9)))
+        gone = ",".join("?" * len(skip))
+        rows = db.execute(WALK.format(seeds=marks, skip=gone), (*seeds, hops, *skip, *skip)).fetchall()
+        rows = sorted(rows, key=lambda r: (r[4], r[5], PRIORITY.get(r[1], 9)))
         triples = [(s, p, t, doc) for s, p, t, doc, _, _ in rows[:top_k]]
         return Facts(triples, (time.perf_counter() - t0) * 1000)
     finally:
