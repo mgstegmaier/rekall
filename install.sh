@@ -228,6 +228,16 @@ done
 desktop add
 
 # 7. schedules
+# A hand-made agent under another label that runs the same script would run the job twice
+# (two ingests racing, two lints). Prints that plist and returns 0 if there is one.
+scheduled_elsewhere() {  # $1 = label; reads $AGENTS/$1.plist.new
+  local script f
+  script="$(grep -o "$REPO/[^<]*" "$AGENTS/$1.plist.new" | head -1)"
+  for f in "$AGENTS"/*.plist; do
+    [ -f "$f" ] && [ "$f" != "$AGENTS/$1.plist" ] && grep -qF "$script" "$f" && { echo "$f"; return 0; }
+  done
+  return 1
+}
 mkdir -p "$LOGS"
 if [ -n "$WIN" ]; then
   # Forward-slash Windows paths throughout: sed treats a backslash in the replacement
@@ -250,6 +260,10 @@ else
   for l in $LABELS; do
     sed -e "s|__REPO__|$REPO|g" -e "s|__HOME__|$HOME|g" -e "s|__PYTHON__|$PY|g" \
       "$REPO/launchd/$l.plist" > "$AGENTS/$l.plist.new"
+    if other="$(scheduled_elsewhere "$l")"; then
+      echo "skipping $l: $other already runs it. To move onto $l: launchctl bootout $DOMAIN/$(basename "$other" .plist), move $other out of $AGENTS, then re-run install.sh"
+      rm "$AGENTS/$l.plist.new"; continue
+    fi
     # re-register only when the plist changed or isn't loaded: every bootstrap of a bash
     # agent fires a macOS "App Background Activity" popup
     if cmp -s "$AGENTS/$l.plist.new" "$AGENTS/$l.plist" && launchctl print "$DOMAIN/$l" >/dev/null 2>&1; then

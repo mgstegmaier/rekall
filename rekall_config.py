@@ -204,7 +204,7 @@ def prompt_reauth():
 # hours, so a night's sleep costs nothing: the 19:15-07:15 gap holds no slots at all.
 FATHOM_STATE = STATE_DIR / "fathom-pipeline-state.json"
 PRESENCE = STATE_DIR / "hook-presence.json"
-SWEEP_HOURS = range(7, 20)  # ponytail: mirrors com.heckatron.fathom-pipeline; change both together
+SWEEP_HOURS = range(7, 20)  # ponytail: mirrors launchd/com.rekall.fathom-pipeline.plist; change both together
 SWEEP_MINUTE = 15
 STALE_SLOTS = 3             # three missed runs inside the window before the hook says anything
 PRESENCE_GAP = 90 * 60      # a quiet stretch longer than this means you were away, not just idle
