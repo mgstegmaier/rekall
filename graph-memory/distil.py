@@ -259,10 +259,8 @@ def run(corpus, paths=None, limit=None, rebuild=True, under=None):
 
 def rebuild_index(corpus):
     """Rebuild the index over a folder. The index is disposable, always."""
-    from paths import SESSIONS
     subprocess.run(
-        [sys.executable, str(HERE / "build_index.py"), "--corpus", str(corpus),
-         "--extra", str(SESSIONS)],
+        [sys.executable, str(HERE / "build_index.py"), "--corpus", str(corpus)],
         check=False,
     )
 
