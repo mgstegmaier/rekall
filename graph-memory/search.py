@@ -8,6 +8,7 @@ import functools
 import re
 import sqlite3
 import sys
+import unicodedata
 from datetime import date
 from pathlib import Path
 
@@ -50,10 +51,19 @@ def query_terms(query):
 IN_SECTION = " IN (SELECT id FROM chunks WHERE section = ? COLLATE NOCASE)"
 
 
+MAX_QUERY_TERMS = 12  # a pasted log must not become a 300-term OR query
+
+
 def keyword_leg(db, query, section=None):
-    terms = query_terms(query)
+    terms = list(dict.fromkeys(query_terms(query)))
     if not terms:
         return []
+    if len(terms) > MAX_QUERY_TERMS:  # keep the rarest: they carry the match
+        df = {t: db.execute("SELECT count(*) FROM chunks_fts WHERE chunks_fts MATCH ?", (f'"{t}"',)).fetchone()[0]
+              for t in terms}
+        terms = sorted((t for t in terms if df[t]), key=df.get)[:MAX_QUERY_TERMS]  # unknown terms match nothing
+        if not terms:
+            return []
     match = " OR ".join(f'"{t}"' for t in terms)
     where, args = ("AND rowid" + IN_SECTION, (match, section)) if section else ("", (match,))
     rows = db.execute(
@@ -76,6 +86,11 @@ STRONG_TOP = 3
 RARE_DF = 30
 
 
+def fold(s):
+    """Drop diacritics, as FTS5's unicode61 does (Zoë matches Zoe)."""
+    return "".join(c for c in unicodedata.normalize("NFKD", s) if not unicodedata.combining(c))
+
+
 def strong_keyword_hits(db, query, keyword_ids):
     """The keyword-leg rowids that hold every rare name-like query token; empty when there is none."""
     # the first word is capitalised by grammar ("Please ...", "Debug this"), so there only
@@ -84,6 +99,8 @@ def strong_keyword_hits(db, query, keyword_ids):
         t for i, t in enumerate(re.findall(r"\w+", query))
         if ((t.isupper() or any(c.isdigit() for c in t)) if i == 0 else not t.islower()))
         if t.lower() not in STOPWORDS]
+    if len(rare) > 20:
+        print(f"note: {len(rare)} rare tokens in the prompt, checking the first 20", file=sys.stderr)
     # ponytail: one count query per token; the first 20 bound the cost of a pasted log
     rare = [t for t in rare[:20] if db.execute(
         "SELECT count(*) FROM chunks_fts WHERE chunks_fts MATCH ?", (f'"{t}"',)).fetchone()[0] <= RARE_DF]
@@ -91,7 +108,15 @@ def strong_keyword_hits(db, query, keyword_ids):
         return set()
     match = " AND ".join(f'"{t}"' for t in rare)
     holding = {r[0] for r in db.execute("SELECT rowid FROM chunks_fts WHERE chunks_fts MATCH ?", (match,))}
-    return {rowid for rowid in keyword_ids[:STRONG_TOP] if rowid in holding}
+    strong = set()
+    for rowid in keyword_ids[:STRONG_TOP]:
+        if rowid not in holding:
+            continue
+        # the FTS row also holds the label and title/description prefix; the names must be in the body
+        body = db.execute("SELECT text FROM chunks WHERE id=?", (rowid,)).fetchone()
+        if body and all(re.search(rf"\b{re.escape(fold(t))}\b", fold(body[0]), re.I) for t in rare):
+            strong.add(rowid)
+    return strong
 
 
 @functools.lru_cache(maxsize=1)  # the MCP server is long-lived; the hook is one process per prompt
@@ -110,7 +135,7 @@ def embedding_model():
 
 def meaning_leg(db, query, scores=None, section=None):
     """Top rowids by cosine similarity. When `scores` is a dict, it's filled
-    with {rowid: cosine} for the returned ids so a caller can threshold on
+    with {rowid: cosine} for every scored row so a caller can threshold on
     the raw similarity instead of just the rank (recall_hook does). With
     `section`, only chunks under that heading are scored."""
     try:
@@ -136,8 +161,8 @@ def meaning_leg(db, query, scores=None, section=None):
     matrix = np.vstack([np.frombuffer(blob, dtype=np.float32) for _, blob in rows])
     sims = matrix @ q
     top = np.argsort(-sims)[:10]
-    if scores is not None:
-        scores.update({ids[i]: float(sims[i]) for i in top})
+    if scores is not None:  # every row, so a keyword hit outside the top 10 still has its real cosine
+        scores.update(zip(ids, map(float, sims)))
     return [ids[i] for i in top]
 
 
