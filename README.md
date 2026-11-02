@@ -34,7 +34,7 @@ If `install.sh` fails partway, fix what its error names and run it again. It ski
 
 ## What it does
 
-- **Capture** - a Fathom pipeline writes one note per meeting; a `raw/` folder takes anything you drop in; a session-end hook writes up every Claude Code session you close
+- **Capture** - a Fathom pipeline writes one note per meeting; a `raw/` folder takes any `.md` file you drop in, nested folders included; a session-end hook writes up every Claude Code session you close (sessions shorter than `min_turns` are skipped)
 - **Mail and Teams (optional)** - a read-only Microsoft Graph ingest adds new facts and decisions from email threads and the Teams chats you pick to the project pages they name; `scripts/setup-server.py` is its local setup page (see SETUP.md)
 - **Wiki** - a headless Claude call compiles those sources into interlinked pages (people, projects, entities, concepts), every claim cited, in Karpathy's LLM Wiki pattern
 - **Index** - a local SQLite index over the wiki: keyword search, embeddings from a 67 MB model on your CPU, and an entity graph built from the wikilinks
