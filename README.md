@@ -80,7 +80,7 @@ If `rekall` shows as failed under Settings > Developer, the server's log says wh
 - `ModuleNotFoundError: No module named 'mcp'` means the venv predates the MCP server. Run `bash install.sh` again, and it installs the package.
 - A tool reply of `No index yet` means the index hasn't been built. Run `graph-memory/reindex.sh`. A reply that starts with `Search failed` carries the error that stopped the search.
 
-`bash install.sh --uninstall` removes the `rekall` entry from Claude Desktop's config along with everything else. To write the entry by hand instead, see the MCP section of `graph-memory/README.md`, then run `python3 graph-memory/test_mcp_server.py` to check both tools against a temporary index built from `vault-template/`.
+`bash install.sh --uninstall` removes the `rekall` entry from Claude Desktop's config along with everything else. To write the entry by hand instead, see the MCP section of `graph-memory/README.md`, then run `python3 graph-memory/test_mcp_server.py` to check both tools against your index. `test_mcp_server_fixture.py` runs the same checks against a temporary index built from `vault-template/`.
 
 ## Layout
 

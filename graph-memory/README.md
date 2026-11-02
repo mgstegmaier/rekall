@@ -40,7 +40,7 @@ Vendored from [Glitch-Cat-Club/graph-memory-starter](https://github.com/Glitch-C
 }
 ```
 
-To check it, run `python3 graph-memory/test_mcp_server.py`, which builds a temp index from `vault-template/` and calls both tools against it, so it needs no install. In Claude Desktop, the server shows under Settings > Developer; if it reports a failure there, the log is `~/Library/Logs/Claude/mcp-server-rekall.log`.
+To check it, run `python3 graph-memory/test_mcp_server.py`, which calls both tools against the live index. `test_mcp_server_fixture.py` does the same against a temp index built from `vault-template/`, so it needs no install. In Claude Desktop, the server shows under Settings > Developer; if it reports a failure there, the log is `~/Library/Logs/Claude/mcp-server-rekall.log`.
 
 ## Operations
 
