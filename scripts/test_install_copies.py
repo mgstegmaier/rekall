@@ -239,6 +239,16 @@ def test_guard_refuses_a_live_owner_and_takes_over_a_dead_one(inst, shape, live)
     assert tree_sum(home) == before
 
 
+def test_guard_refuses_a_live_owner_whose_path_has_a_space(inst):
+    other = Path(inst["HOME"]) / "My Projects" / "rekall"
+    other.mkdir(parents=True)
+    (other / "install.sh").write_text("")
+    (other / "rekall.toml").write_text("")
+    hook_settings(inst, SHAPES["current"].format(d=other))
+    r = sh(inst, "guard")
+    assert r.returncode == 1 and f"installed from {other}" in r.stderr, r
+
+
 def test_guard_passes_when_this_clone_owns_the_install(inst):
     hook_settings(inst, SHAPES["current"].format(d=inst["REPO"]))
     r = sh(inst, "guard")

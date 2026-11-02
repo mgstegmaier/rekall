@@ -58,7 +58,7 @@ if [ -n "${REKALL_CONFIG+x}" ] && [ "$REKALL_CONFIG" != "$REPO/rekall.toml" ]; t
   unset REKALL_CONFIG
 fi
 
-# Prints the real path of every clone a recall hook in settings.json names, once each (the current
+# Prints the path of every clone a recall hook in settings.json names, once each (the current
 # S="..." shape, and the older bare and $HOME-spelled ones). Nothing when settings.json is missing;
 # exits 2 when it doesn't parse.
 owner_paths() {
@@ -72,8 +72,10 @@ except ValueError:
 seen = []
 for g in s.get("hooks", {}).get("UserPromptSubmit", []):
     for h in g.get("hooks", []):
-        for m in re.findall(r'([^"\s;=]+)/graph-memory/recall_hook\.py', h.get("command", "")):
-            p = os.path.realpath(os.path.expanduser(os.path.expandvars(m)))
+        # a quoted path may hold spaces; an unquoted one ends at whitespace, a quote, ; or =
+        for q, bare in re.findall(r'"([^"]+)/graph-memory/recall_hook\.py"|([^"\s;=]+)/graph-memory/recall_hook\.py',
+                                  h.get("command", "")):
+            p = os.path.expanduser(os.path.expandvars(q or bare))
             if p not in seen:
                 seen.append(p)
                 print(p)
@@ -85,10 +87,13 @@ EOF
 # a dead owner's hook and schedules are replaced by the normal steps.
 guard() {
   local me owners o
-  me="$("$PY3" -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$REPO")"
+  # paths resolve in bash, so Git Bash's /c/... and Python's C:\... never meet in one comparison
+  me="$(cd "$REPO" && pwd -P)"
   owners="$(owner_paths)" || { echo "can't read $SETTINGS; fix or move it, then re-run" >&2; return 1; }
   while IFS= read -r o; do
-    [ -n "$o" ] && [ "$o" != "$me" ] || continue
+    [ -n "$o" ] || continue
+    o="$(cd "$o" 2>/dev/null && pwd -P || echo "$o")"
+    [ "$o" != "$me" ] || continue
     if [ -f "$o/install.sh" ] && [ -f "$o/rekall.toml" ]; then
       echo "Rekall is already installed from $o. One machine runs one install." >&2
       echo "To move it here: bash $o/install.sh --uninstall, then re-run this." >&2
