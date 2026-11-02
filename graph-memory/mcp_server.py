@@ -20,6 +20,9 @@ from recall_hook import graph_facts, hits  # noqa: E402
 
 VAULT = WIKI.parent  # read_page covers the whole vault: wiki/, guide/, today.md, ...
 
+READ_CAP = 20_000  # characters per read_page reply
+SEARCH_CAP = 10_000  # characters per search_wiki reply, about 2,500 tokens
+
 mcp = FastMCP("rekall")
 
 
@@ -49,30 +52,49 @@ def search_wiki(query: str, section: str = "") -> str:
     facts = [] if section else [f"{s} -[{p}]-> {t} ({doc})" for s, p, t, doc in graph_facts(query)]
     if facts:
         parts.append("Wiki graph:\n" + "\n".join(facts))
-    return "\n\n".join(parts) or "No matches."
+    out = "\n\n".join(parts) or "No matches."
+    if len(out) > SEARCH_CAP:
+        out = out[:SEARCH_CAP - 40] + "\n[trimmed to fit the reply cap]"
+    return out
 
 
 @mcp.tool()
-def read_page(name: str) -> str:
-    """Read one full note from the user's vault by its file name, without .md.
+def read_page(name: str, offset: int = 0) -> str:
+    """Read one note from the user's vault, by file name without .md or by vault-relative path.
 
-    Covers every note in the vault, wiki pages and files outside wiki/ alike
-    (e.g. "index", "log"). Call this after
-    search_wiki when a hit's label names a page you need in full. If the name
-    is ambiguous, returns the candidate paths; call again with the exact name.
+    Covers every note in the vault, wiki pages and files outside wiki/ alike.
+    Call this after search_wiki when a hit's label names a page you need. If a
+    bare name is ambiguous, returns the candidate paths; call again with one
+    of them (e.g. "wiki/pages/project/x.md"). The reply starts with the path
+    read and is capped at READ_CAP characters; when the page is longer, the
+    last line says where to resume: call again with that offset.
     """
-    if not name or "/" in name or "\\" in name or ".." in name:
-        return "Rejected: give a bare page name, no path separators or '..'."
-    # ponytail: full vault walk per call (a few thousand files); cache stems if it gets slow
-    found = [p for p in VAULT.rglob("*.md")  # compare stems, so glob characters in name match nothing
-             if p.stem == name and not any(part.startswith(".") for part in p.relative_to(VAULT).parts)]
-    live = [p for p in found if ARCHIVE not in p.parents]
-    found = live or found  # prefer non-archive; fall back to archive
+    if not name or "\\" in name or ".." in name:
+        return "Rejected: give a page name or a vault-relative .md path, no backslashes or '..'."
+    root = VAULT.resolve()
+    if "/" in name or name.endswith(".md"):
+        if not name.endswith(".md") or name.startswith("/") or any(part.startswith(".") for part in name.split("/")):
+            return "Rejected: a path must be vault-relative, end in .md, and have no hidden parts."
+        found = [VAULT / name] if (VAULT / name).is_file() else []
+    else:
+        # ponytail: full vault walk per call (a few thousand files); cache stems if it gets slow
+        found = [p for p in VAULT.rglob("*.md")  # compare stems, so glob characters in name match nothing
+                 if p.stem == name and not any(part.startswith(".") for part in p.relative_to(VAULT).parts)]
+        live = [p for p in found if ARCHIVE not in p.parents]
+        found = live or found  # prefer non-archive; fall back to archive
+    found = [p for p in found if p.resolve().is_relative_to(root)]  # a symlink may not leave the vault
     if not found:
         return f"Page not found: {name}"
     if len(found) > 1:
         return "Multiple pages match:\n" + "\n".join(str(p.relative_to(VAULT)) for p in sorted(found))
-    return found[0].read_text(encoding="utf-8")
+    text = found[0].read_text(encoding="utf-8")
+    offset = max(offset, 0)
+    head = f"[{found[0].relative_to(VAULT)}]\n"
+    room = max(READ_CAP - len(head) - 120, 0)  # 120 leaves space for the trailer
+    body = text[offset:offset + room]
+    end = offset + len(body)
+    trailer = f"\n[more: {len(text) - end} of {len(text)} characters left; call again with offset={end}]" if end < len(text) else ""
+    return head + body + trailer
 
 
 if __name__ == "__main__":
