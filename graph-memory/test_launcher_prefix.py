@@ -63,14 +63,18 @@ def test_path_reaches_homebrew_before_prefix(rel):
     assert path_at is not None and path_at < first_job, rel
 
 
-FAIL_INDEX_STUB = f"""#!/bin/bash
-case "$1" in *rekall_config.py) exec {sys.executable} "$@";; *build_index.py) exit 1;; esac
+FAIL_STUB = f"""#!/bin/bash
+case "$1" in *rekall_config.py) exec {sys.executable} "$@";; *%s) exit %d;; esac
 echo "CHILD $(basename "$1")"
 """
 
 
-@pytest.mark.parametrize("has_wiki", [True, False])
-def test_reindex_reports_failed_builder(tmp_path, has_wiki):
+@pytest.mark.parametrize("has_wiki,failing,rc,other", [
+    (True, "build_index", 1, "build_graph"),
+    (True, "build_graph", 3, "build_index"),
+    (False, "build_index", 1, None),
+])
+def test_reindex_reports_failed_builder(tmp_path, has_wiki, failing, rc, other):
     """A failed builder logs FAILED <step> rc=<n> and makes reindex.sh exit non-zero, while the
     other builder still runs; a missing wiki folder stops the script before any build step."""
     t = tmp_path / "repo"
@@ -79,7 +83,7 @@ def test_reindex_reports_failed_builder(tmp_path, has_wiki):
     shutil.copy2(ROOT / "rekall_config.py", t / "rekall_config.py")
     py = t / "graph-memory/.venv/bin/python"
     py.parent.mkdir(parents=True)
-    py.write_text(FAIL_INDEX_STUB)
+    py.write_text(FAIL_STUB % (failing + ".py", rc))
     py.chmod(py.stat().st_mode | stat.S_IEXEC)
     (tmp_path / "vault").mkdir()
     if has_wiki:
@@ -92,8 +96,8 @@ def test_reindex_reports_failed_builder(tmp_path, has_wiki):
     r = subprocess.run(["bash", str(t / "graph-memory/reindex.sh")], env=env, capture_output=True, text=True, timeout=60)
     if has_wiki:
         assert r.returncode == 1, r.stdout + r.stderr
-        assert "FAILED build_index rc=1" in r.stdout, r.stdout
-        assert "CHILD build_graph.py" in r.stdout, r.stdout
+        assert f"FAILED {failing} rc={rc}" in r.stdout, r.stdout
+        assert f"CHILD {other}.py" in r.stdout, r.stdout
     else:
         assert r.returncode == 2, r.stdout + r.stderr
         assert "FAILED config" in r.stdout, r.stdout

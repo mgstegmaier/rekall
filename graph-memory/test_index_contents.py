@@ -274,3 +274,17 @@ def test_missing_meta_table_rebuilds_full(tmp_path, monkeypatch, capsys):
     _run(monkeypatch, tmp_path)
     assert "full (corpus)" in capsys.readouterr().out
     assert _meta(tmp_path, "corpus")
+
+
+def test_meta_model_is_the_configured_name(tmp_path, monkeypatch):
+    """fastembed reports its own name for a pinned local model folder; meta.model must hold the
+    configured name, or the next run would see a model change and re-embed everything."""
+    _corpus(tmp_path)
+    model = CountingModel("fastembed/own-name")
+    monkeypatch.setattr(search, "embedding_model", lambda: model)
+    monkeypatch.setattr(build_index, "EMBEDDING_MODEL", "configured/name")
+    monkeypatch.setattr(build_index, "DB", tmp_path / "rag.db")
+    monkeypatch.setattr(build_index, "DISTILLED_DIR", tmp_path / "distilled")
+    monkeypatch.setattr(sys, "argv", ["build_index.py", "--corpus", str(tmp_path / "wiki")])
+    build_index.main()
+    assert _meta(tmp_path, "model") == "configured/name"
