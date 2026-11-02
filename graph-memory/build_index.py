@@ -131,13 +131,15 @@ def chunk_file(path):
         if len(text) <= CHUNK_BUDGET:
             packed.append((title, s + 1, e, text))
             continue
-        # oversized section: split on line groups within the budget
+        # oversized section: split on line groups within the budget; a line
+        # longer than the budget is hard-split
         buf, buf_start = [], s
         for i in range(s, e):
-            buf.append(lines[i])
-            if sum(len(l) + 1 for l in buf) >= CHUNK_BUDGET:
-                packed.append((title, buf_start + 1, i + 1, "\n".join(buf).strip()))
-                buf, buf_start = [], i + 1
+            for piece in (lines[i][j:j + CHUNK_BUDGET] for j in range(0, max(len(lines[i]), 1), CHUNK_BUDGET)):
+                if buf and sum(len(l) + 1 for l in buf) + len(piece) > CHUNK_BUDGET:
+                    packed.append((title, buf_start + 1, i + 1, "\n".join(buf).strip()))
+                    buf, buf_start = [], i
+                buf.append(piece)
         if any(l.strip() for l in buf):
             packed.append((title, buf_start + 1, e, "\n".join(buf).strip()))
     return meta, packed
