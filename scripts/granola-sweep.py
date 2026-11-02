@@ -11,7 +11,7 @@ Each run:
 3. Match: APPEND one "## Granola notes" section to the Fathom note, once. Nothing above it changes.
    No match: write a new meeting note in the Fathom pipeline's layout with source: granola.
 4. Digest line in today.md, wiki ingest through the pipeline's ingest_to_wiki.
-5. State in ~/.config/rekall/granola-state.json, own lock. No Monday push.
+5. State in granola-state.json in the state folder (`[data].state`, default `~/.config/rekall`), own lock. No Monday push.
 
 No GRANOLA_API_KEY: one log line, exit 0. The key is the on/off switch.
 Flags: --hours N (default 26) | --since YYYY-MM-DD | --no-wiki | --dry-run

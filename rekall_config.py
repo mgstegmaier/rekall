@@ -26,7 +26,7 @@ WIKI = VAULT / "wiki"
 SESSIONS = WIKI / "sessions"  # digests moved into the wiki 2026-09-04
 ARCHIVE = WIKI / _cfg.get("wiki", {}).get("archive", "archive")  # lifecycle job's destination
 DATA = Path(_cfg["data"]["path"]).expanduser()
-# pipeline state, lint state, locks, logs. Per install, so two installs on one machine stay apart.
+# Where this install keeps pipeline state, locks and logs. Change it, then re-run install.sh; the old folder isn't moved.
 STATE_DIR = Path(_cfg["data"].get("state", "~/.config/rekall")).expanduser()
 MONDAY_BOARD = int(_cfg.get("monday", {}).get("board", 0))
 MONDAY_GROUP = _cfg.get("monday", {}).get("group", "Auto-Capture")

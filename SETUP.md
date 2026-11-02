@@ -78,7 +78,8 @@ fails. Never skip a failed step and never overwrite a file that already exists.
    Scheduler tasks on Windows; on Windows it also adds tzdata to the venv, because Windows
    ships no timezone database). Claude Code will ask me to approve this command; that is
    expected, tell me to approve it. If the script stops on python, tell me how to install
-   a newer one and stop.
+   a newer one and stop. If it says Rekall is already installed from another folder, show
+   me that message and stop (one machine runs one install; see "Upgrading" in README.md).
 6. Test the Fathom key by listing my most recent meeting and show me its title. If the
    call fails with a certificate error, follow the corporate-CA note in SETUP.md and
    retry once.
@@ -102,7 +103,8 @@ Then type `/exit` and open Claude Code again so the hooks load. If you use Claud
 and reopen it too, so it starts the rekall MCP server; "Use your wiki from Claude Desktop chat" in
 `README.md` covers checking it and getting chat to use it. Everything that writes outside
 the rekall folder (hooks, skills, schedules, permission rules, the Claude Desktop MCP entry) goes through `install.sh`. It is
-safe to re-run after a `git pull`, and `bash install.sh --uninstall` removes exactly what it
+safe to re-run after a `git pull` ("Upgrading" in `README.md` says what a re-run refreshes and
+why one machine runs one install), and `bash install.sh --uninstall` removes exactly what it
 added. From here on, meetings land
 in your wiki within about an hour (the pipeline runs hourly from 7:15 am to 7:15 pm), anything you save into `wiki/raw/` gets compiled on the next
 run, and every session you close is written up and indexed by morning.
@@ -126,7 +128,7 @@ How a message reaches a page:
   citing the email subject or chat name, the sender, and the date. Full messages never reach the
   vault. Each run adds one line to `wiki/log.md`.
 - A thread read again on the next run adds nothing. Token use per call goes to
-  `~/.config/rekall/logs/graph-usage.jsonl`.
+  `logs/graph-usage.jsonl` in the state folder (`[data].state`, `~/.config/rekall` by default).
 
 You need a Microsoft Entra app registration with the delegated permissions `User.Read`,
 `Mail.Read`, `Chat.Read`, `Chat.ReadBasic` and `offline_access`. Your IT team may already have one

@@ -26,11 +26,13 @@ git pull
 bash install.sh
 ```
 
-`git pull` brings in the new code. `install.sh` re-applies everything it writes outside the repo (the Claude Code hooks, the venv packages, the schedules, the Claude Desktop MCP entry), replacing older copies instead of adding duplicates. Re-running it is safe. Then type `/exit` and open Claude Code again so any changed hooks load. [`CHANGELOG.md`](CHANGELOG.md) lists what changed, and which changes need the `install.sh` step.
+`git pull` brings in the new code. Re-running `install.sh` refreshes everything it writes outside the repo: the Claude Code hooks, the skills and commands in `~/.claude/`, the venv packages (brought to their pinned versions), the Claude Desktop MCP entry, and the schedules. It replaces older copies instead of adding duplicates, and a second run with nothing changed prints `unchanged` for each copy. It never overwrites a skill or command you changed, a file it didn't write, or a symlink. It names each one and prints the `mv` command that installs the new version and the `diff` command that compares them afterwards. Hand edits to the `com.rekall.*` schedules are overwritten. After you change `[vault].path` or `[data].state` in `rekall.toml`, re-run `install.sh`; the old state folder isn't moved. Then type `/exit` and open Claude Code again so any changed hooks load. [`CHANGELOG.md`](CHANGELOG.md) lists what changed, and which changes need the `install.sh` step.
 
 `bash install.sh --standard` also opens the setup page for the keys and the Sign in to Claude button; `python3 scripts/setup-server.py --reauth` signs in again when the expiry dialog appears. At the end, `install.sh` makes one test call to Claude and prints a warning if it doesn't answer.
 
-If `install.sh` fails partway, fix what its error names and run it again. It skips the steps that are already done.
+One machine runs one Rekall install. `install.sh` refuses to run from a second clone or a git worktree while another clone owns the install, and prints the `--uninstall` command that moves the install. To run the scripts against a test vault without installing anything, point them at another config with `REKALL_CONFIG=/path/to/test.toml`.
+
+If `install.sh` fails partway, fix what its error names and run it again. A re-run repeats every step and changes only what differs.
 
 ## What it does
 

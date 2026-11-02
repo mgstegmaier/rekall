@@ -302,14 +302,12 @@ fi
 
 [ -f "$REPO/rekall.toml" ] || { echo "rekall.toml is missing; write it first (SETUP.md step 3)." >&2; exit 1; }
 
-# 3. venv, fastembed, embedding model
+# 3. venv, pinned packages, embedding model
 [ -x "$PY" ] || "$PY3" -m venv "$VENV"
-# Pinned to the versions the owner's install runs (2026-10-27); bump them together after a test.
-"$PY" -c 'import fastembed' 2>/dev/null || "$PY" -m pip install -q fastembed==0.8.0
-"$PY" -c 'import keyring' 2>/dev/null || "$PY" -m pip install -q keyring==25.7.0   # rekall_config.get_secret
-"$PY" -c 'import mcp' 2>/dev/null || "$PY" -m pip install -q mcp==1.30.0   # graph-memory/mcp_server.py (v2 renamed FastMCP)
-# Windows ships no timezone database, so zoneinfo raises without tzdata in the venv
-[ -z "$WIN" ] || "$PY" -c 'import tzdata' 2>/dev/null || "$PY" -m pip install -q tzdata
+# Brings every package to its pin (a venv upgraded by hand goes back too); with every pin met, pip
+# doesn't touch the network. tzdata is Windows-only: it ships no timezone database for zoneinfo.
+"$PY" -m pip install -q -r "$REPO/graph-memory/requirements.txt" || {
+  echo "pip couldn't install the pinned packages; if you're behind a corporate proxy, set up the CA bundle in SETUP.md, then re-run" >&2; exit 1; }
 # --standard: the setup page collects the vault choice and the Fathom key, then closes itself.
 # Opens for a new toml or missing keys, so a re-run of a finished install never reopens it.
 if [ -n "$STANDARD" ]; then

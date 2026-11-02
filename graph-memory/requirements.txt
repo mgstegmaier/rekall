@@ -1,0 +1,5 @@
+# bump all pins together, after a test run
+fastembed==0.8.0
+keyring==25.7.0
+mcp==1.30.0
+tzdata; sys_platform == "win32"

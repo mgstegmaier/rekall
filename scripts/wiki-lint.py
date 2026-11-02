@@ -2,10 +2,10 @@
 """Nightly wiki lint: read-only checks over the vault's wiki, human-readable report.
 
 Never writes to the vault. Structure/schema reference: wiki/CLAUDE.md.
-Persists per-check issue counts to ~/.config/rekall/wiki-lint-state.json; if any
+Persists per-check issue counts to wiki-lint-state.json in the state folder (`[data].state`, default `~/.config/rekall`); if any
 check's count goes up since the previous run, notify() fires (macOS notification,
 same pattern as fathom-pipeline.py). First run (no state file) never notifies.
-Always writes the full report to ~/.config/rekall/logs/wiki-lint-<timestamp>.log.
+Always writes the full report to logs/wiki-lint-<timestamp>.log under the state folder (`[data].state`, default `~/.config/rekall`).
 
 Flags: --verbose (list every offender, not just top 10) | --no-notify
 Exit code is always 0 -- this is a reporter, not a gate.

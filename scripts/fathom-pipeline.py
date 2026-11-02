@@ -8,7 +8,7 @@ Each run:
 2. Write one note per meeting to meetings/{YYYY-MM-DD}-{slug}.md (template: skills/today/references/workflow.md)
 3. Push the user's action items to the [monday] group/board from rekall.toml, if MONDAY_API_TOKEN is set
 4. Ingest new meeting notes + new raw/ files into the flat wiki via headless claude
-5. Track processed meeting IDs in ~/.config/rekall/fathom-pipeline-state.json (idempotent)
+5. Track processed meeting IDs in fathom-pipeline-state.json in the state folder (`[data].state`, default `~/.config/rekall`) (idempotent)
 
 Paths and settings: rekall.toml at the repo root. Secrets: environment, OS keyring, or .env
 (rekall_config.get_secret); [secrets] run_prefix wraps the job in a secrets manager.
