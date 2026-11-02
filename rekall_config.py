@@ -164,6 +164,12 @@ def run_claude(cmd, env=None, **kw):
     env = claude_env(dict(os.environ if env is None else env))
     proc = subprocess.run(cmd, env=env, capture_output=True, text=True, encoding="utf-8", errors="replace", **kw)
     out = proc.stdout + proc.stderr
+    try:  # a json envelope's session id and token counts can hold "401": match its text only
+        env_out = json.loads(proc.stdout)
+        if isinstance(env_out, dict):
+            out = f"{env_out.get('result') or ''} {env_out.get('error') or ''} {proc.stderr}"
+    except ValueError:
+        pass
     # ponytail: output is only searched for auth wording on a failure, since a good answer can say
     # "401"; --output-format json reports a failure as is_error with exit 0
     failed = proc.returncode != 0 or '"is_error":true' in proc.stdout.replace(" ", "")

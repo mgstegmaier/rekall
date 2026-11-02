@@ -158,7 +158,8 @@ STRIKES = STATE_DIR / "digest-strikes.json"  # staged file name -> consecutive n
 def drain(min_age=600):
     """Write up staged files older than min_age seconds, oldest first, one at a time. Younger
     ones may still have their own headless_run going. Stops at a sign-in failure, since every
-    later file would fail the same way. A file that fails STRIKE_LIMIT times (not for sign-in)
+    later file would fail the same way. A file whose claude call fails STRIKE_LIMIT times, in drains
+    where another file succeeded (so not an outage, a timeout or a sign-in failure),
     moves to pending/failed/, which this never reads; the text stays there, the reasons are in
     digest.log, and moving it back retries it."""
     if common.config()["mode"] != "headless":
@@ -167,24 +168,30 @@ def drain(min_age=600):
         strikes = json.loads(STRIKES.read_text(encoding="utf-8"))
     except Exception:
         strikes = {}
+    done, failed = 0, []
     for staged in sorted(common.PENDING.glob("*.md"), key=lambda p: p.stat().st_mtime):
         if time.time() - staged.stat().st_mtime < min_age:
             continue
         try:
             main(staged)
             strikes.pop(staged.name, None)
+            done += 1
         except distil.NotSignedIn as exc:
             common.note_failure("drain", f"digest failed NotSignedIn {staged.name}: {exc}; stopping")
             break
         except Exception as exc:
             common.note_failure("drain", f"digest failed {type(exc).__name__} {staged.name}: {exc}")
-            strikes[staged.name] = strikes.get(staged.name, 0) + 1
-            if strikes[staged.name] >= STRIKE_LIMIT:  # not a second outcome tag: the line above is this attempt's
-                failed = staged.parent / "failed"
-                failed.mkdir(exist_ok=True)
-                staged.replace(failed / staged.name)
-                strikes.pop(staged.name)
-                common.note_failure("drain", f"gave up on {staged.name} after {STRIKE_LIMIT} failures: now in pending/failed/")
+            # distil.run's rule: a timeout, a missing index or claude, is the machine's fault, no
+            # strike; a failed call strikes only if another file in this drain got through
+            if isinstance(exc, distil.ClaudeExit):
+                failed.append(staged)
+    for staged in failed if done else []:
+        strikes[staged.name] = strikes.get(staged.name, 0) + 1
+        if strikes[staged.name] >= STRIKE_LIMIT:  # not a second outcome tag: the attempt's line is above
+            (staged.parent / "failed").mkdir(exist_ok=True)
+            staged.replace(staged.parent / "failed" / staged.name)
+            strikes.pop(staged.name)
+            common.note_failure("drain", f"gave up on {staged.name} after {STRIKE_LIMIT} failures: now in pending/failed/")
     if not (strikes or STRIKES.exists()):
         return
     try:
