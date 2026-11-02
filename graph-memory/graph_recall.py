@@ -82,7 +82,8 @@ PRIORITY = {"owns": 0, "maintains": 1, "part_of": 2, "depends_on": 3, "runs_on":
 def recall(question, hops=2, top_k=8, skip=()):
     """`skip`: predicates left out of the walk and the result, e.g. ("mentions",)."""
     t0 = time.perf_counter()
-    db = sqlite3.connect(DB, timeout=0.25)  # see READ_TIMEOUT in recall_hook
+    # read-only: a missing index raises instead of becoming an empty rag.db; timeout: see READ_TIMEOUT in recall_hook
+    db = sqlite3.connect(DB.absolute().as_uri() + "?mode=ro", uri=True, timeout=0.25)
     try:
         seeds = _seeds(db, question)
         if not seeds:

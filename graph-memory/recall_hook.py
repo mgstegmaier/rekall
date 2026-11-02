@@ -22,7 +22,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
 try:
-    from harness_prompt import is_harness  # noqa: E402
+    from harness_prompt import REMINDER, is_harness  # noqa: E402
     from paths import DB  # noqa: E402
     from rekall_config import claude_auth_status, sweep_status  # noqa: E402
     BROKEN = None
@@ -45,6 +45,12 @@ BUTTON_PROMPT = re.compile(
     r'|Checked ".*", found issues: |About ".*": )',
     re.S,
 )
+
+# One-word replies to something Claude just said. They hold nothing to search for, and a search costs the
+# whole model import (~0.4 s), so they return before it. Matched on the whole prompt, after reminder blocks.
+ACK = re.compile(
+    r"(ok|okay|k|yes|yep|yeah|y|no|nope|go|go on|go ahead|continue|proceed|sure|do it|done|"
+    r"thanks|thank you|thx|ty|lgtm|sounds good|looks good|great|nice|cool)\W*", re.I)
 
 # ponytail: cosine floor on the meaning leg (BGE-small, unit-normalized vectors).
 # Calibrated 2026-09-24 against 15 real prompts named from vault page titles
@@ -74,9 +80,11 @@ def hits(query, section=None):
     no meaning leg (fastembed missing), there's no cosine to gate on, so
     keyword hits pass through as before.
     """
+    import search
     from search import fuse, keyword_leg, meaning_leg, strong_keyword_hits
 
-    db = sqlite3.connect(DB, timeout=READ_TIMEOUT)
+    search.ALLOW_DOWNLOAD = False  # a prompt never waits on a model download
+    db = sqlite3.connect(Path(DB).absolute().as_uri() + "?mode=ro", uri=True, timeout=READ_TIMEOUT)  # never creates one
     try:
         only = {"section": section} if section else {}  # unfiltered calls stay exactly as before
         legs = {"keyword": keyword_leg(db, query, **only)}
@@ -226,16 +234,19 @@ def main():
         prompt = json.load(sys.stdin).get("prompt", "")
     except Exception:
         return
-    if not isinstance(prompt, str) or is_harness(prompt) or BUTTON_PROMPT.match(prompt):
+    if (not isinstance(prompt, str) or is_harness(prompt) or BUTTON_PROMPT.match(prompt)
+            or ACK.fullmatch(REMINDER.sub("", prompt).strip())):
         return
     if BROKEN:
         return unavailable(BROKEN)
     if not DB.is_file():
         return unavailable(f"no index at {DB}, run graph-memory/reindex.sh")
+    failed = None
     try:
         found = hits(prompt)
-    except Exception as e:
-        return unavailable(f"search failed ({type(e).__name__}: {e})")
+    except Exception as e:  # graph facts and the health notices below still run
+        found, failed = [], f"search failed ({type(e).__name__}: {e})"
+        log(failed)
     facts = graph_facts(prompt)
     try:
         auth = claude_auth_status()  # two small file reads
@@ -248,7 +259,7 @@ def main():
     except Exception:
         sweep = None
     if not found and not facts and not auth and not sweep:
-        return
+        return unavailable(failed) if failed else None
     parts = []
     if auth:
         parts.append(f"Rekall sign-in: {auth} Tell the user, and offer to run that command for them; "
