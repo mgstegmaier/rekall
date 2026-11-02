@@ -7,15 +7,13 @@ import contextlib
 import io
 import json
 import os
-import re
 import sqlite3
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-MEMORY = re.compile(r"^\[(.+?) § (.*?)\]\n(.*)$", re.S)
-GRAPH = re.compile(r"^(.*) -\[(.*?)\]-> (.*)  \((.*)\)$")
+from hook_format import parse  # noqa: E402
 
 
 def emit(prompt, trace=None):
@@ -81,16 +79,4 @@ def items(output):
     change to it fails test_eval_harness.py instead of silently dropping rows.
     """
     ctx = ((output or {}).get("hookSpecificOutput") or {}).get("additionalContext", "")
-    found = []
-    for part in ctx.split("\n\n"):
-        if part.startswith("Wiki graph:"):
-            for line in part.splitlines()[1:]:
-                m = GRAPH.match(line)
-                if m:
-                    s, p, t, doc = m.groups()
-                    found.append(("graph", doc, f"{s} -[{p}]-> {t}", p))
-        else:
-            m = MEMORY.match(part)
-            if m:
-                found.append(("memory", f"{m[1]} § {m[2]}", m[3], ""))
-    return found
+    return parse(ctx)

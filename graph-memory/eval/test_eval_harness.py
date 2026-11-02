@@ -168,6 +168,15 @@ def test_legs_follow_sibling_chunks_with_one_label(monkeypatch, tmp_path):
     assert trace["legs"] == ["keyword", "meaning"]
 
 
+def test_graph_block_round_trips_through_items(monkeypatch, tmp_path):
+    import recall_hook
+
+    fake_hook(monkeypatch, tmp_path, [(5, "a.md", "S", "a note about widgets", None)], [5], [5])
+    monkeypatch.setattr(recall_hook, "graph_facts", lambda p: [("nas", "runs", "rclone", "pages/system/nas.md")])
+    got = hook_output.items(hook_output.emit("widgets"))
+    assert ("graph", "pages/system/nas.md", "nas -[runs]-> rclone", "runs") in got
+
+
 def test_gate_ignores_a_notice_without_items(monkeypatch, tmp_path, capsys):
     gate_setup(monkeypatch, tmp_path, [POSITIVE, {"prompt": "thanks", "expect_empty": True}], set())
     notice = {"systemMessage": "rekall: sign in", "hookSpecificOutput": {
