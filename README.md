@@ -28,11 +28,13 @@ bash install.sh
 
 `git pull` brings in the new code. `install.sh` re-applies everything it writes outside the repo (the Claude Code hooks, the venv packages, the schedules, the Claude Desktop MCP entry), replacing older copies instead of adding duplicates. Re-running it is safe. Then type `/exit` and open Claude Code again so any changed hooks load. [`CHANGELOG.md`](CHANGELOG.md) lists what changed, and which changes need the `install.sh` step.
 
+`bash install.sh --standard` also opens the setup page for the keys and the Sign in to Claude button; `python3 scripts/setup-server.py --reauth` signs in again when the expiry dialog appears. At the end, `install.sh` makes one test call to Claude and prints a warning if it doesn't answer.
+
 If `install.sh` fails partway, fix what its error names and run it again. It skips the steps that are already done.
 
 ## What it does
 
-- **Capture** - a Fathom pipeline writes one note per meeting; a `raw/` folder takes anything you drop in; a session-end hook writes up every Claude Code session you close
+- **Capture** - a Fathom pipeline writes one note per meeting; a `raw/` folder takes any `.md` file you drop in, nested folders included; a session-end hook writes up every Claude Code session you close (sessions shorter than `min_turns` are skipped)
 - **Mail and Teams (optional)** - a read-only Microsoft Graph ingest adds new facts and decisions from email threads and the Teams chats you pick to the project pages they name; `scripts/setup-server.py` is its local setup page (see SETUP.md)
 - **Wiki** - a headless Claude call compiles those sources into interlinked pages (people, projects, entities, concepts), every claim cited, in Karpathy's LLM Wiki pattern
 - **Index** - a local SQLite index over the wiki: keyword search, embeddings from a 67 MB model on your CPU, and an entity graph built from the wikilinks
