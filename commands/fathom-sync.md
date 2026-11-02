@@ -19,9 +19,9 @@ Run the pipeline trigger script and report the result:
 bash __REPO__/scripts/run-fathom-pipeline.sh --hours {hours:-26}
 ```
 
-The script is idempotent — already-processed meetings (tracked in `~/.config/rekall/fathom-pipeline-state.json`) are skipped, so running it twice is safe.
+The script is idempotent — already-processed meetings (tracked in `__STATE__/fathom-pipeline-state.json`) are skipped, so running it twice is safe.
 
-After it finishes, summarize: how many new meetings were processed, which notes were written, how many action items went to Monday (or that the push was skipped), and whether the wiki ingest batches succeeded. Ingest logs live in `~/.config/rekall/logs/`.
+After it finishes, summarize: how many new meetings were processed, which notes were written, how many action items went to Monday (or that the push was skipped), and whether the wiki ingest batches succeeded. Ingest logs live in `__STATE__/logs/`.
 
 If it fails: SSL errors mean the corporate CA bundle at `~/.config/rekall/ca-bundle.pem` needs building or rebuilding (see the corporate-CA note in `SETUP.md`); a missing-secret error means `.env` at the repo root has no `FATHOM_API_KEY`.
 

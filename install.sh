@@ -39,6 +39,8 @@ fi
 # suffix. Probe the binary rather than the OS: the wrong one silently mangles the file.
 if sed --version >/dev/null 2>&1; then SEDI=(-i); else SEDI=(-i ''); fi
 
+KEPT=()   # place() and unplace() lines for copies left alone, repeated at the end of the run
+
 # 1. python 3.11+ (Apple's /usr/bin/python3 is too old, and python.org on Windows
 # installs `python` rather than `python3`; prefer the newest one on PATH)
 PY3=""
@@ -162,6 +164,49 @@ render_file() {  # $1 = template, $2 = destination
   ! grep -qE '__[A-Z_]+__' "$2" || { echo "a placeholder is left unsubstituted in $2" >&2; return 1; }
 }
 
+# Places one skill or command at ~/.claude/<kind>/<name>. The record, $REPO/.installed/<kind>/<name>,
+# is an exact copy of what this script last wrote there, so an untouched copy can be told from an
+# edited one. First matching row wins: a symlink, a copy the user changed and a file rekall didn't
+# write are left alone and named. Runs in the current shell (it appends to KEPT), never in $(...).
+place() {  # $1 = $REPO/skills/<name> or $REPO/commands/<name>
+  local kind name dst rec out said
+  kind="$(basename "$(dirname "$1")")"; name="$(basename "$1")"
+  dst="$HOME/.claude/$kind/$name"; rec="$REPO/.installed/$kind/$name"
+  out="$(render "$1")" || exit 1
+  if [ -L "$dst" ]; then said="left as is: $dst is a link"
+  elif [ ! -e "$dst" ]; then
+    mkdir -p "$(dirname "$dst")"; cp -R "$out" "$dst"; said="installed $dst"
+  elif diff -rq "$out" "$dst" >/dev/null 2>&1; then said="unchanged $dst"
+  elif [ -e "$rec" ] && diff -rq "$rec" "$dst" >/dev/null 2>&1; then
+    rm -rf "$dst"; cp -R "$out" "$dst"; said="updated $dst"
+  elif [ -e "$rec" ]; then said="kept $dst: you changed it"
+  else said="left as is: $dst was not installed by rekall"
+  fi
+  echo "$said"
+  case "$said" in
+    installed*|unchanged*|updated*)
+      # written right after its destination, so a record always equals what was last written
+      rm -rf "$rec"; mkdir -p "$(dirname "$rec")"; cp -R "$out" "$rec" ;;
+    *)
+      # the backup goes under .installed/: a second folder in ~/.claude/skills/ would load as a second skill
+      mkdir -p "$REPO/.installed/backup"
+      echo "  to install the new version: mv $dst $REPO/.installed/backup/$name && bash $REPO/install.sh"
+      echo "  to compare afterwards: diff -ru $REPO/.installed/backup/$name $dst"
+      KEPT+=("$said") ;;
+  esac
+}
+
+# Removes a placed copy only while it still equals its record; a link or an edited copy stays.
+unplace() {  # $1 = as for place
+  local kind name dst rec
+  kind="$(basename "$(dirname "$1")")"; name="$(basename "$1")"
+  dst="$HOME/.claude/$kind/$name"; rec="$REPO/.installed/$kind/$name"
+  if [ -L "$dst" ]; then echo "left as is: $dst is a link"
+  elif [ -e "$rec" ] && diff -rq "$rec" "$dst" >/dev/null 2>&1; then rm -rf "$dst" "$rec"
+  elif [ -e "$dst" ]; then echo "kept $dst: you changed it"
+  fi
+}
+
 uninstall() {
   LABELS="$LABELS $GRANOLA"
   [ -z "$WIN" ] && LABELS="$LABELS $GRAPH_INGEST"
@@ -181,12 +226,8 @@ uninstall() {
   [ "$(readlink "$HOME/Documents/rekall" 2>/dev/null)" = "$HOME/rekall" ] && rm "$HOME/Documents/rekall"
   settings remove "$HOME/unused"   # removal matches on the script path, so the state value is unused
   desktop remove
-  # only remove skills/commands that still match what this repo installs; an edited copy stays
-  for src in "$REPO"/skills/* "$REPO"/commands/*; do
-    dst="$HOME/.claude/${src#"$REPO"/}"
-    out="$(render "$src")" || continue
-    [ -e "$dst" ] && diff -rq "$out" "$dst" >/dev/null && rm -r "$dst"
-  done
+  # only remove skills/commands that still match what this repo last wrote; an edited copy stays
+  for src in "$REPO"/skills/* "$REPO"/commands/*; do unplace "$src"; done
   echo "Rekall uninstalled: schedules, hooks, skills, commands and the Claude Desktop MCP entry removed."
   echo "Kept: $REPO (with .venv and .env) and your wiki."
   exit 0
@@ -262,14 +303,8 @@ subst_args
 # 4. hooks + permission rules
 settings add "$STATE"
 
-# 5. skills and commands (skip anything already there)
-for src in "$REPO"/skills/* "$REPO"/commands/*; do
-  dst="$HOME/.claude/${src#"$REPO"/}"
-  [ -e "$dst" ] && continue
-  mkdir -p "$(dirname "$dst")"
-  out="$(render "$src")" || exit 1
-  cp -R "$out" "$dst"
-done
+# 5. skills and commands: refreshed unless you changed the copy or rekall didn't write it
+for src in "$REPO"/skills/* "$REPO"/commands/*; do place "$src"; done
 
 # 6. MCP server for Claude Desktop
 desktop add
@@ -322,6 +357,10 @@ if [ -n "$WIN" ]; then
   for l in $LABELS; do schtasks /Query /TN "$l" /FO LIST 2>/dev/null | grep -i "TaskName\|Next Run" || echo "  $l: not registered"; done
 else
   launchctl list | grep rekall || echo "  (none listed: run 'launchctl list | grep rekall' yourself)"
+fi
+if [ ${#KEPT[@]} -gt 0 ]; then
+  echo "Left alone (the lines above say how to install the new version):"
+  for k in "${KEPT[@]}"; do echo "  $k"; done
 fi
 # Warns (never fails the install) when a headless Claude call doesn't answer, i.e. nobody has signed in.
 "$PY" "$REPO/scripts/setup-server.py" --probe || true

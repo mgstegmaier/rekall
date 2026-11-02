@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
-FNS = ("subst_args", "render", "render_file")
+FNS = ("subst_args", "render", "render_file", "place", "unplace")
 PRE = "set -u\nif sed --version >/dev/null 2>&1; then SEDI=(-i); else SEDI=(-i ''); fi\nKEPT=()\n"
 
 
@@ -98,3 +98,119 @@ def test_launcher_log_follows_the_state_folder(launcher, tmp_path):
     assert r.returncode == 0, r.stderr
     assert r.stdout.strip() == str(state / "logs" / name)
     assert len((state / "logs" / name).read_text().splitlines()) == 2000, "truncation hit another file"
+
+
+def place(env, src="skills/wiki", fn="place", **extra):
+    r = sh(env, f'subst_args && {fn} "$REPO/{src}"', **extra)
+    assert r.returncode == 0, r.stderr
+    return r.stdout
+
+
+def paths(env, src="skills/wiki"):
+    return Path(env["HOME"]) / ".claude" / src, Path(env["REPO"]) / ".installed" / src
+
+
+def same(a, b):
+    return subprocess.run(["diff", "-rq", str(a), str(b)], capture_output=True).returncode == 0
+
+
+def tree_sum(d):
+    return sorted((str(p.relative_to(d)), p.read_bytes()) for p in Path(d).rglob("*") if p.is_file())
+
+
+def test_fresh_place_installs_the_copy_and_its_record(inst):
+    dst, rec = paths(inst)
+    assert place(inst).startswith(f"installed {dst}")
+    text = (dst / "SKILL.md").read_text()
+    assert inst["VAULT"] in text and 'vault="my-vault"' in text and "__" not in text.replace("__init__", "")
+    assert same(dst, rec)
+
+
+def test_second_place_is_unchanged_and_leaves_the_copy_alone(inst):
+    dst, _ = paths(inst)
+    place(inst)
+    before = (dst / "SKILL.md").stat().st_mtime_ns
+    assert place(inst).startswith(f"unchanged {dst}")
+    assert (dst / "SKILL.md").stat().st_mtime_ns == before
+
+
+def test_changed_source_updates_an_untouched_copy(inst):
+    dst, rec = paths(inst)
+    place(inst)
+    with open(Path(inst["REPO"]) / "skills" / "wiki" / "SKILL.md", "a") as f:
+        f.write("\nnew line\n")
+    assert place(inst).startswith(f"updated {dst}")
+    assert "new line" in (dst / "SKILL.md").read_text() and same(dst, rec)
+
+
+def test_changed_vault_updates_an_untouched_copy(inst, tmp_path):
+    dst, _ = paths(inst)
+    place(inst)
+    moved = str(tmp_path / "elsewhere" / "other-vault")
+    assert place(inst, VAULT=moved, VAULT_NAME="other-vault").startswith(f"updated {dst}")
+    assert moved in (dst / "SKILL.md").read_text()
+
+
+def test_an_edited_copy_is_kept(inst):
+    dst, _ = paths(inst)
+    place(inst)
+    with open(Path(inst["REPO"]) / "skills" / "wiki" / "SKILL.md", "a") as f:
+        f.write("\nupstream change\n")
+    with open(dst / "SKILL.md", "a") as f:
+        f.write("\nmy edit\n")
+    mine = tree_sum(dst)
+    out = place(inst)
+    assert out.startswith(f"kept {dst}: you changed it"), out
+    assert f"mv {dst} {inst['REPO']}/.installed/backup/wiki && bash {inst['REPO']}/install.sh" in out
+    assert tree_sum(dst) == mine
+
+
+def test_a_foreign_file_is_left_as_is(inst):
+    dst, rec = paths(inst, "commands/fathom-sync.md")
+    dst.parent.mkdir(parents=True)
+    dst.write_text("the owner's own command\n")
+    out = place(inst, "commands/fathom-sync.md")
+    assert out.startswith(f"left as is: {dst} was not installed by rekall"), out
+    assert dst.read_text() == "the owner's own command\n" and not rec.exists()
+
+
+@pytest.mark.parametrize("dangling", [False, True])
+def test_a_symlink_is_left_as_is(inst, tmp_path, dangling):
+    dst, _ = paths(inst)
+    dst.parent.mkdir(parents=True)
+    dst.symlink_to(tmp_path / "gone" if dangling else Path(inst["REPO"]) / "skills" / "wiki")
+    before = tree_sum(Path(inst["REPO"]) / "skills")
+    for fn in ("place", "unplace"):
+        assert place(inst, fn=fn).startswith(f"left as is: {dst} is a link")
+    assert dst.is_symlink() and tree_sum(Path(inst["REPO"]) / "skills") == before
+
+
+def test_a_copy_equal_to_the_render_with_a_stale_record_is_unchanged(inst):
+    dst, rec = paths(inst)
+    place(inst)
+    (rec / "SKILL.md").write_text("stale\n")
+    assert place(inst).startswith(f"unchanged {dst}")
+    assert same(dst, rec)
+
+
+def test_unplace_removes_an_untouched_copy_and_keeps_an_edited_one(inst):
+    dst, rec = paths(inst)
+    place(inst)
+    assert place(inst, fn="unplace") == "" and not dst.exists() and not rec.exists()
+    place(inst)
+    with open(dst / "SKILL.md", "a") as f:
+        f.write("\nmy edit\n")
+    assert place(inst, fn="unplace").startswith(f"kept {dst}: you changed it")
+    assert dst.exists()
+
+
+def test_no_installed_file_hardcodes_the_state_folder_or_the_vault():
+    files = subprocess.run(["git", "ls-files", "launchd/*", "windows/*", "skills/**", "commands/**", "hooks.json",
+                            "*.sh"], cwd=ROOT, capture_output=True, text=True, check=True).stdout.split()
+    assert files
+    bad = [f"{f}:{i}" for f in files
+           for i, line in enumerate((ROOT / f).read_text(encoding="utf-8").splitlines(), 1)
+           if (".config/rekall" in line or "heck-db" in line)
+           # the corporate CA bundle is config the user supplies, not state, and doesn't move
+           and not (f == "commands/fathom-sync.md" and "ca-bundle.pem" in line)]
+    assert not bad, bad
