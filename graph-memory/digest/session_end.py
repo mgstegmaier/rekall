@@ -38,21 +38,6 @@ def read_stdin():
         return json.loads(re.sub(r'(?<!\\)\\(?!["\\])', r"\\\\", raw))
 
 
-def text_blocks(content):
-    """Text out of a message. Every other kind of block is dropped."""
-    if isinstance(content, str):
-        return content
-    if not isinstance(content, list):
-        return ""
-    parts = []
-    for block in content:
-        if isinstance(block, dict) and block.get("type") == "text":
-            value = block.get("text")
-            if isinstance(value, str):
-                parts.append(value)
-    return "\n".join(parts)
-
-
 def turns(transcript):
     """The conversation out of the transcript, in order, as (who, text, timestamp or None).
     Default is to drop."""
@@ -82,7 +67,7 @@ def turns(transcript):
             role = message.get("role")
             if role not in ("user", "assistant"):
                 continue
-            body = text_blocks(message.get("content")).strip()
+            body = common.text_blocks(message.get("content")).strip()
             if role == "user":
                 body = REMINDER.sub("", body).strip()
                 if body.startswith(INJECTED):
@@ -228,7 +213,7 @@ def recall_use(transcript):
                 continue
             if (message.get("role") == "user" and not event.get("isMeta")  # isMeta: a skill body, not typing
                     and injections and injections[-1]["prompt"] is None):
-                text = REMINDER.sub("", text_blocks(message.get("content"))).strip()
+                text = REMINDER.sub("", common.text_blocks(message.get("content"))).strip()
                 if text:  # the hook fires before the prompt it answers is written
                     injections[-1]["prompt"] = text[:200]
             if message.get("role") != "assistant":
@@ -239,7 +224,7 @@ def recall_use(transcript):
                     path = str((block.get("input") or {}).get("file_path", "")).replace("\\", "/")
                     for label in labels:
                         label["read"] |= path.endswith("/" + label["file"])
-            reply = text_blocks(content).lower()
+            reply = common.text_blocks(content).lower()
             for label in labels:
                 label["reused"] |= sum(t in reply for t in label["_terms"]) >= 2
     for label in labels:

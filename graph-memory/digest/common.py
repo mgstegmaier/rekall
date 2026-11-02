@@ -62,6 +62,21 @@ def today_log(notes, cfg, when=None):
     return folder / f"{when:%Y-%m-%d}.md"
 
 
+def text_blocks(content):
+    """Text out of a message. Every other kind of block is dropped."""
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return ""
+    parts = []
+    for block in content:
+        if isinstance(block, dict) and block.get("type") == "text":
+            value = block.get("text")
+            if isinstance(value, str):
+                parts.append(value)
+    return "\n".join(parts)
+
+
 def note_failure(name, message):
     """Write a failure where a member can find it, and never raise doing it."""
     try:
