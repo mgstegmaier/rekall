@@ -30,14 +30,11 @@ with tempfile.TemporaryDirectory() as tmp:
 
     distil.ask = bad_ask
 
-    for i in range(2):  # an answer that fails parsing is the note's fault: struck in the same run, even alone
+    for _ in range(3):  # every note answers badly: systemic, so no strikes and no quarantine
         counts = distil.run(corpus, rebuild=False)
         assert counts == {"distilled": 0, "skipped": 0, "dropped": 1}, counts
-    assert distil.load_state()["flaky.md"]["failures"] == 2, "a bad answer strikes with no sibling success"
-    counts = distil.run(corpus, rebuild=False)  # quarantined: no third call
-    assert counts == {"distilled": 0, "skipped": 1, "dropped": 0}, counts
-    assert len(calls) == 2
-    note.write_text("# Flaky\n\nThis note has no clean quote to extract, sadly. Edited.\n")  # hash moves: strikes reset
+    assert len(calls) == 3
+    assert not distil.load_state().get("flaky.md", {}).get("failures"), "an all-bad run records no strikes"
 
     def bad_unless_ok(model, prompt_text, payload):
         calls.append(payload)
