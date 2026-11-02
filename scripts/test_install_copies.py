@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
-FNS = ("subst_args", "render", "render_file", "place", "unplace")
+FNS = ("owner_paths", "guard", "subst_args", "render", "render_file", "place", "unplace")
 PRE = "set -u\nif sed --version >/dev/null 2>&1; then SEDI=(-i); else SEDI=(-i ''); fi\nKEPT=()\n"
 
 
@@ -202,6 +202,54 @@ def test_unplace_removes_an_untouched_copy_and_keeps_an_edited_one(inst):
         f.write("\nmy edit\n")
     assert place(inst, fn="unplace").startswith(f"kept {dst}: you changed it")
     assert dst.exists()
+
+
+SHAPES = {
+    "current": 'S="{d}/graph-memory/recall_hook.py"; [ -f "$S" ] && "/v/bin/python" "$S" || true',
+    "bare": '"{d}/graph-memory/recall_hook.py"',
+    "home": '/v/bin/python $HOME/{rel}/graph-memory/recall_hook.py',
+}
+
+
+def hook_settings(env, cmd):
+    p = Path(env["SETTINGS"])
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps({"hooks": {"UserPromptSubmit": [{"hooks": [{"type": "command", "command": cmd}]}]}}))
+
+
+@pytest.mark.parametrize("shape", SHAPES)
+@pytest.mark.parametrize("live", [True, False])
+def test_guard_refuses_a_live_owner_and_takes_over_a_dead_one(inst, shape, live):
+    home = Path(inst["HOME"])
+    other = home / "clones" / "rekall"
+    if live:
+        other.mkdir(parents=True)
+        (other / "install.sh").write_text("")
+        (other / "rekall.toml").write_text("")
+    hook_settings(inst, SHAPES[shape].format(d=other, rel="clones/rekall"))
+    before = tree_sum(home)
+    r = sh(inst, "guard")
+    out = r.stdout + r.stderr
+    if live:
+        assert r.returncode == 1, out
+        assert f"installed from {other}" in out and f"bash {other}/install.sh --uninstall" in out, out
+    else:
+        assert r.returncode == 0, out
+        assert f"taking over from {other}" in out, out
+    assert tree_sum(home) == before
+
+
+def test_guard_passes_when_this_clone_owns_the_install(inst):
+    hook_settings(inst, SHAPES["current"].format(d=inst["REPO"]))
+    r = sh(inst, "guard")
+    assert r.returncode == 0 and r.stdout == "" and r.stderr == "", r
+
+
+def test_guard_stops_on_a_malformed_settings_json(inst):
+    Path(inst["SETTINGS"]).parent.mkdir(parents=True)
+    Path(inst["SETTINGS"]).write_text("{not json")
+    r = sh(inst, "guard")
+    assert r.returncode == 1 and "can't read" in r.stderr
 
 
 def test_no_installed_file_hardcodes_the_state_folder_or_the_vault():

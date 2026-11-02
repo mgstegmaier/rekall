@@ -52,6 +52,57 @@ for c in ${REKALL_PYTHON:-} python3.13 python3.12 python3.11 python3 python; do
 done
 [ -n "$PY3" ] || { echo "No python 3.11 or newer on PATH. Install one (brew install python, or python.org on Windows) and re-run." >&2; exit 1; }
 
+# A test config would get rendered into files the scheduled jobs later read without it.
+if [ -n "${REKALL_CONFIG+x}" ] && [ "$REKALL_CONFIG" != "$REPO/rekall.toml" ]; then
+  echo "ignoring REKALL_CONFIG=$REKALL_CONFIG: install.sh always installs from $REPO/rekall.toml"
+  unset REKALL_CONFIG
+fi
+
+# Prints the real path of every clone a recall hook in settings.json names, once each (the current
+# S="..." shape, and the older bare and $HOME-spelled ones). Nothing when settings.json is missing;
+# exits 2 when it doesn't parse.
+owner_paths() {
+  [ -f "$SETTINGS" ] || return 0
+  "$PY3" - "$SETTINGS" <<'EOF'
+import json, os, re, sys
+try:
+    s = json.load(open(sys.argv[1]))
+except ValueError:
+    sys.exit(2)
+seen = []
+for g in s.get("hooks", {}).get("UserPromptSubmit", []):
+    for h in g.get("hooks", []):
+        for m in re.findall(r'([^"\s;=]+)/graph-memory/recall_hook\.py', h.get("command", "")):
+            p = os.path.realpath(os.path.expanduser(os.path.expandvars(m)))
+            if p not in seen:
+                seen.append(p)
+                print(p)
+EOF
+}
+
+# One machine runs one install, owned by the clone the recall hook names. Writes nothing. Refuses
+# when another clone still holds install.sh and rekall.toml (bootstrap.sh's test for an install);
+# a dead owner's hook and schedules are replaced by the normal steps.
+guard() {
+  local me owners o
+  me="$("$PY3" -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$REPO")"
+  owners="$(owner_paths)" || { echo "can't read $SETTINGS; fix or move it, then re-run" >&2; return 1; }
+  while IFS= read -r o; do
+    [ -n "$o" ] && [ "$o" != "$me" ] || continue
+    if [ -f "$o/install.sh" ] && [ -f "$o/rekall.toml" ]; then
+      echo "Rekall is already installed from $o. One machine runs one install." >&2
+      echo "To move it here: bash $o/install.sh --uninstall, then re-run this." >&2
+      if [ "$(git -C "$REPO" rev-parse --git-dir 2>/dev/null)" != "$(git -C "$REPO" rev-parse --git-common-dir 2>/dev/null)" ]; then
+        echo "This is a git worktree, which is expected to be refused. To test against another vault without installing, run scripts with REKALL_CONFIG=/path/to/test.toml." >&2
+      fi
+      return 1
+    fi
+    echo "taking over from $o, which no longer holds a Rekall install"
+  done <<< "$owners"
+  return 0
+}
+guard || exit 1
+
 # Merges (or removes) rekall's hooks and permission rules in settings.json.
 # Hooks match by script path and rules by exact string, so re-runs never duplicate.
 settings() {  # $1 = add | remove, $2 = the state folder (fills __STATE__ in the recall hook's fallback log)
