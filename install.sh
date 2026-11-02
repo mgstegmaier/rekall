@@ -227,7 +227,7 @@ render_file() {  # $1 = template, $2 = destination
 # edited one. First matching row wins: a symlink, a copy the user changed and a file rekall didn't
 # write are left alone and named. Runs in the current shell (it appends to KEPT), never in $(...).
 place() {  # $1 = $REPO/skills/<name> or $REPO/commands/<name>
-  local kind name dst rec out said
+  local kind name dst rec out said bak
   kind="$(basename "$(dirname "$1")")"; name="$(basename "$1")"
   dst="$HOME/.claude/$kind/$name"; rec="$REPO/.installed/$kind/$name"
   out="$(render "$1")" || exit 1
@@ -247,9 +247,11 @@ place() {  # $1 = $REPO/skills/<name> or $REPO/commands/<name>
       rm -rf "$rec"; mkdir -p "$(dirname "$rec")"; cp -R "$out" "$rec" ;;
     *)
       # the backup goes under .installed/: a second folder in ~/.claude/skills/ would load as a second skill
+      # a fresh name per run, so following the advice twice neither overwrites nor nests an earlier backup
       mkdir -p "$REPO/.installed/backup"
-      echo "  to install the new version: mv $dst $REPO/.installed/backup/$name && bash $REPO/install.sh"
-      echo "  to compare afterwards: diff -ru $REPO/.installed/backup/$name $dst"
+      bak="$(mktemp -u "$REPO/.installed/backup/$name.$(date +%Y%m%d-%H%M%S).XXXX")"
+      echo "  to install the new version: mv $dst $bak && bash $REPO/install.sh"
+      echo "  to compare afterwards: diff -ru $bak $dst"
       KEPT+=("$said") ;;
   esac
 }
