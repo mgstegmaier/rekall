@@ -87,3 +87,16 @@ def test_walk_skips_predicate_inside_the_walk(tmp_path, monkeypatch):
     monkeypatch.setattr(graph_recall, "DB", tmp_path / "rag.db")
     got = graph_recall.recall("widget project", skip=("mentions",)).triples
     assert [(s, p, t) for s, p, t, _ in got] == [("Widget Project", "owns", "Gamma Page")], got
+
+
+def test_no_graph_fragment_when_hits_leave_little_room(monkeypatch, capsys):
+    facts = [("Rekall", "part_of", "Wiki", "pages/rekall.md")]
+    seen = set()
+    for pad in range(98, 152, 4):  # four 280-char hits plus a padded label leave about 58 down to 6 chars
+        found = [(f"[pages/p{i}.md § S{'x' * (pad if i == 0 else 0)}]", "word " * 200) for i in range(4)]
+        ctx = emit(monkeypatch, capsys, found, facts)
+        assert "[pages/p3.md" in ctx and len(ctx) <= BUDGET
+        whole = "Rekall -[part_of]-> Wiki  (pages/rekall.md)" in ctx
+        assert whole or "Wiki graph:" not in ctx, ctx[-80:]  # a whole fact or no section, never a fragment
+        seen.add(whole)
+    assert seen == {True, False}  # the sweep covers both sides of the fit

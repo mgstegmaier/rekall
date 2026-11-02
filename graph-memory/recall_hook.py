@@ -175,7 +175,8 @@ GRAPH_HEADING = "Wiki graph:\n"
 
 def graph_block(facts, budget=GRAPH_BUDGET):
     """Facts trimmed so the section, heading included, fits `budget`. Whole
-    triples only, except a first one too long, which is cut.
+    triples only, except a first one longer than any section allows, which
+    is cut to fit (keeping its source when it can).
 
     graph_facts already only returns anything when the prompt named an
     entity in the graph (graph_recall._seeds requires a name match), so no
@@ -186,9 +187,12 @@ def graph_block(facts, budget=GRAPH_BUDGET):
     for s, p, t, doc in facts:
         line = f"{s} -[{p}]-> {t}  ({doc})"
         if used + len(line) > room:
-            if lines or room <= 3:
+            # cut only a first fact too long for any section; one that merely misses the leftover room is dropped
+            if lines or len(line) <= GRAPH_BUDGET - len(GRAPH_HEADING) or room < 40:
                 break
-            line = line[: room - 3] + "..."
+            tail = f"  ({doc})"
+            head = f"{s} -[{p}]-> {t}"
+            line = head[: room - 3 - len(tail)] + "..." + tail if len(tail) <= room // 2 else line[: room - 3] + "..."
         lines.append(line)
         used += len(line) + 1
     return lines
