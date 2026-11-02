@@ -78,3 +78,23 @@ def test_a_quote_in_the_vault_path_stops_subst_args(inst):
     r = sh(inst, 'subst_args; echo survived', VAULT="/tmp/it's")
     assert r.returncode == 1 and "survived" not in r.stdout
     assert "VAULT=" in r.stderr
+
+
+@pytest.mark.parametrize("launcher", ["graph-memory/reindex.sh", "scripts/run-wiki-lint.sh",
+                                      "scripts/run-fathom-pipeline.sh"])
+def test_launcher_log_follows_the_state_folder(launcher, tmp_path):
+    state = tmp_path / "custom-state"
+    toml = tmp_path / "rekall.toml"
+    toml.write_text(f'[user]\nname="t"\ntimezone="UTC"\n[vault]\npath="{tmp_path}/vault"\n'
+                    f'[data]\npath="{tmp_path}/data"\nstate="{state}"\n')
+    block = re.search(r'^STATE="\$\(.*?^fi\n', (ROOT / launcher).read_text(), re.S | re.M).group(0)
+    name = re.search(r'LOG="\$STATE/logs/([^"]+)"', block).group(1)
+    (state / "logs").mkdir(parents=True)
+    (state / "logs" / name).write_text("x\n" * 600_000)  # past the 1MB truncation threshold
+    pre = (f'HERE="{ROOT / "graph-memory"}"; SCRIPT_DIR="{ROOT / "scripts"}"; '
+           f'PY="{sys.executable}"; VPY="{sys.executable}"\n')
+    r = subprocess.run(["bash", "-c", pre + block + 'echo "$LOG"'], capture_output=True, text=True,
+                       env={**os.environ, "REKALL_CONFIG": str(toml)})
+    assert r.returncode == 0, r.stderr
+    assert r.stdout.strip() == str(state / "logs" / name)
+    assert len((state / "logs" / name).read_text().splitlines()) == 2000, "truncation hit another file"

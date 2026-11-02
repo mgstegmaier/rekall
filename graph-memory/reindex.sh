@@ -1,15 +1,17 @@
 #!/bin/bash
 # Rebuild the wiki RAG index + graph. Safe to run any time; both are disposable.
-# ponytail: launchd appends to this script's own stdout/stderr log forever with no
-# logrotate on the box; truncate in place (same inode, so launchd's open fd keeps
-# writing to the right file) once it passes ~1MB. Path matches launchd/com.rekall.wiki-reindex.plist.
-LOG="$HOME/.config/rekall/logs/wiki-reindex.log"
-if [ -f "$LOG" ] && [ "$(wc -c < "$LOG")" -gt 1000000 ]; then
-    tail -n 2000 "$LOG" > "$LOG.tmp" && cat "$LOG.tmp" > "$LOG" && rm -f "$LOG.tmp"
-fi
 HERE="$(cd "$(dirname "$0")" && pwd)"
 PY="$HERE/.venv/bin/python"
 [ -x "$PY" ] || PY="$HERE/.venv/Scripts/python.exe"   # Windows venv layout
+# ponytail: launchd appends to this script's own stdout/stderr log forever with no
+# logrotate on the box; truncate in place (same inode, so launchd's open fd keeps
+# writing to the right file) once it passes ~1MB. Path matches __STATE__/logs/ in
+# launchd/com.rekall.wiki-reindex.plist; an empty lookup skips the truncation.
+STATE="$("$PY" "$HERE/../rekall_config.py" STATE_DIR)"
+LOG="$STATE/logs/wiki-reindex.log"
+if [ -n "$STATE" ] && [ -f "$LOG" ] && [ "$(wc -c < "$LOG")" -gt 1000000 ]; then
+    tail -n 2000 "$LOG" > "$LOG.tmp" && cat "$LOG.tmp" > "$LOG" && rm -f "$LOG.tmp"
+fi
 WIKI="$("$PY" "$HERE/../rekall_config.py" WIKI)"
 # an empty WIKI would make --corpus "" index launchd's working directory (/), and a missing
 # folder would commit an empty index; stop before any step runs
