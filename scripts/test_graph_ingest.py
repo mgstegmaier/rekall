@@ -196,6 +196,51 @@ def test_fact_key_keeps_numbers_apart():
     assert k("Run V2 on all 30k records.") == k("run v2 on all 30k records")
 
 
+def test_dry_run_is_dry():
+    """--dry-run takes no lock, makes no model call and writes no usage log or state."""
+    import contextlib
+    import io
+    import json
+    import sys
+    import types
+    vault = TMP / "dry-vault"
+    (vault / "wiki" / "pages").mkdir(parents=True, exist_ok=True)
+    (vault / "wiki" / "pages" / "nova-link.md").write_text(PAGE)
+    for k in ("MSGRAPH_CLIENT_ID", "MSGRAPH_TENANT_ID", "MSGRAPH_REFRESH_TOKEN"):
+        os.environ[k] = "x"
+    calls = []
+    patch = {
+        "graph_token": lambda: "tok",
+        "fetch_mail": lambda tok, since, folders: [email("RE: NovaLink rollout plan", ["a1"]), email("Lunch?", ["a2"])],
+        "fetch_chats": lambda tok, since, chats: [],
+        "run_claude": lambda cmd, **kw: calls.append(cmd) or types.SimpleNamespace(
+            returncode=0, stderr="", stdout=json.dumps({"result": "{}", "usage": {}})),
+        "PAGES": vault / "wiki" / "pages", "GRAPH": {"enabled": True},
+        "LOCK_FILE": TMP / "dry.lock", "USAGE_LOG": TMP / "dry-usage.jsonl", "STATE_FILE": TMP / "dry-state.json",
+    }
+    saved = {k: getattr(gi, k) for k in patch}
+    saved_vault, saved_load = gi.fp.VAULT, gi.load_projects
+    gi.fp.VAULT = vault
+    gi.load_projects = lambda: saved_load(patch["PAGES"])
+    for k, v in patch.items():
+        setattr(gi, k, v)
+    out = io.StringIO()
+    argv, sys.argv = sys.argv, ["graph-ingest.py", "--dry-run"]
+    try:
+        with contextlib.redirect_stdout(out):
+            gi.main()
+    finally:
+        sys.argv = argv
+        for k, v in saved.items():
+            setattr(gi, k, v)
+        gi.fp.VAULT, gi.load_projects = saved_vault, saved_load
+    assert calls == [], "dry run called the model"
+    for f in ("USAGE_LOG", "LOCK_FILE", "STATE_FILE"):
+        assert not patch[f].exists(), f"dry run wrote {f}"
+    assert "NovaLink rollout plan" in out.getvalue() and "nova-link.md" in out.getvalue(), out.getvalue()
+    assert "Lunch" not in out.getvalue(), "an unmatched thread was listed"
+
+
 def main():
     projects = gi.load_projects(projects_dir())
     assert set(projects) == {"nova-link", "report-builder"}, projects
@@ -207,6 +252,7 @@ def main():
     test_calendar_notices_skipped()
     test_device_code_signin()
     test_setup_writes_only_graph_section()
+    test_dry_run_is_dry()
     print("ok")
 
 

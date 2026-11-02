@@ -114,7 +114,7 @@ Lint: unresolved relation targets and non-person `owner`/`people`/`maintainers` 
 
 `# Title`, then `**Summary**:` (1-2 sentences), `**Sources**:` (basename wikilinks), `**Last updated**:`, `---`, body with `[[wikilinks]]` throughout.
 
-Section order (`scripts/wiki-reflow.py` in the rekall repo enforces it mechanically, lint check 9 reports drift):
+Section order (wiki lint check 9, "Page order", reports drift):
 
 1. `## State` — the current picture, REWRITTEN in place on every update, never appended to. One State section per page.
 2. `## Next steps`, then `## Members` (project pages carry all three; other pages carry what applies).

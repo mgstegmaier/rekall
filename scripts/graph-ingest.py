@@ -20,7 +20,8 @@ Each run:
    last model input per thread (unchanged input skips the call). Token usage per call goes to
    STATE_DIR/logs/graph-usage.jsonl.
 
-Flags: --hours N (default 26) | --dry-run (prints what it would write; no vault or state writes)
+Flags: --hours N (default 26) | --dry-run (lists the threads that match a project page and the pages they match (it does not apply the live run's skips for retired or unchanged threads);
+no lock, no model call, no vault, state or usage-log writes)
 """
 import argparse
 import hashlib
@@ -365,13 +366,17 @@ def mark_seen(state, thread, msgs, prompt_hash):
     e["at"] = datetime.now(timezone.utc).isoformat()
 
 
+def match_text(thread, msgs):
+    """What the matcher reads: a mail thread's subject only, a chat's topic plus its new messages."""
+    return thread["name"] if thread["kind"] == "email" else thread["name"] + "\n" + "\n".join(m["body"] for m in msgs)
+
+
 def plan_thread(thread, projects, state, tok, ask=call_model):
     """(facts, msgs, prompt_hash) for one thread, or None when it adds nothing or matches no project."""
     msgs = new_messages(thread, state)
     if not msgs:
         return None
-    text = thread["name"] if thread["kind"] == "email" else thread["name"] + "\n" + "\n".join(m["body"] for m in msgs)
-    cands = match(text, projects)
+    cands = match(match_text(thread, msgs), projects)
     if not cands:
         return None  # dropped: no page, no state entry, no body fetched for mail
     if thread["kind"] == "email":
@@ -399,10 +404,11 @@ def main():
         log(f"graph ingest is off: missing {', '.join(missing)} (run scripts/setup-server.py)")
         return
     fp.STATE_DIR.mkdir(parents=True, exist_ok=True)
-    lock = fp.acquire_lock(LOCK_FILE)  # bound for the whole run: a dropped handle closes and frees the flock
-    if lock is None:
-        log("another graph ingest is active; exiting")
-        return
+    if not args.dry_run:  # a dry run takes no lock, so it never truncates the lock file under a live run
+        lock = fp.acquire_lock(LOCK_FILE)  # bound for the whole run: a dropped handle closes and frees the flock
+        if lock is None:
+            log("another graph ingest is active; exiting")
+            return
 
     try:
         tok = graph_token()
@@ -415,7 +421,7 @@ def main():
     state = load_state()
     started = datetime.now(timezone.utc)
     since_dt = started - timedelta(hours=args.hours)
-    if state.get("last_run") and not args.dry_run:
+    if state.get("last_run"):
         # cover weekends and a laptop asleep past --hours, capped so a long gap can't pull months of mail
         since_dt = max(min(since_dt, datetime.fromisoformat(state["last_run"])), started - timedelta(days=MAX_LOOKBACK_DAYS))
     since = since_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -423,6 +429,14 @@ def main():
     threads = fetch_mail(tok, since, GRAPH.get("mail_folders", ["inbox", "sentitems"]))
     threads += fetch_chats(tok, since, GRAPH.get("chats", []))
     log(f"{len(threads)} threads since {since}, {len(projects)} active project pages")
+
+    if args.dry_run:  # no model call and no writes, so no facts: only which threads would reach which pages
+        for t in threads:
+            msgs = new_messages(t, state)
+            cands = match(match_text(t, msgs), projects) if msgs else []
+            if cands:
+                print(f"{t['kind']} \"{t['name']}\" -> " + ", ".join(str(projects[c]["path"].relative_to(fp.VAULT)) for c in cands))
+        return
 
     day = datetime.now(fp.CT).strftime("%Y-%m-%d")
     log_entries, matched, failed = [], 0, 0
@@ -433,17 +447,16 @@ def main():
         try:
             planned = plan_thread(t, projects, state, tok)
         except SystemExit:  # signed out partway: log the pages already written before stopping
-            if log_entries and not args.dry_run:
+            if log_entries:
                 append_log(log_entries, day)
             raise
         except Exception as e:  # model timeout, bad JSON, a Graph error on one body: retried next run
             failed += 1
             log(f"  {t['kind']} \"{t['name']}\": {type(e).__name__}: {str(e)[:200]}")
-            if not args.dry_run:
-                entry = state["threads"].setdefault(h(t["key"]), {"seen": []})
-                entry["fails"] = entry.get("fails", 0) + 1
-                entry["at"] = datetime.now(timezone.utc).isoformat()
-                save_state(state)
+            entry = state["threads"].setdefault(h(t["key"]), {"seen": []})
+            entry["fails"] = entry.get("fails", 0) + 1
+            entry["at"] = datetime.now(timezone.utc).isoformat()
+            save_state(state)
             continue
         if planned is None:
             continue
@@ -455,9 +468,6 @@ def main():
         entry_day = datetime.fromisoformat(msgs[-1]["date"].replace("Z", "+00:00")).astimezone(fp.CT).strftime("%Y-%m-%d")
         for page, bullets in by_page.items():
             head = heading(t, entry_day)
-            if args.dry_run:
-                print(f"\n{projects[page]['path'].relative_to(fp.VAULT)}\n{head}\n" + "\n".join(bullets))
-                continue
             path = projects[page]["path"]
             updated = insert_update(path.read_text(encoding="utf-8"), head, bullets)
             if updated is not None:
@@ -465,15 +475,13 @@ def main():
                 log_entries.append(f"[[{page}]] ({len(bullets)} from {t['kind']} \"{t['name']}\")")
         if not facts:
             log(f"  {t['kind']} \"{t['name']}\": matched, no new facts")
-        if not args.dry_run:
-            mark_seen(state, t, msgs, ph)
-            save_state(state)
+        mark_seen(state, t, msgs, ph)
+        save_state(state)
     log(f"{matched} threads matched a project page, {len(log_entries)} page entries written, {failed} failed")
     if log_entries:
         append_log(log_entries, day)
-    if not args.dry_run:  # a failing thread no longer pins the window open; its fails count retires it
-        state["last_run"] = started.isoformat()
-        save_state(state)
+    state["last_run"] = started.isoformat()  # a failing thread no longer pins the window open; its fails count retires it
+    save_state(state)
 
 
 if __name__ == "__main__":

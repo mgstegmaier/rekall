@@ -31,4 +31,4 @@ Open: eval prompt set contaminated and Haiku judge uncalibrated (recheck 0.68 wi
 `~/.config/rekall/eval/recall-threshold-calibrate.py`); Windows cold test unverified; existing-vault
 install designed only; plugin packaging parked.
 
-Next action: read the next real ingest batch's `total_cost_usd` against $1.25 to $3.79.
+Next action: none on cost. The 28 ingest batches from 2026-10-05 to 2026-11-01 cost $0.22 to $0.63 each, plus one $1.42 backfill; check a new batch against that range.

@@ -11,7 +11,7 @@
         <string>__REPO__/graph-memory/reindex.sh</string>
     </array>
     <!-- hourly; build_index.py is incremental (seconds), and promotes the first
-         Sunday run each week to the ~24-min full rebuild on its own -->
+         Sunday run each week to a full rebuild on its own (it reuses unchanged vectors) -->
     <key>StartInterval</key>
     <integer>3600</integer>
     <key>StandardOutPath</key>

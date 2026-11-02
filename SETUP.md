@@ -104,7 +104,7 @@ and reopen it too, so it starts the rekall MCP server; "Use your wiki from Claud
 the rekall folder (hooks, skills, schedules, permission rules, the Claude Desktop MCP entry) goes through `install.sh`. It is
 safe to re-run after a `git pull`, and `bash install.sh --uninstall` removes exactly what it
 added. From here on, meetings land
-in your wiki within the hour, anything you save into `wiki/raw/` gets compiled on the next
+in your wiki within about an hour (the pipeline runs hourly from 7:15 am to 7:15 pm), anything you save into `wiki/raw/` gets compiled on the next
 run, and every session you close is written up and indexed by morning.
 
 ## Optional: mail and Teams chats into project pages
@@ -120,7 +120,7 @@ How a message reaches a page:
   `title`, an entry in `aliases`, or its `monday_label`. "RE: Apollo launch plan" matches
   `apollo.md`. A chat matches on its topic and the text of its new messages.
 - A term that two pages share, like a Monday label used by several projects, matches neither.
-- A thread that matches no page is dropped. Its body is never fetched and nothing about it is kept.
+- A thread that matches no page is dropped and nothing about it is kept. A mail body is fetched only after its subject matches. Chat messages arrive with the chat window, so Rekall reads them to match and drops them if nothing does.
 - For a matched thread, one Haiku call through `claude -p` picks out only facts the page doesn't
   already have. Each lands as one bullet in a dated entry at the top of the page's `## Updates`,
   citing the email subject or chat name, the sender, and the date. Full messages never reach the
@@ -160,7 +160,7 @@ for your group. Ask for its client ID and tenant ID, and whether "Allow public c
    tick.
 5. Tick **Turn on the Graph ingest** and click **Save to rekall.toml**. Only the `[graph]` section
    of `rekall.toml` changes. Stop the server with Ctrl-C.
-6. Run a dry run, which prints what it would write for the last 24 hours and writes nothing:
+6. Run a dry run, which lists the threads from the last 24 hours that match a project page and the pages they match (it does not apply the live run's skips for retired or unchanged threads). It takes no lock, makes no Claude call, and writes nothing, so it shows no facts:
 
    ```bash
    bash scripts/run-graph-ingest.sh --dry-run --hours 24
@@ -174,7 +174,7 @@ for your group. Ask for its client ID and tenant ID, and whether "Allow public c
    only). `bash install.sh --uninstall` removes it with everything else.
 
 The refresh token expires after 90 days without use. When it does, the job sends a notification
-naming `AADSTS700082`; sign in again from the setup page.
+saying the refresh token expired (it shows when Microsoft's reply carries `AADSTS700082`); sign in again from the setup page.
 
 ## Power users: a secrets manager
 

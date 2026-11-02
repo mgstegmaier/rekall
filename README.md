@@ -38,20 +38,26 @@ If `install.sh` fails partway, fix what its error names and run it again. It ski
 - **Mail and Teams (optional)** - a read-only Microsoft Graph ingest adds new facts and decisions from email threads and the Teams chats you pick to the project pages they name; `scripts/setup-server.py` is its local setup page (see SETUP.md)
 - **Wiki** - a headless Claude call compiles those sources into interlinked pages (people, projects, entities, concepts), every claim cited, in Karpathy's LLM Wiki pattern
 - **Index** - a local SQLite index over the wiki: keyword search, embeddings from a 67 MB model on your CPU, and an entity graph built from the wikilinks
-- **Recall** - a hook that runs before every Claude Code prompt and hands Claude up to five of the best hits, so it answers from your notes without being asked to look
+- **Recall** - a hook that runs before every Claude Code prompt and hands Claude up to five of the best hits plus entity-graph facts, so it answers from your notes without being asked to look
 - **MCP server** - Claude Desktop chat has no prompt hook, so `install.sh` registers a read-only MCP server there with two tools, `search_wiki` and `read_page`, over the same index (see "Use your wiki from Claude Desktop chat" below)
 
 ## What it is not
 
 - Not a note store. Your vault stays the source of truth, in plain markdown, portable, yours.
-- Not a hosted service. Indexing and search run on your machine and send nothing anywhere. The only network calls are Fathom (your meetings) and the Claude calls that write pages and digests.
+- Not a hosted service. Indexing and search run on your machine and send nothing anywhere. Rekall makes network calls to these destinations only:
+  - `api.fathom.ai`: the Fathom pipeline fetches your meetings.
+  - Anthropic, through the `claude` CLI: the calls that write pages, digests, distillations, and mail and Teams facts. Your text goes to Claude for these.
+  - `api.monday.com`: the Fathom pipeline pushes meeting items to Monday. Optional: it needs a Monday token, and `--no-monday` skips it.
+  - `graph.microsoft.com` and `login.microsoftonline.com`: the optional mail and Teams ingest, and its sign-in on the settings page.
+  - `public-api.granola.ai`: the optional Granola sweep, scheduled only with `install.sh --with-granola`.
+  - `huggingface.co`: `graph-memory/fetch_model.sh` downloads the embedding model once, at install. `pip` also fetches the Python packages then.
 
 ## Use your wiki from Claude Desktop chat
 
 Chat in the Claude desktop app has no prompt hook, so it can't receive recall hits the way Claude Code does. It reaches your wiki through Rekall's local MCP server (`graph-memory/mcp_server.py`) instead. The server runs on your machine, reads the same index, and never writes anything. It gives chat two tools:
 
-- `search_wiki(query, section)` returns the five best matching chunks, each labeled `[file § section]`, plus any entity-graph facts. `section` is optional. When given, it keeps only chunks under that heading, matched exactly and ignoring case, so `section="Decisions"` or `section="Open loops"` returns just those parts of past session digests.
-- `read_page(name)` returns one whole note by its file name without `.md`, such as `index` or `log`.
+- `search_wiki(query, section)` returns up to five matching chunks, each labeled `[file § section]`, plus any entity-graph facts. `section` is optional. When given, it keeps only chunks under that heading, matched exactly and ignoring case, so `section="Decisions"` or `section="Open loops"` returns just those parts of past session digests, and the graph facts are left out.
+- `read_page(name)` returns one note by its file name without `.md`, such as `index` or `log`, or by its vault-relative path. A long page comes back in parts; the reply ends with the offset to resume from.
 
 The Code tab in the desktop app runs Claude Code, so it already gets the recall hook and doesn't need this.
 
@@ -72,9 +78,9 @@ If `rekall` shows as failed under Settings > Developer, the server's log says wh
 
 - `No such file or directory` for the python path means the venv is missing or the rekall folder moved. Run `bash install.sh` again from the folder's current location.
 - `ModuleNotFoundError: No module named 'mcp'` means the venv predates the MCP server. Run `bash install.sh` again, and it installs the package.
-- A tool reply that starts with `Search failed` means there's no index yet. Run `graph-memory/reindex.sh`.
+- A tool reply of `No index yet` means the index hasn't been built. Run `graph-memory/reindex.sh`. A reply that starts with `Search failed` carries the error that stopped the search.
 
-`bash install.sh --uninstall` removes the `rekall` entry from Claude Desktop's config along with everything else. To write the entry by hand instead, see the MCP section of `graph-memory/README.md`, then run `python3 graph-memory/test_mcp_server.py` to check both tools against your index.
+`bash install.sh --uninstall` removes the `rekall` entry from Claude Desktop's config along with everything else. To write the entry by hand instead, see the MCP section of `graph-memory/README.md`, then run `python3 graph-memory/test_mcp_server.py` to check both tools against your index. `test_mcp_server_fixture.py` runs the same checks against a temporary index built from `vault-template/`.
 
 ## Layout
 
@@ -86,11 +92,12 @@ rekall/
 ├── .env.example        # secrets: Fathom key, optional Monday and Jira tokens (copy to .env)
 ├── hooks.json          # the two Claude Code hook entries
 ├── vault-template/     # what setup copies into a new vault
-├── launchd/            # macOS schedule templates: pipeline, reindex, lint
-├── windows/            # the same three as Task Scheduler tasks
+├── launchd/            # macOS schedules: fathom-pipeline, wiki-reindex, wiki-lint, graph-ingest, granola-sweep
+├── windows/            # Task Scheduler tasks: fathom-pipeline, wiki-reindex, wiki-lint, granola-sweep
 ├── scripts/            # Fathom pipeline, wiki index/lint/cleanup
 ├── graph-memory/       # the index, the recall hook, distillation, the session digest
-├── skills/ commands/   # Claude Code skills: wiki, wrap-up, fathom-sync
+├── skills/             # Claude Code skills: wiki
+├── commands/           # Claude Code commands: fathom-sync
 └── docs/               # vault CLI reference, prior art, plans
 ```
 
