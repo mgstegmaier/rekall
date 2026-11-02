@@ -44,13 +44,12 @@ def _kind(event):
         return "queued" if (event.get("attachment") or {}).get("type") == "queued_command" else "pass"
     if kind != "user":
         return "pass"  # system events, and anything else on the chain
-    if event.get("toolUseResult") is not None:
+    if "toolUseResult" in event:  # present, even when null
         return "tool"
     if event.get("isCompactSummary"):
         return "compact"
     if event.get("isMeta"):
-        text = common.text_blocks((event.get("message") or {}).get("content")).lstrip()
-        return "companion" if text.startswith(COMPANION) else "meta"
+        return "companion" if _text((event.get("message") or {}).get("content")).startswith(COMPANION) else "meta"
     return "typed"
 
 
@@ -120,8 +119,8 @@ def scan(transcript):
                 continue
             if kind != "assistant" or not open_:
                 continue
-            content = message.get("content") if isinstance(message.get("content"), list) else []
-            for block in content:
+            content = message.get("content")
+            for block in content if isinstance(content, list) else []:
                 if isinstance(block, dict) and block.get("type") == "tool_use" and block.get("name") == "Read":
                     path = str((block.get("input") or {}).get("file_path", "")).replace("\\", "/")
                     for inj in open_:
@@ -149,7 +148,7 @@ def line(session_id, injections, ts=None, rebuilt=False):
 
 
 def append(line_dict):
-    """One os.write with O_APPEND, no lock. Failures go to digest.log."""
+    """One os.write with O_APPEND, no lock. Failures go to digest.log. True when the whole line landed."""
     # ponytail: O_APPEND keeps concurrent whole-line writes intact on macOS and Linux local disks
     # only. Windows emulates it as seek+write and a network drive promises nothing, so two closes
     # at once can clobber there. About 75 MB a year, never rotated. One file per session
@@ -164,8 +163,10 @@ def append(line_dict):
             os.close(fd)
         if n < len(data):
             common.note_failure("recall_use", f"short write: {n} of {len(data)} bytes")
+        return n == len(data)
     except Exception as exc:
         common.note_failure("recall_use", f"{type(exc).__name__} {exc}")
+        return False
 
 
 def log(transcript, session_id):
@@ -228,8 +229,7 @@ def rebuild():
         if "v" in _last_lines(live).get(session, {}):  # the session closed again meanwhile
             counts["already v2"] += 1
             continue
-        append(line(session, injections, ts=row.get("ts"), rebuilt=True))
-        counts["rebuilt"] += 1
+        counts["rebuilt" if append(line(session, injections, ts=row.get("ts"), rebuilt=True)) else "failed"] += 1
     print(", ".join(f"{k} {n}" for k, n in counts.items()))
     return 1 if counts["failed"] else 0
 

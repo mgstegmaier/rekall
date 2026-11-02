@@ -172,8 +172,10 @@ with tempfile.TemporaryDirectory() as tmp:
     t.rekall(NAS)
     t.add({"type": "user", "isCompactSummary": True, "message": {"role": "user", "content": "summary"}})
     t.rekall(NAS)
+    t.add({"type": "user", "toolUseResult": None, "message": {"role": "user", "content": [{"type": "tool_result"}]}})
+    t.rekall(NAS)  # a tool result whose toolUseResult is present but null
     got = scan(t)
-    assert len(got) == 5 and all(i["trigger"] is i["trigger_uuid"] is i["origin"] is i["prompt"] is None for i in got), got
+    assert len(got) == 6 and all(i["trigger"] is i["trigger_uuid"] is i["origin"] is i["prompt"] is None for i in got), got
 
     # 12. across a compaction the walk follows logicalParentUuid
     t = T()
@@ -309,6 +311,14 @@ with tempfile.TemporaryDirectory() as tmp:
     assert code == 1 and "failed 1" in said and live.read_text() == v1, said
     code, said = rebuild()
     assert code == 0 and "rebuilt 1" in said and json.loads(live.read_text().splitlines()[-1])["session"] == "S1"
+
+    # 25b. an append that fails counts as failed, not rebuilt
+    live.write_text(v1)
+    real_append = recall_use.append
+    recall_use.append = lambda row: False
+    code, said = rebuild()
+    recall_use.append = real_append
+    assert code == 1 and "failed 1" in said and "rebuilt 0" in said and live.read_text() == v1, said
 
     # usage
     try:
