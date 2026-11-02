@@ -161,8 +161,32 @@ def test_an_edited_copy_is_kept(inst):
     mine = tree_sum(dst)
     out = place(inst)
     assert out.startswith(f"kept {dst}: you changed it"), out
-    assert f"mv {dst} {inst['REPO']}/.installed/backup/wiki && bash {inst['REPO']}/install.sh" in out
+    assert re.search(rf"mv {re.escape(str(dst))} {re.escape(inst['REPO'])}/\.installed/backup/wiki\.\S+ "
+                     rf"&& bash {re.escape(inst['REPO'])}/install\.sh", out), out
     assert tree_sum(dst) == mine
+
+
+def backup_paths(out):
+    mv = re.search(r"mv \S+ (\S+) &&", out).group(1)
+    assert f"diff -ru {mv} " in out, out
+    return mv
+
+
+def test_following_the_backup_advice_twice_never_reuses_a_path(inst):
+    dst, _ = paths(inst)
+    dst.parent.mkdir(parents=True)
+    dst.mkdir()
+    (dst / "SKILL.md").write_text("the owner's own skill\n")
+    first = backup_paths(place(inst))
+    assert Path(first).parent.is_dir() and not Path(first).exists()
+    shutil.move(dst, first)
+    dst.mkdir()
+    (dst / "SKILL.md").write_text("edited again\n")
+    second = backup_paths(place(inst))
+    assert second != first and not Path(second).exists()
+    shutil.move(dst, second)
+    assert (Path(first) / "SKILL.md").read_text() == "the owner's own skill\n"
+    assert (Path(second) / "SKILL.md").read_text() == "edited again\n"
 
 
 def test_a_foreign_file_is_left_as_is(inst):
