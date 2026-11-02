@@ -28,6 +28,8 @@ from paths import ARCHIVE, DB, DISTILLED_DIR, EMBEDDING_MODEL  # noqa: E402
 CHUNK_BUDGET = 1600  # characters, roughly 400 tokens
 SKIP_DIRS = {".git", "node_modules", "__pycache__", ARCHIVE.name}  # files the owner took out of the wiki
 
+TRANSCRIPTS = ("meetings", "transcripts")  # corpus-relative folder kept out of the index
+
 SCHEMA = """
 DROP TABLE IF EXISTS chunks;
 DROP TABLE IF EXISTS chunks_fts;
@@ -75,6 +77,8 @@ def note_files(corpus):
         if len(rel.parts) > 1 and rel.parts[0] == "distilled":
             continue
         if any(part.startswith(".") or part in SKIP_DIRS for part in rel.parts):
+            continue
+        if rel.parts[:2] == TRANSCRIPTS:  # the vault schema says transcripts are not indexed
             continue
         if skip_starter and (starter == path.parent or starter in path.parents):
             continue
@@ -236,6 +240,8 @@ def distilled_doc(path, corpus):
     """(embed_text, row, source_rel) for one distilled file, or None if the
     quote fails grounding: the quote must appear in the source, word for word."""
     entry = parse_distilled(path)
+    if Path(entry.get("source", "")).parts[:2] == TRANSCRIPTS:
+        return None
     source = corpus / entry.get("source", "")
     quote = entry.get("quote", "")
     if not source.is_file() or normalise(quote) not in normalise(source.read_text(encoding="utf-8")):
@@ -344,16 +350,30 @@ def main():
     files = [(p.relative_to(root).as_posix(), p) for p in note_files(corpus)]
     for extra in args.extra:
         extra_root = Path(extra).resolve()
-        if not extra_root.is_dir():
-            continue
+        if not extra_root.is_dir() or extra_root == root or root in extra_root.parents:
+            continue  # already part of the corpus walk; indexing it twice doubles its rows
         # rel climbs out of the corpus ("../memory/sessions/x.md") so search.py
         # can still resolve corpus/rel back to the real file for context lines
         files += [(os.path.relpath(p, root).replace(os.sep, "/"), p)
                   for p in note_files(extra_root)]
+    files = list(dict(files).items())  # one row set per relative path
     distilled_dir = DISTILLED_DIR
     distilled_files = sorted(distilled_dir.glob("*.md")) if distilled_dir.is_dir() else []
 
     tracked = dict((p, (h, s)) for p, h, s in db.execute("SELECT path, hash, src FROM files"))
+    # Repair: a file whose rows repeat (an old --extra walked sessions/ twice) and a distillate
+    # whose source is now excluded are re-chunked clean below. Nothing is committed until the end
+    # of the run, so an interrupted repair leaves the index as it was.
+    per_src = {}  # distillates tracked per source: several may legitimately share one text
+    for _, src in tracked.values():
+        if src:
+            per_src[src] = per_src.get(src, 0) + 1
+    dup = {(f, k == "distilled") for f, k, n in db.execute(
+        "SELECT file, kind, count(*) FROM chunks GROUP BY file, section, start_line, end_line, text, kind")
+        if n > (per_src.get(f, 1) if k == "distilled" else 1)}
+    force = {key for key, (_, src) in tracked.items()
+             if (src, True) in dup or (key, False) in dup
+             or (key.startswith("distilled/") and src and Path(src).parts[:2] == TRANSCRIPTS)}
     on_disk = [(rel, path, file_hash(path)) for rel, path in files]
     on_disk += [("distilled/" + p.name, p, file_hash(p)) for p in distilled_files]
 
@@ -367,7 +387,7 @@ def main():
     vector_cache = weekly_cache  # embed-text sha256 -> vector blob, salvaged before rows are purged
     docs, dropped, changed = [], 0, 0  # docs: (embed_text, row, files_row)
     for key, path, digest in on_disk:
-        if key in tracked and tracked[key][0] == digest:
+        if key in tracked and tracked[key][0] == digest and key not in force:
             continue
         changed += 1
         src = tracked.get(key, (None, None))[1]

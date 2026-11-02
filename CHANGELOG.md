@@ -6,6 +6,7 @@ To upgrade, run `git pull` and then `bash install.sh` in the rekall folder (see 
 
 ## 2026-11-01
 
+- The index no longer holds meeting transcripts or distillates of them (the vault schema always said `meetings/transcripts/` is not indexed), and no longer doubles session rows when the distil step rebuilds with `--extra` pointing inside the corpus. The next hourly reindex after you pull removes existing transcript and duplicate rows; if it is interrupted nothing is half-applied, and the next run repeats it. `git pull` is enough.
 - Session digests stay under their 40,000-character budget on every close. A session closed more than once used to send the transcript plus an already-recorded block that grew with each close (about 11,000 characters over by the sixth); the block is now capped at a quarter of the budget and the transcript fits what is left, including the new-since-last-write-up marker. `git pull` is enough.
 - The hourly distil and every session digest now run `claude -p` lean (no MCP servers, no user settings, no saved session) and record tokens and cost per call in `digest/log/distil-usage.jsonl` under your data folder. `git pull` is enough.
 - A staged session digest whose claude call fails three times, in runs where another digest succeeded (so not an outage, timeout or sign-in failure), is moved to `digest/pending/failed/` and no longer retried every hour; the text stays there, and moving it back to `pending/` retries it.
