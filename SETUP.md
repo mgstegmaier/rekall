@@ -160,7 +160,7 @@ for your group. Ask for its client ID and tenant ID, and whether "Allow public c
    tick.
 5. Tick **Turn on the Graph ingest** and click **Save to rekall.toml**. Only the `[graph]` section
    of `rekall.toml` changes. Stop the server with Ctrl-C.
-6. Run a dry run, which lists the threads from the last 24 hours that match a project page and the pages they would update. It takes no lock, makes no Claude call, and writes nothing, so it shows no facts:
+6. Run a dry run, which lists the threads from the last 24 hours that match a project page and the pages they match (it does not apply the live run's skips for retired or unchanged threads). It takes no lock, makes no Claude call, and writes nothing, so it shows no facts:
 
    ```bash
    bash scripts/run-graph-ingest.sh --dry-run --hours 24

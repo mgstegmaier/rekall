@@ -20,7 +20,7 @@ Each run:
    last model input per thread (unchanged input skips the call). Token usage per call goes to
    STATE_DIR/logs/graph-usage.jsonl.
 
-Flags: --hours N (default 26) | --dry-run (lists the threads that match a project page and the pages they would update;
+Flags: --hours N (default 26) | --dry-run (lists the threads that match a project page and the pages they match (it does not apply the live run's skips for retired or unchanged threads);
 no lock, no model call, no vault, state or usage-log writes)
 """
 import argparse
