@@ -123,3 +123,168 @@ def test_two_distillates_of_one_source_are_stable_but_doubled_row_is_repaired(tm
         db.commit()
     _run(monkeypatch, tmp_path)
     assert _rows(tmp_path) == want
+
+
+# --- full-or-incremental decision, bad bytes, weekly overdue (rekall-rebuild-safety design) ---
+from datetime import date  # noqa: E402
+
+import pytest  # noqa: E402
+
+
+class FixedDate(date):
+    @classmethod
+    def today(cls):
+        return date(2026, 10, 28)  # a Wednesday: no Sunday full
+
+
+@pytest.fixture(autouse=True)
+def _pin_date(monkeypatch):
+    """Every run in this module, _run included, sees the same Wednesday."""
+    monkeypatch.setattr(build_index, "date", FixedDate)
+
+
+class CountingModel:
+    def __init__(self, name):
+        self.model_name, self.embedded = name, 0
+
+    def embed(self, texts):
+        texts = list(texts)
+        self.embedded += len(texts)
+        return [[1.0, 0.5, 0.25, 0.125] for _ in texts]
+
+
+def _run_model(monkeypatch, tmp, name, *flags):
+    """One build_index.main() with a fake embedding model configured as `name`. Returns the fake."""
+    model = CountingModel(name)
+    monkeypatch.setattr(search, "embedding_model", lambda: model)
+    monkeypatch.setattr(build_index, "EMBEDDING_MODEL", name)
+    monkeypatch.setattr(build_index, "DB", tmp / "rag.db")
+    monkeypatch.setattr(build_index, "DISTILLED_DIR", tmp / "distilled")
+    monkeypatch.setattr(sys, "argv", ["build_index.py", "--corpus", str(tmp / "wiki"), *flags])
+    build_index.main()
+    return model
+
+
+def _count(tmp, table):
+    with sqlite3.connect(tmp / "rag.db") as db:
+        return db.execute(f"SELECT count(*) FROM {table}").fetchone()[0]
+
+
+def _meta(tmp, key):
+    with sqlite3.connect(tmp / "rag.db") as db:
+        row = db.execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()
+    return row and row[0]
+
+
+def test_model_change_reembeds_every_row(tmp_path, monkeypatch, capsys):
+    _corpus(tmp_path)
+    _run_model(monkeypatch, tmp_path, "A")
+    capsys.readouterr()
+    model = _run_model(monkeypatch, tmp_path, "B")
+    out = capsys.readouterr().out
+    assert "full (model changed: A -> B)" in out, out
+    assert model.embedded == _count(tmp_path, "chunks") > 0
+    assert _meta(tmp_path, "model") == "B"
+
+
+def test_keyword_only_stays_incremental(tmp_path, monkeypatch, capsys):
+    _corpus(tmp_path)
+    _run(monkeypatch, tmp_path)
+    capsys.readouterr()
+    _run(monkeypatch, tmp_path)
+    assert any(l.startswith("incremental") for l in capsys.readouterr().out.splitlines())
+
+
+def test_model_added_to_keyword_only_index_embeds_everything(tmp_path, monkeypatch, capsys):
+    _corpus(tmp_path)
+    _run(monkeypatch, tmp_path)
+    assert _count(tmp_path, "vectors") == 0
+    capsys.readouterr()
+    _run_model(monkeypatch, tmp_path, "M")
+    assert "full (model added)" in capsys.readouterr().out
+    assert _count(tmp_path, "vectors") == _count(tmp_path, "chunks") > 0
+    assert _meta(tmp_path, "model") == "M"
+
+
+def test_model_unavailable_keeps_keyword_only(tmp_path, monkeypatch, capsys):
+    wiki = _corpus(tmp_path)
+    _run(monkeypatch, tmp_path)
+    (wiki / "pages" / "new.md").write_text("# New\n\nfresh page\n")
+
+    def offline():
+        raise RuntimeError("offline")
+
+    monkeypatch.setattr(search, "embedding_model", offline)
+    capsys.readouterr()
+    build_index.main()  # argv and DB still set by _run
+    out = capsys.readouterr().out
+    assert "model unavailable: offline" in out, out
+    assert any(l.startswith("incremental") for l in out.splitlines()), out
+    assert any(r[0] == "pages/new.md" for r in _rows(tmp_path))  # committed
+    assert _count(tmp_path, "vectors") == 0 and _meta(tmp_path, "model") is None
+
+
+def test_model_load_failure_on_vector_index_fails_the_run(tmp_path, monkeypatch):
+    wiki = _corpus(tmp_path)
+    _run_model(monkeypatch, tmp_path, "A")
+    with sqlite3.connect(tmp_path / "rag.db") as db:
+        vecs = sorted(db.execute("SELECT id, vec FROM vectors"))
+    (wiki / "pages" / "a.md").write_text("# A\n\nbody of a, edited\n")
+
+    def no_fastembed():
+        raise ImportError("no fastembed")
+
+    monkeypatch.setattr(search, "embedding_model", no_fastembed)
+    with pytest.raises(ImportError):
+        build_index.main()
+    with sqlite3.connect(tmp_path / "rag.db") as db:
+        assert sorted(db.execute("SELECT id, vec FROM vectors")) == vecs
+    assert _meta(tmp_path, "model") == "A"
+
+
+def test_bad_utf8_page_is_indexed(tmp_path, monkeypatch):
+    wiki = tmp_path / "wiki"
+    (wiki / "pages").mkdir(parents=True)
+    (wiki / "pages" / "a.md").write_text("# A\n\nbody of a\n")
+    (wiki / "pages" / "b.md").write_text("# B\n\nbody of b\n")
+    (wiki / "pages" / "bad.md").write_bytes(b"# Bad\n\nok \xff text\n")
+    _run_model(monkeypatch, tmp_path, "M", "--full")
+    with sqlite3.connect(tmp_path / "rag.db") as db:
+        assert db.execute("SELECT count(*) FROM files WHERE path='pages/bad.md'").fetchone()[0] == 1
+        texts = [t for (t,) in db.execute("SELECT text FROM chunks WHERE file='pages/bad.md'")]
+    assert any("�" in t for t in texts), texts
+
+
+def test_weekly_full_retries_when_overdue(tmp_path, monkeypatch, capsys):
+    _corpus(tmp_path)
+    _run(monkeypatch, tmp_path)
+    with sqlite3.connect(tmp_path / "rag.db") as db:
+        db.execute("UPDATE meta SET value='2026-10-20' WHERE key='last_full'")  # 8 days before the pin
+    capsys.readouterr()
+    _run(monkeypatch, tmp_path)
+    assert "full (weekly overdue)" in capsys.readouterr().out
+
+
+def test_missing_meta_table_rebuilds_full(tmp_path, monkeypatch, capsys):
+    _corpus(tmp_path)
+    _run(monkeypatch, tmp_path)
+    with sqlite3.connect(tmp_path / "rag.db") as db:
+        db.execute("DROP TABLE meta")
+    capsys.readouterr()
+    _run(monkeypatch, tmp_path)
+    assert "full (corpus)" in capsys.readouterr().out
+    assert _meta(tmp_path, "corpus")
+
+
+def test_meta_model_is_the_configured_name(tmp_path, monkeypatch):
+    """fastembed reports its own name for a pinned local model folder; meta.model must hold the
+    configured name, or the next run would see a model change and re-embed everything."""
+    _corpus(tmp_path)
+    model = CountingModel("fastembed/own-name")
+    monkeypatch.setattr(search, "embedding_model", lambda: model)
+    monkeypatch.setattr(build_index, "EMBEDDING_MODEL", "configured/name")
+    monkeypatch.setattr(build_index, "DB", tmp_path / "rag.db")
+    monkeypatch.setattr(build_index, "DISTILLED_DIR", tmp_path / "distilled")
+    monkeypatch.setattr(sys, "argv", ["build_index.py", "--corpus", str(tmp_path / "wiki")])
+    build_index.main()
+    assert _meta(tmp_path, "model") == "configured/name"

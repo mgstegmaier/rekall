@@ -147,7 +147,9 @@ def main(staged):
         # the entry reaches the index whether or not it distilled, because a
         # dropped distil still leaves a note that should be searchable
         distil.run(notes, paths=[log], rebuild=False)
-        distil.rebuild_index(notes)
+        rc = distil.rebuild_index(notes)
+        if rc:  # the digest itself succeeded; the next hourly run indexes it
+            common.note_failure("build_index", f"rebuild failed rc={rc}")
     common.note_failure("headless_run", "digest ok")  # last, so a late distil error is the attempt's one tag
 
 

@@ -6,9 +6,13 @@ Subfolders are included, so the digest's daily/ folder is indexed like any note.
 Writes rag.db next to this script. Run again any time; the index is disposable.
 
 Runs are incremental by default: a content hash per file (files table) means
-only new, changed, and deleted files are re-chunked and re-embedded. --full
-drops everything and rebuilds — the weekly self-heal, and required after an
-embedding-model change (stored vectors from the old model are invalid).
+only new, changed, and deleted files are re-chunked and re-embedded. A run
+promotes itself to a full rebuild when it has to (first run, corpus moved,
+embedding model changed or added, first Sunday run, a weekly full more than 7
+days overdue, an older schema); a model change re-embeds everything on its own.
+--full is the rebuild that reuses no stored vector. Each run is one SQLite
+transaction: readers keep the last committed index until it commits, and a
+failed or killed run changes nothing.
 """
 
 import argparse
@@ -45,7 +49,7 @@ CREATE TABLE chunks (
     end_line INTEGER NOT NULL,
     text TEXT NOT NULL,
     kind TEXT NOT NULL DEFAULT 'chunk',
-    date TEXT  -- YYYY-MM-DD the chunk's content is from, for recency ranking; NULL = undated
+    date TEXT  -- YYYY-MM-DD the chunk's content is from, for recency ranking, NULL = undated
 );
 CREATE VIRTUAL TABLE chunks_fts USING fts5(text, file, section);
 CREATE TABLE vectors (id INTEGER PRIMARY KEY, vec BLOB NOT NULL);
@@ -122,7 +126,7 @@ def frontmatter(lines):
 
 def chunk_file(path):
     """Return (frontmatter meta, [(section, start_line, end_line, text)] chunks)."""
-    lines = path.read_text(encoding="utf-8").splitlines()
+    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
     meta, off = frontmatter(lines)
     packed = []
     for heading, s, e in ((h, s + off, e + off) for h, s, e in sections(lines[off:])):
@@ -168,7 +172,7 @@ def parse_entry(text):
 
 def parse_distilled(path):
     """Read a distilled entry from a file."""
-    return parse_entry(path.read_text(encoding="utf-8"))
+    return parse_entry(path.read_text(encoding="utf-8", errors="replace"))
 
 
 def normalise(text):
@@ -246,7 +250,7 @@ def distilled_doc(path, corpus):
         return None
     source = corpus / entry.get("source", "")
     quote = entry.get("quote", "")
-    if not source.is_file() or normalise(quote) not in normalise(source.read_text(encoding="utf-8")):
+    if not source.is_file() or normalise(quote) not in normalise(source.read_text(encoding="utf-8", errors="replace")):
         return None
     body = "\n".join(
         entry["questions"]
@@ -296,147 +300,182 @@ def main():
     ap.add_argument("--extra", action="append", default=[],
                     help="extra folder to index (digests outside the corpus; in-wiki sessions/ needs no flag)")
     ap.add_argument("--full", action="store_true",
-                    help="drop and rebuild everything; required after an embedding-model change")
+                    help="drop and rebuild everything, re-embedding every chunk (no stored vector is reused); "
+                         "a model change already forces a full rebuild on its own")
     ap.add_argument("--no-prefix", action="store_true", help="eval: skip the title/description prefix")
     args = ap.parse_args()
     global NO_PREFIX
     NO_PREFIX = args.no_prefix
     corpus = Path(args.corpus)
 
-    db = sqlite3.connect(DB)
-    # WAL so the recall hook can read the last committed index while this
-    # build holds its write transaction. Persistent in the DB header, so one
-    # writer setting it is enough; a filesystem that cannot do WAL (a network
-    # mount) just keeps its old mode and everything still works, more slowly.
-    db.execute("PRAGMA journal_mode=WAL")
-    # incremental needs a DB built with the files table and a matching corpus;
-    # anything else (first run, pre-upgrade DB, corpus moved) forces a full build
-    full = args.full
-    weekly_cache = {}
-    # vectors are only reusable when they came from the configured model; after a
-    # model change nothing is reused, so even a skipped --full self-heals on Sunday
+    db = sqlite3.connect(DB, timeout=60)
     try:
-        stored_model = db.execute("SELECT value FROM meta WHERE key='model'").fetchone()
-    except sqlite3.OperationalError:  # first run: no meta table yet
-        stored_model = None
-    reuse = bool(stored_model) and stored_model[0] == EMBEDDING_MODEL
-    if not full:
+        # WAL so the recall hook can read the last committed index while this
+        # build holds its write transaction. Persistent in the DB header, so one
+        # writer setting it is enough; a filesystem that cannot do WAL (a network
+        # mount) just keeps its old mode and everything still works, more slowly.
+        db.execute("PRAGMA journal_mode=WAL")
+        # One explicit transaction per run, so the drop, the inserts and the count check
+        # commit together: readers keep the last committed index until then, and a failed
+        # or killed run changes nothing. IMMEDIATE takes the write lock now, so two
+        # overlapping runs can't both plan from the same files table. SCHEMA must not go
+        # back through executescript(): it commits any open transaction before it runs.
+        db.execute("BEGIN IMMEDIATE")
         has_files = db.execute("SELECT name FROM sqlite_master WHERE name='files'").fetchone()
-        stored = db.execute("SELECT value FROM meta WHERE key='corpus'").fetchone() if has_files else None
-        full = not has_files or not stored or stored[0] != str(corpus.resolve())
-    if not full:
-        # weekly nuke-and-pave: the first run on a Sunday promotes itself to full.
-        # This lives here rather than in cron so a Mac asleep at the scheduled hour
-        # still gets its weekly full on the first Sunday run after it wakes.
+        try:
+            row = db.execute("SELECT value FROM meta WHERE key='model'").fetchone()
+        except sqlite3.OperationalError:  # first run: no meta table yet
+            row = None
+        stored_model = row[0] if row else None  # no row: a keyword-only index (or none yet)
+        # vectors are only reusable when they came from the configured model, and an
+        # explicit --full reuses nothing: it is the lever for "same model name, bad vectors"
+        reuse = stored_model == EMBEDDING_MODEL and not args.full
+        keyword_only = False
+        if stored_model is None:
+            # no vectors yet: embed only if the configured model loads. A success is cached
+            # (lru_cache) for the embed step; a failure isn't, so this answer decides.
+            try:
+                import search
+                search.embedding_model()
+            except Exception as e:
+                keyword_only = True
+                print(f"model unavailable: {str(e) or type(e).__name__}")
+        # first match wins; why is printed as "full (<why>)"
         today = date.today()
-        last_full = db.execute("SELECT value FROM meta WHERE key='last_full'").fetchone()
-        full = today.isoweekday() == 7 and (not last_full or last_full[0] != today.isoformat())
-        # a DB from before chunks.date existed rebuilds once to backfill it,
-        # reusing vectors like the weekly full does
-        full = full or not any(r[1] == "date" for r in db.execute("PRAGMA table_info(chunks)"))
+        full, why = False, ""
+        if args.full:
+            full, why = True, "--full"
+        else:
+            try:
+                stored = db.execute("SELECT value FROM meta WHERE key='corpus'").fetchone() if has_files else None
+            except sqlite3.OperationalError:  # files without meta: a run killed mid-schema
+                stored = None
+            if not has_files or not stored or stored[0] != str(corpus.resolve()):
+                full, why = True, "corpus"  # first run, pre-upgrade DB, corpus moved
+            elif stored_model is not None and stored_model != EMBEDDING_MODEL:
+                full, why = True, f"model changed: {stored_model} -> {EMBEDDING_MODEL}"
+            elif stored_model is None and not keyword_only:
+                full, why = True, "model added"
+        if not full:
+            last_full = db.execute("SELECT value FROM meta WHERE key='last_full'").fetchone()
+            last_full = last_full[0] if last_full else None
+            # weekly nuke-and-pave: the first run on a Sunday promotes itself to full.
+            # This lives here rather than in cron so a Mac asleep at the scheduled hour
+            # still gets its weekly full on the first Sunday run after it wakes.
+            if today.isoweekday() == 7 and last_full != today.isoformat():
+                full, why = True, "sunday"
+            # a Sunday full that kept failing is retried every run until one commits
+            elif not last_full or (today - date.fromisoformat(last_full)).days > 7:
+                full, why = True, "weekly overdue"
+            # a DB from before chunks.date existed rebuilds once to backfill it
+            elif not any(r[1] == "date" for r in db.execute("PRAGMA table_info(chunks)")):
+                full, why = True, "schema"
+        weekly_cache = {}
         if full and reuse:
-            # the weekly full re-chunks and re-grounds everything but reuses every
-            # vector whose embed text is unchanged (24 min -> seconds, 2026-09-24).
-            # An explicit --full never reuses: that is the model-change path.
+            # a full rebuild with the same model re-chunks and re-grounds everything but
+            # reuses every vector whose embed text is unchanged (24 min -> seconds, 2026-09-24)
             weekly_cache = {
                 hashlib.sha256(text.encode("utf-8")).hexdigest(): vec
                 for text, vec in db.execute(
                     "SELECT cf.text, v.vec FROM chunks_fts cf JOIN vectors v ON v.id = cf.rowid")
             }
-    if full:
-        db.executescript(SCHEMA)
-        db.execute("INSERT INTO meta VALUES ('corpus', ?)", (str(corpus.resolve()),))
-        db.execute("INSERT INTO meta VALUES ('last_full', ?)", (date.today().isoformat(),))
+        if full:
+            for stmt in SCHEMA.split(";"):
+                if stmt.strip():
+                    db.execute(stmt)
+            db.execute("INSERT INTO meta VALUES ('corpus', ?)", (str(corpus.resolve()),))
+            db.execute("INSERT INTO meta VALUES ('last_full', ?)", (today.isoformat(),))
 
-    root = corpus.resolve()
-    files = [(p.relative_to(root).as_posix(), p) for p in note_files(corpus)]
-    for extra in args.extra:
-        extra_root = Path(extra).resolve()
-        if not extra_root.is_dir() or extra_root == root or root in extra_root.parents:
-            continue  # already part of the corpus walk; indexing it twice doubles its rows
-        # rel climbs out of the corpus ("../memory/sessions/x.md") so search.py
-        # can still resolve corpus/rel back to the real file for context lines
-        files += [(os.path.relpath(p, root).replace(os.sep, "/"), p)
-                  for p in note_files(extra_root)]
-    files = list(dict(files).items())  # one row set per relative path
-    distilled_dir = DISTILLED_DIR
-    distilled_files = sorted(distilled_dir.glob("*.md")) if distilled_dir.is_dir() else []
+        root = corpus.resolve()
+        files = [(p.relative_to(root).as_posix(), p) for p in note_files(corpus)]
+        for extra in args.extra:
+            extra_root = Path(extra).resolve()
+            if not extra_root.is_dir() or extra_root == root or root in extra_root.parents:
+                continue  # already part of the corpus walk; indexing it twice doubles its rows
+            # rel climbs out of the corpus ("../memory/sessions/x.md") so search.py
+            # can still resolve corpus/rel back to the real file for context lines
+            files += [(os.path.relpath(p, root).replace(os.sep, "/"), p)
+                      for p in note_files(extra_root)]
+        files = list(dict(files).items())  # one row set per relative path
+        distilled_dir = DISTILLED_DIR
+        distilled_files = sorted(distilled_dir.glob("*.md")) if distilled_dir.is_dir() else []
 
-    tracked = dict((p, (h, s)) for p, h, s in db.execute("SELECT path, hash, src FROM files"))
-    # Repair: a file whose rows repeat (an old --extra walked sessions/ twice) and a distillate
-    # whose source is now excluded are re-chunked clean below. Nothing is committed until the end
-    # of the run, so an interrupted repair leaves the index as it was.
-    per_src = {}  # distillates tracked per source: several may legitimately share one text
-    for _, src in tracked.values():
-        if src:
-            per_src[src] = per_src.get(src, 0) + 1
-    dup = {(f, k == "distilled") for f, k, n in db.execute(
-        "SELECT file, kind, count(*) FROM chunks GROUP BY file, section, start_line, end_line, text, kind")
-        if n > (per_src.get(f, 1) if k == "distilled" else 1)}
-    force = {key for key, (_, src) in tracked.items()
-             if (src, True) in dup or (key, False) in dup
-             or (key.startswith("distilled/") and src and Path(src).parts[:2] == TRANSCRIPTS)}
-    on_disk = [(rel, path, file_hash(path)) for rel, path in files]
-    on_disk += [("distilled/" + p.name, p, file_hash(p)) for p in distilled_files]
+        tracked = dict((p, (h, s)) for p, h, s in db.execute("SELECT path, hash, src FROM files"))
+        # Repair: a file whose rows repeat (an old --extra walked sessions/ twice) and a distillate
+        # whose source is now excluded are re-chunked clean below. Nothing is committed until the end
+        # of the run, so an interrupted repair leaves the index as it was.
+        per_src = {}  # distillates tracked per source: several may legitimately share one text
+        for _, src in tracked.values():
+            if src:
+                per_src[src] = per_src.get(src, 0) + 1
+        dup = {(f, k == "distilled") for f, k, n in db.execute(
+            "SELECT file, kind, count(*) FROM chunks GROUP BY file, section, start_line, end_line, text, kind")
+            if n > (per_src.get(f, 1) if k == "distilled" else 1)}
+        force = {key for key, (_, src) in tracked.items()
+                 if (src, True) in dup or (key, False) in dup
+                 or (key.startswith("distilled/") and src and Path(src).parts[:2] == TRANSCRIPTS)}
+        on_disk = [(rel, path, file_hash(path)) for rel, path in files]
+        on_disk += [("distilled/" + p.name, p, file_hash(p)) for p in distilled_files]
 
-    # deleted: tracked but no longer on disk
-    disk_keys = {key for key, _, _ in on_disk}
-    deleted = [k for k in tracked if k not in disk_keys]
-    for key in deleted:
-        purge(db, key, tracked[key][1])
+        # deleted: tracked but no longer on disk
+        disk_keys = {key for key, _, _ in on_disk}
+        deleted = [k for k in tracked if k not in disk_keys]
+        for key in deleted:
+            purge(db, key, tracked[key][1])
 
-    # new or changed: (re)chunk, (re)embed
-    vector_cache = weekly_cache  # embed-text sha256 -> vector blob, salvaged before rows are purged
-    docs, dropped, changed = [], 0, 0  # docs: (embed_text, row, files_row)
-    for key, path, digest in on_disk:
-        if key in tracked and tracked[key][0] == digest and key not in force:
-            continue
-        changed += 1
-        src = tracked.get(key, (None, None))[1]
-        if not full and reuse:  # a full rebuild just dropped the tables; nothing to salvage
-            vector_cache.update(old_vectors(db, key, src))
-        purge(db, key, src)
-        if key.startswith("distilled/"):
-            # ponytail: a source edit can silently unground an already-indexed
-            # quote; the weekly --full recheck catches that drift
-            got = distilled_doc(path, corpus)
-            if got is None:
-                dropped += 1
-                print(f"dropped {path.name}: quote not found in its source")
-                db.execute("INSERT INTO files VALUES (?,?,?)", (key, digest, None))
+        # new or changed: (re)chunk, (re)embed
+        vector_cache = weekly_cache  # embed-text sha256 -> vector blob, salvaged before rows are purged
+        docs, dropped, changed = [], 0, 0  # docs: (embed_text, row, files_row)
+        for key, path, digest in on_disk:
+            if key in tracked and tracked[key][0] == digest and key not in force:
                 continue
-            embed_text, row, src = got
-            docs.append((embed_text, row, (key, digest, src)))
-        else:
-            fdocs = file_docs(key, path)
-            for embed_text, row in fdocs:
-                docs.append((embed_text, row, (key, digest, None)))
-            if not fdocs:  # e.g. an empty note still gets tracked so it doesn't rescan
-                db.execute("INSERT OR REPLACE INTO files VALUES (?,?,?)", (key, digest, None))
+            changed += 1
+            src = tracked.get(key, (None, None))[1]
+            if not full and reuse:  # a full rebuild just dropped the tables; nothing to salvage
+                vector_cache.update(old_vectors(db, key, src))
+            purge(db, key, src)
+            if key.startswith("distilled/"):
+                # ponytail: a source edit can silently unground an already-indexed
+                # quote; the weekly --full recheck catches that drift
+                got = distilled_doc(path, corpus)
+                if got is None:
+                    dropped += 1
+                    print(f"dropped {path.name}: quote not found in its source")
+                    db.execute("INSERT INTO files VALUES (?,?,?)", (key, digest, None))
+                    continue
+                embed_text, row, src = got
+                docs.append((embed_text, row, (key, digest, src)))
+            else:
+                fdocs = file_docs(key, path)
+                for embed_text, row in fdocs:
+                    docs.append((embed_text, row, (key, digest, None)))
+                if not fdocs:  # e.g. an empty note still gets tracked so it doesn't rescan
+                    db.execute("INSERT OR REPLACE INTO files VALUES (?,?,?)", (key, digest, None))
 
-    ids = []
-    for embed_text, row, files_row in docs:
-        cur = db.execute(
-            "INSERT INTO chunks (file, section, start_line, end_line, text, kind, date) VALUES (?,?,?,?,?,?,?)",
-            row,
-        )
-        ids.append(cur.lastrowid)
-        db.execute(
-            "INSERT INTO chunks_fts (rowid, text, file, section) VALUES (?,?,?,?)",
-            (cur.lastrowid, embed_text, row[0], row[1]),
-        )
-        db.execute("INSERT OR REPLACE INTO files VALUES (?,?,?)", files_row)
+        ids = []
+        for embed_text, row, files_row in docs:
+            cur = db.execute(
+                "INSERT INTO chunks (file, section, start_line, end_line, text, kind, date) VALUES (?,?,?,?,?,?,?)",
+                row,
+            )
+            ids.append(cur.lastrowid)
+            db.execute(
+                "INSERT INTO chunks_fts (rowid, text, file, section) VALUES (?,?,?,?)",
+                (cur.lastrowid, embed_text, row[0], row[1]),
+            )
+            db.execute("INSERT OR REPLACE INTO files VALUES (?,?,?)", files_row)
 
-    model_line = "keyword only (pip install fastembed for the meaning leg)"
-    if not on_disk:
-        model_line = "nothing to index: no markdown found under the corpus"
-    elif not docs:
-        model_line = "no new or changed files; index untouched"
-    else:
-        try:
-            from search import embedding_model
+        model_line = "keyword only (pip install fastembed for the meaning leg)"
+        if not on_disk:
+            model_line = "nothing to index: no markdown found under the corpus"
+        elif not docs:
+            model_line = "no new or changed files; index untouched"
+        elif not keyword_only:
+            # a model that fails to load here fails the run, so the last good index keeps
+            # its vectors and the FAILED line points at the broken venv
+            import search
 
-            model = embedding_model()
+            model = search.embedding_model()
             to_embed_ids, to_embed_texts, reused, dim = [], [], 0, None
             for rowid, (embed_text, _row, _files_row) in zip(ids, docs):
                 cached = vector_cache.get(hashlib.sha256(embed_text.encode("utf-8")).hexdigest())
@@ -454,26 +493,28 @@ def main():
                     norm = sum(x * x for x in vec) ** 0.5 or 1.0
                     blob = struct.pack(f"{len(vec)}f", *(x / norm for x in vec))
                     db.execute("INSERT INTO vectors (id, vec) VALUES (?,?)", (rowid, blob))
-            db.execute("INSERT OR REPLACE INTO meta VALUES ('model', ?)", (model.model_name,))
-            model_line = (f"model {model.model_name} ({dim}d) + keyword sqlite fts5 — "
+            # the configured name, not model.model_name: fastembed reports its own default
+            # name when it loads from the pinned local folder, and the two must compare equal
+            db.execute("INSERT OR REPLACE INTO meta VALUES ('model', ?)", (EMBEDDING_MODEL,))
+            model_line = (f"model {EMBEDDING_MODEL} ({dim}d) + keyword sqlite fts5 — "
                           f"{len(to_embed_texts)} embedded, {reused} reused")
-        except ImportError:
-            pass
 
-    db.commit()
-    # invariant: one fts row per chunk, and vectors either cover every chunk or
-    # none (keyword-only mode); anything else means a purge/insert bug
-    n_chunks = db.execute("SELECT count(*) FROM chunks").fetchone()[0]
-    n_fts = db.execute("SELECT count(*) FROM chunks_fts").fetchone()[0]
-    n_vec = db.execute("SELECT count(*) FROM vectors").fetchone()[0]
-    assert n_fts == n_chunks and n_vec in (0, n_chunks), \
-        f"index inconsistent: {n_chunks} chunks, {n_fts} fts, {n_vec} vectors — rerun with --full"
-    db.close()
-    mode = "full" if full else "incremental"
+        # invariant: one fts row per chunk, and vectors either cover every chunk or
+        # none (keyword-only mode); anything else means a purge/insert bug. Checked
+        # before the commit, so an inconsistent index is never published.
+        n_chunks = db.execute("SELECT count(*) FROM chunks").fetchone()[0]
+        n_fts = db.execute("SELECT count(*) FROM chunks_fts").fetchone()[0]
+        n_vec = db.execute("SELECT count(*) FROM vectors").fetchone()[0]
+        if n_fts != n_chunks or n_vec not in (0, n_chunks):
+            raise RuntimeError(f"index inconsistent: {n_chunks} chunks, {n_fts} fts, {n_vec} vectors; "
+                               "nothing committed")
+        db.commit()
+    finally:
+        db.close()  # an uncommitted run is discarded here and the write lock released
+    mode = f"full ({why})" if full else "incremental"
     print(f"{mode}: {len(files)} files scanned, {changed} new/changed, {len(deleted)} deleted, "
           f"{dropped} dropped; index holds {n_chunks} rows")
     print(model_line)
-
 
 if __name__ == "__main__":
     main()
