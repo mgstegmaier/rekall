@@ -346,7 +346,10 @@ def main():
         if args.full:
             full, why = True, "--full"
         else:
-            stored = db.execute("SELECT value FROM meta WHERE key='corpus'").fetchone() if has_files else None
+            try:
+                stored = db.execute("SELECT value FROM meta WHERE key='corpus'").fetchone() if has_files else None
+            except sqlite3.OperationalError:  # files without meta: a run killed mid-schema
+                stored = None
             if not has_files or not stored or stored[0] != str(corpus.resolve()):
                 full, why = True, "corpus"  # first run, pre-upgrade DB, corpus moved
             elif stored_model is not None and stored_model != EMBEDDING_MODEL:

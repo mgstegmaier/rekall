@@ -263,3 +263,14 @@ def test_weekly_full_retries_when_overdue(tmp_path, monkeypatch, capsys):
     capsys.readouterr()
     _run(monkeypatch, tmp_path)
     assert "full (weekly overdue)" in capsys.readouterr().out
+
+
+def test_missing_meta_table_rebuilds_full(tmp_path, monkeypatch, capsys):
+    _corpus(tmp_path)
+    _run(monkeypatch, tmp_path)
+    with sqlite3.connect(tmp_path / "rag.db") as db:
+        db.execute("DROP TABLE meta")
+    capsys.readouterr()
+    _run(monkeypatch, tmp_path)
+    assert "full (corpus)" in capsys.readouterr().out
+    assert _meta(tmp_path, "corpus")
