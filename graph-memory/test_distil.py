@@ -112,6 +112,45 @@ with tempfile.TemporaryDirectory() as tmp:
     distil.run(corpus, rebuild=False)
     assert distil.load_state()["boom.md"]["failures"] == 2, "a bad answer beside a success is a strike"
 
+# A lone note whose answer fails grounding (quote not in the note) is quarantined after two runs.
+with tempfile.TemporaryDirectory() as tmp:
+    corpus = Path(tmp) / "notes"
+    corpus.mkdir()
+    (corpus / "lone.md").write_text("# Lone\n\nThe launch moved to May.\n")
+    distil.DISTILLED = Path(tmp) / "distilled"
+    distil.STATE = distil.DISTILLED / ".state.json"
+    calls = []
+
+    def ungrounded(model, prompt_text, payload):
+        calls.append(payload)
+        return '- When is the launch?\nquote: "The launch moved to June."\n'
+
+    distil.ask = ungrounded
+    for _ in range(2):
+        assert distil.run(corpus, rebuild=False) == {"distilled": 0, "skipped": 0, "dropped": 1}
+    assert distil.load_state()["lone.md"]["failures"] == 2
+    assert distil.run(corpus, rebuild=False) == {"distilled": 0, "skipped": 1, "dropped": 0}
+    assert len(calls) == 2, "the third run makes no call"
+
+# A call that failed on a rate limit is the service's fault: three runs, no strikes.
+with tempfile.TemporaryDirectory() as tmp:
+    corpus = Path(tmp) / "notes"
+    corpus.mkdir()
+    (corpus / "lone.md").write_text("# Lone\n\nThe launch moved to May.\n")
+    distil.DISTILLED = Path(tmp) / "distilled"
+    distil.STATE = distil.DISTILLED / ".state.json"
+    calls = []
+
+    def rate_limited(model, prompt_text, payload):
+        calls.append(payload)
+        raise distil.ClaudeExit("API Error: 429 rate_limit_error: rate limit exceeded, try again later")
+
+    distil.ask = rate_limited
+    for _ in range(3):
+        assert distil.run(corpus, rebuild=False) == {"distilled": 0, "skipped": 0, "dropped": 1}
+    assert len(calls) == 3
+    assert not distil.load_state().get("lone.md", {}).get("failures"), "a rate-limited run records no strikes"
+
 with tempfile.TemporaryDirectory() as tmp:
     cfg = Path(tmp) / "config.json"
     distil.CONFIG = cfg

@@ -40,7 +40,7 @@ with tempfile.TemporaryDirectory() as tmp:
         search.meaning_leg = lambda db, query, scores=None, section=None: None  # keyword leg only
         assert [label for label, _ in recall_hook.hits("cutover", "Decisions")] == \
             ["[sessions/2026-11-01.md § Decisions]"]
-        assert len(recall_hook.hits("cutover")) == 3
+        assert recall_hook.hits("cutover") == []  # no model, no section: a common word isn't a strong hit
 
         # with the meaning leg on, a filtered keyword hit survives a cosine below the floor
         def low_meaning_leg(db, query, scores=None, section=None):

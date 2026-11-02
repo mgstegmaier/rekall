@@ -76,9 +76,6 @@ def test_title_only_name_is_not_strong(tmp_path):
     assert search.strong_keyword_hits(db, "what about SNOW-1234", [1, 2]) == {2}
 
 
-# R-recall-7(b) needs recall_hook.hits to admit only strong hits when meaning is None, which
-# test_recall_hook.py:131 pins the other way; held back until that test is updated by its owner.
-@pytest.mark.xfail(strict=True, reason="conflicts with test_recall_hook.py no-meaning case")
 def test_no_model_common_word_vs_rare_id(monkeypatch, tmp_path):
     rows = [(1, "pages/a.md", "S", "the migration plan", "the migration plan"),
             (2, "pages/b.md", "S", "SNOW-1234 tracks the migration", "SNOW-1234 tracks the migration")]

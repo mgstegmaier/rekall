@@ -175,6 +175,9 @@ def record_failure(state, rel, known, digest):
     return fails
 
 
+UNGROUNDED = object()  # distil_one: the answer parsed, but its quote isn't in the note
+
+
 def distil_one(path, rel, model, prompt_text):
     """Distil one note. Returns the entry text, or None with the reason said."""
     body = path.read_text(encoding="utf-8", errors="replace")
@@ -185,7 +188,7 @@ def distil_one(path, rel, model, prompt_text):
         return None
     if normalise(quote) not in normalise(body):
         print(f"dropped {rel}: quote not found in the note")
-        return None
+        return UNGROUNDED
     return render(rel, entry)
 
 
@@ -203,7 +206,7 @@ def run(corpus, paths=None, limit=None, rebuild=True, under=None):
 
     state = load_state()
     counts = {"distilled": 0, "skipped": 0, "dropped": 0}
-    failed = []  # notes whose call exited non-zero or answered badly; struck only if another note got through
+    failed = []  # notes whose call exited non-zero or answered unparseably; struck only if another note got through
     for path in files:
         if limit is not None and counts["distilled"] + counts["dropped"] >= limit:
             counts["skipped"] += 1
@@ -229,13 +232,17 @@ def run(corpus, paths=None, limit=None, rebuild=True, under=None):
             print(f"dropped {rel}: {type(exc).__name__} {exc}")
             counts["dropped"] += 1
             # A timeout or a missing claude is the machine's fault: no strike. A non-zero exit
-            # or a bad answer is a strike only when another note in this run succeeded, so an
-            # outage or a 429 that fails every note never quarantines them.
+            # is a strike only when another note in this run succeeded, so an outage or a 429
+            # that fails every note never quarantines them.
             if isinstance(exc, ClaudeExit):
                 failed.append((rel, known, digest))
             continue
-        if text is None:
+        if text is UNGROUNDED:  # a well-formed answer quoting what the note doesn't say: the note's fault, struck now
             counts["dropped"] += 1
+            record_failure(state, rel, known, digest)
+            continue
+        if text is None:  # empty or unparseable: an outage or a model change can do this to every note, so it
+            counts["dropped"] += 1  # strikes only beside a success, like a failed call
             failed.append((rel, known, digest))
             continue
         DISTILLED.mkdir(parents=True, exist_ok=True)
