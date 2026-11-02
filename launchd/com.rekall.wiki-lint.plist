@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!-- Template. Replace __REPO__ (this repo's absolute path) and __HOME__ (your home folder),
+<!-- Template. Replace __REPO__ (this repo's absolute path), __HOME__ (your home folder) and __STATE__ (the state folder),
      then copy to ~/Library/LaunchAgents/
      and `launchctl load` it. Runs nightly at 21:30 through scripts/run-wiki-lint.sh (run_prefix,
      UTF-8 mode, log truncation, and the Sunday-only lifecycle job live there). -->
@@ -14,9 +14,9 @@
         <string>__REPO__/scripts/run-wiki-lint.sh</string>
     </array>
     <key>StandardErrorPath</key>
-    <string>__HOME__/.config/rekall/logs/wiki-lint-launchd.log</string>
+    <string>__STATE__/logs/wiki-lint-launchd.log</string>
     <key>StandardOutPath</key>
-    <string>__HOME__/.config/rekall/logs/wiki-lint-launchd.log</string>
+    <string>__STATE__/logs/wiki-lint-launchd.log</string>
     <key>StartCalendarInterval</key>
     <dict>
         <key>Hour</key>

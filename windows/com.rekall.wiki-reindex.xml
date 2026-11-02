@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- Template, the Windows counterpart of launchd/com.rekall.wiki-reindex.plist.
-     install.sh fills __BASH__, __REPO_WIN__ and __HOME_WIN__ and registers it with
+     install.sh fills __BASH__, __REPO_WIN__, __HOME_WIN__ and __STATE__ and registers it with
      Register-ScheduledTask. Runs hourly, all day: build_index.py is incremental and
      promotes the first Sunday run each week to a full rebuild on its own. -->
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
@@ -41,7 +41,7 @@
          directly opens a visible terminal on every run. -->
     <Exec>
       <Command>conhost.exe</Command>
-      <Arguments>--headless "__BASH__" -c "'__REPO_WIN__/graph-memory/reindex.sh' &gt;&gt; '__HOME_WIN__/.config/rekall/logs/wiki-reindex.log' 2&gt;&amp;1"</Arguments>
+      <Arguments>--headless "__BASH__" -c "'__REPO_WIN__/graph-memory/reindex.sh' &gt;&gt; '__STATE__/logs/wiki-reindex.log' 2&gt;&amp;1"</Arguments>
     </Exec>
   </Actions>
 </Task>

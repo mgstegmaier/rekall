@@ -16,7 +16,6 @@ set -euo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SETTINGS="$HOME/.claude/settings.json"
 AGENTS="$HOME/Library/LaunchAgents"
-LOGS="$HOME/.config/rekall/logs"
 VENV="$REPO/graph-memory/.venv"
 DOMAIN="gui/$(id -u)"
 LABELS="com.rekall.fathom-pipeline com.rekall.wiki-lint com.rekall.wiki-reindex"
@@ -53,19 +52,20 @@ done
 
 # Merges (or removes) rekall's hooks and permission rules in settings.json.
 # Hooks match by script path and rules by exact string, so re-runs never duplicate.
-settings() {  # $1 = add | remove
+settings() {  # $1 = add | remove, $2 = the state folder (fills __STATE__ in the recall hook's fallback log)
   mkdir -p "$(dirname "$SETTINGS")"
   [ -f "$SETTINGS" ] || echo '{}' > "$SETTINGS"
-  "$PY3" - "$1" "$REPO" "$SETTINGS" "$PY" "$LIST_RULE" <<'EOF'
+  "$PY3" - "$1" "$REPO" "$SETTINGS" "$PY" "$LIST_RULE" "$2" <<'EOF'
 import json, re, sys
-mode, repo, path, venv_py, list_rule = sys.argv[1:]
+mode, repo, path, venv_py, list_rule, state = sys.argv[1:]
 s = json.load(open(path))
 ours = json.load(open(f"{repo}/hooks.json"))["hooks"]
 hooks = s.setdefault("hooks", {})
 for event, entries in ours.items():
     have = hooks.setdefault(event, [])
     for e in entries:
-        e = json.loads(json.dumps(e).replace("__REPO__", repo).replace("__VENV_PY__", venv_py))
+        e = json.loads(json.dumps(e).replace("__REPO__", repo).replace("__VENV_PY__", venv_py)
+                       .replace("__STATE__", state))
         # match on the script path, so an older command shape for the same script is replaced, not kept beside
         # by the path inside the repo, so a hook spelled with $HOME or another clone's path is replaced too
         # ponytail: another tool's hook ending in the same graph-memory/... path would be replaced as well
@@ -127,13 +127,39 @@ open(path, "a").write("\n")
 EOF
 }
 
-# Copies a skill dir or command file to a temp path with __REPO__ filled in; prints the path.
+# The one substitution list (SUBST) every rendered skill, command, plist and task template goes
+# through. A new placeholder goes here. Stops on a value that sed, the hook's JSON and shell quoting,
+# or the XML can't carry.
+subst_args() {
+  local n v
+  for n in REPO HOME PY STATE VAULT ${WIN:+BASH_WIN REPO_WIN HOME_WIN PY_WIN}; do
+    v="${!n}"
+    case "$v" in *[\|\&\"\\\'\<\$\`]*)
+      echo "rekall.toml or the repo path contains a character install.sh can't write safely: $n=$v" >&2; exit 1 ;;
+    esac
+  done
+  # a plain array: bash 3.2 on macOS has no associative arrays
+  SUBST=(-e "s|__REPO__|$REPO|g" -e "s|__HOME__|$HOME|g" -e "s|__PYTHON__|$PY|g"
+         -e "s|__STATE__|$STATE|g" -e "s|__VAULT__|$VAULT|g" -e "s|__VAULT_NAME__|$VAULT_NAME|g")
+  if [ -n "$WIN" ]; then
+    SUBST+=(-e "s|__BASH__|$BASH_WIN|g" -e "s|__REPO_WIN__|$REPO_WIN|g"
+            -e "s|__HOME_WIN__|$HOME_WIN|g" -e "s|__VENV_PY_WIN__|$PY_WIN|g")
+  fi
+}
+
+# Copies a skill dir or command file to a temp path, filled in through SUBST; prints the path.
 render() {
   local out; out="$(mktemp -d)/$(basename "$1")"
   cp -R "$1" "$out"
-  find "$out" -type f -exec sed "${SEDI[@]}" "s|__REPO__|$REPO|g" {} +
-  ! grep -rq "__REPO__" "$out" || { echo "sed left __REPO__ unsubstituted in $out" >&2; exit 1; }
+  find "$out" -type f -exec sed "${SEDI[@]}" "${SUBST[@]}" {} +
+  ! grep -rqE '__[A-Z_]+__' "$out" || { echo "a placeholder is left unsubstituted in $out" >&2; return 1; }
   echo "$out"
+}
+
+# Renders one template file through SUBST to $2 (a plist or a task XML).
+render_file() {  # $1 = template, $2 = destination
+  sed "${SUBST[@]}" "$1" > "$2"
+  ! grep -qE '__[A-Z_]+__' "$2" || { echo "a placeholder is left unsubstituted in $2" >&2; return 1; }
 }
 
 uninstall() {
@@ -153,12 +179,13 @@ uninstall() {
   fi
   # the Documents shortcut, only if it is still the link this script made
   [ "$(readlink "$HOME/Documents/rekall" 2>/dev/null)" = "$HOME/rekall" ] && rm "$HOME/Documents/rekall"
-  settings remove
+  settings remove "$HOME/unused"   # removal matches on the script path, so the state value is unused
   desktop remove
   # only remove skills/commands that still match what this repo installs; an edited copy stays
   for src in "$REPO"/skills/* "$REPO"/commands/*; do
     dst="$HOME/.claude/${src#"$REPO"/}"
-    [ -e "$dst" ] && diff -rq "$(render "$src")" "$dst" >/dev/null && rm -r "$dst"
+    out="$(render "$src")" || continue
+    [ -e "$dst" ] && diff -rq "$out" "$dst" >/dev/null && rm -r "$dst"
   done
   echo "Rekall uninstalled: schedules, hooks, skills, commands and the Claude Desktop MCP entry removed."
   echo "Kept: $REPO (with .venv and .env) and your wiki."
@@ -213,15 +240,35 @@ fi
 MODEL_DIR="$("$PY" "$REPO/rekall_config.py" DATA)/model"
 [ -f "$MODEL_DIR/model_optimized.onnx" ] || PYTHON="$PY" bash "$REPO/graph-memory/fetch_model.sh"
 
+# the values every rendered file gets (subst_args), all from rekall.toml
+STATE="$("$PY" "$REPO/rekall_config.py" STATE_DIR)"
+VAULT="$("$PY" "$REPO/rekall_config.py" VAULT)"
+if [ -n "$WIN" ]; then
+  # C:/... works in Git Bash, Python and the task XML alike, so one value serves every file
+  STATE="$(cygpath -m "$STATE")"; VAULT="$(cygpath -m "$VAULT")"
+fi
+VAULT_NAME="$(basename "$VAULT")"   # Obsidian names a vault after its folder
+LOGS="$STATE/logs"
+if [ -n "$WIN" ]; then
+  # Forward-slash Windows paths throughout: sed treats a backslash in the replacement
+  # as an escape, and CreateProcess accepts either separator.
+  BASH_WIN="$(cygpath -m "$(command -v bash)")"
+  REPO_WIN="$(cygpath -m "$REPO")"
+  HOME_WIN="$(cygpath -m "$HOME")"
+  PY_WIN="$(cygpath -m "$PY")"
+fi
+subst_args
+
 # 4. hooks + permission rules
-settings add
+settings add "$STATE"
 
 # 5. skills and commands (skip anything already there)
 for src in "$REPO"/skills/* "$REPO"/commands/*; do
   dst="$HOME/.claude/${src#"$REPO"/}"
   [ -e "$dst" ] && continue
   mkdir -p "$(dirname "$dst")"
-  cp -R "$(render "$src")" "$dst"
+  out="$(render "$src")" || exit 1
+  cp -R "$out" "$dst"
 done
 
 # 6. MCP server for Claude Desktop
@@ -240,17 +287,9 @@ scheduled_elsewhere() {  # $1 = label; reads $AGENTS/$1.plist.new
 }
 mkdir -p "$LOGS"
 if [ -n "$WIN" ]; then
-  # Forward-slash Windows paths throughout: sed treats a backslash in the replacement
-  # as an escape, and CreateProcess accepts either separator.
-  BASH_WIN="$(cygpath -m "$(command -v bash)")"
-  REPO_WIN="$(cygpath -m "$REPO")"
-  HOME_WIN="$(cygpath -m "$HOME")"
-  PY_WIN="$(cygpath -m "$PY")"
   TASKS="$(mktemp -d)"
   for l in $LABELS; do
-    sed -e "s|__BASH__|$BASH_WIN|g" -e "s|__REPO_WIN__|$REPO_WIN|g" \
-        -e "s|__HOME_WIN__|$HOME_WIN|g" -e "s|__VENV_PY_WIN__|$PY_WIN|g" \
-        "$REPO/windows/$l.xml" > "$TASKS/$l.xml"
+    render_file "$REPO/windows/$l.xml" "$TASKS/$l.xml" || exit 1
     powershell.exe -NoProfile -Command \
       "Register-ScheduledTask -TaskName '$l' -Xml (Get-Content -Raw '$(cygpath -w "$TASKS/$l.xml")') -Force" \
       >/dev/null
@@ -258,8 +297,7 @@ if [ -n "$WIN" ]; then
 else
   mkdir -p "$AGENTS"
   for l in $LABELS; do
-    sed -e "s|__REPO__|$REPO|g" -e "s|__HOME__|$HOME|g" -e "s|__PYTHON__|$PY|g" \
-      "$REPO/launchd/$l.plist" > "$AGENTS/$l.plist.new"
+    render_file "$REPO/launchd/$l.plist" "$AGENTS/$l.plist.new" || exit 1
     if other="$(scheduled_elsewhere "$l")"; then
       echo "skipping $l: $other already runs it. To move onto $l: launchctl bootout $DOMAIN/$(basename "$other" .plist), move $other out of $AGENTS, then re-run install.sh"
       rm "$AGENTS/$l.plist.new"; continue
