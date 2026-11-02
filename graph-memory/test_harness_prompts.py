@@ -14,6 +14,8 @@ HARNESS = [
     "<system-reminder>The task tools haven't been used.</system-reminder>",
     "<cross-session-message from=\"x\">hi</cross-session-message>",
     "<command-message>wiki is running</command-message>",
+    "Another Claude session sent a message:\n<agent-message>done</agent-message>",
+    "[Cross-session idle notice] \"Build the research KB\" is idle.",
     "Tool loaded.",
     "This session is being continued from a previous conversation that ran out of context.",
     "Base directory for this skill: /x/y\n\n# Skill",
