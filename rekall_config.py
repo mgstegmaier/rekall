@@ -303,11 +303,14 @@ def repos():
         name, remote = str(r.get("name", "")), str(r.get("remote", ""))
         if not REPO_NAME.fullmatch(name):
             raise ValueError(f"[repos] name {name!r} must match {REPO_NAME.pattern}")
-        if name in seen:
+        if name.lower() in seen:  # macOS folders ignore case, so "Svc" and "svc" share one mirror
             raise ValueError(f"[repos] name {name!r} is used twice")
         if not remote:
             raise ValueError(f"[repos] {name} has no remote")
-        seen.add(name)
+        if re.match(r"[A-Za-z][A-Za-z0-9+.-]*://[^/]*@", remote):
+            # a user or token in the URL would be saved in the mirror's git config; gh's helper supplies it
+            raise ValueError(f"[repos] {name}: the remote must not carry a user or token")
+        seen.add(name.lower())
         out.append({"name": name, "url": remote if "://" in remote else f"https://github.com/{remote}",
                     "branch": r.get("branch", "main"), "mirror": MIRRORS / f"{name}.git"})
     return out

@@ -131,6 +131,32 @@ def test_a_duplicate_name_is_rejected(env):
         rekall_config.repos()
 
 
+def test_names_differing_only_in_case_are_rejected(env):
+    env["configure"]({"name": "Svc", "remote": "o/a"}, {"name": "svc", "remote": "o/b"})
+    with pytest.raises(ValueError, match="twice"):
+        rekall_config.repos()
+
+
+def test_a_remote_carrying_a_token_is_rejected_without_echoing_it(env):
+    env["configure"]({"name": "x", "remote": "https://me:SECRET@github.com/o/r"})
+    with pytest.raises(ValueError) as e:
+        rekall_config.repos()
+    assert "SECRET" not in str(e.value)
+
+
+def test_a_bad_config_logs_one_failed_line_and_exits_1(env, capsys):
+    env["configure"]({"name": "..", "remote": "o/r"})
+    assert repo_sync.main([]) == 1
+    assert capsys.readouterr().out.startswith("FAILED config:")
+
+
+def test_a_mirror_left_without_its_remote_is_repaired(env):
+    env["mirror"].parent.mkdir(parents=True)
+    subprocess.run(["git", "init", "-q", "--bare", str(env["mirror"])], check=True)  # killed before remote add
+    assert repo_sync.main([]) == 0
+    assert sh(env["mirror"], "rev-parse", "origin/main") == sh(env["work"], "rev-parse", "HEAD")
+
+
 def test_remote_forms(env):
     env["configure"]({"name": "gh", "remote": "owner/name"}, {"name": "url", "remote": "file:///x", "branch": "dev"})
     gh, url = rekall_config.repos()

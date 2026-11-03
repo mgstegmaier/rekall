@@ -52,8 +52,11 @@ def sync_mirror(repo):
     if not m.exists():
         m.parent.mkdir(parents=True, exist_ok=True)
         run(["git", "init", "--bare", "--quiet", str(m)])
+    # checked apart from init, so a run killed between the two repairs itself next time
+    if "origin" in git(m, "remote").split():
+        git(m, "remote", "set-url", "origin", repo["url"])
+    else:
         git(m, "remote", "add", "origin", repo["url"])
-    git(m, "remote", "set-url", "origin", repo["url"])
     git(m, "config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*")
     git(m, "symbolic-ref", "HEAD", f"refs/remotes/origin/{branch}")
     git(m, "fetch", "--prune", "--quiet", "origin")
@@ -111,7 +114,11 @@ def main(argv=None):
     if "--list" in argv:
         list_repos()
         return 0
-    repos = rekall_config.repos()
+    try:
+        repos = rekall_config.repos()
+    except ValueError as e:
+        print(f"FAILED config: {e}")
+        return 1
     if not repos:
         print("repo_sync: [repos] is off or lists no repo; nothing to do")
         return 0
