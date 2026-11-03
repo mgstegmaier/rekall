@@ -17,6 +17,7 @@ sys.path.insert(0, str(HERE))
 import gate  # noqa: E402
 import hook_output  # noqa: E402
 import judge  # noqa: E402
+import judged_gate  # noqa: E402
 import sample_hits  # noqa: E402
 
 CONTEXT = (
@@ -98,6 +99,44 @@ def test_shipped_gate_prompts_hold_ten_negatives():
     cases = json.loads(gate.PROMPTS.read_text())
     negs = [c for c in cases if c.get("expect_empty")]
     assert len(negs) == 10 and all("expect_file" not in c for c in negs)
+
+
+JUDGED = [
+    {"q": "ripro ingestion", "date": "2026-10-01", "grades": {"pages/ripro.md § Pipeline": 2, "raw/x.md § A": 0}},
+    {"q": "thanks for that", "date": "2026-10-01", "grades": {"raw/x.md § A": 0}},
+]
+
+
+def test_judged_gate_scores_useful_junk_silence_and_unjudged():
+    shown = {"ripro ingestion": ["pages/ripro.md § Pipeline", "raw/x.md § A", "plans/new.md § B"], "thanks for that": []}
+    got, unjudged = judged_gate.score(JUDGED, search=lambda q, day: shown[q])
+    assert got["useful"] == 1.0 and got["junk_per_prompt"] == 0.5 and got["silent_ok"] == 1.0
+    assert unjudged == [("ripro ingestion", "plans/new.md § B")] and got["unjudged_share"] == round(1 / 3, 3)
+
+
+def test_judged_gate_drops_digests_dated_after_the_prompt(monkeypatch):
+    labels = ["sessions/2026-10-01.md § What happened", "sessions/2026-09-30.md § Facts",
+              "meetings/2026-10-02-sync.md § Summary", "pages/ripro.md § Pipeline"]
+    real = lambda q: [(f"[{l}]", "t") for l in labels]
+    monkeypatch.setattr(judged_gate.recall_hook, "hits", real)
+    # stand in for main(): show whatever hits() returns now, so the date filter is what's tested
+    monkeypatch.setattr(judged_gate, "emit", lambda q: judged_gate.recall_hook.hits(q))
+    monkeypatch.setattr(judged_gate, "items", lambda out: [("memory", l[1:-1], t, "") for l, t in out])
+    assert judged_gate.as_of("q", "2026-10-01") == ["sessions/2026-09-30.md § Facts", "pages/ripro.md § Pipeline"]
+    assert judged_gate.recall_hook.hits is real  # the wrapper is gone afterwards
+
+
+def test_judged_gate_fails_on_a_useful_drop(monkeypatch, tmp_path, capsys):
+    (tmp_path / "rag.db").write_text("")
+    (tmp_path / "c.json").write_text(json.dumps(JUDGED))
+    (tmp_path / "b.json").write_text(json.dumps({"useful": 1.0, "junk_per_prompt": 0.0, "silent_ok": 1.0}))
+    for name, value in (("DB", tmp_path / "rag.db"), ("CASES", tmp_path / "c.json"), ("BASELINE", tmp_path / "b.json"),
+                        ("as_of", lambda q, day: [])):
+        monkeypatch.setattr(judged_gate, name, value)  # the hook shows nothing: the one useful prompt is lost
+    monkeypatch.setattr(sys, "argv", ["judged_gate.py"])
+    with pytest.raises(SystemExit) as e:
+        judged_gate.main()
+    assert "useful dropped" in str(e.value)
 
 
 def test_judge_prints_per_predicate_table(tmp_path, capsys):
