@@ -102,41 +102,80 @@ def test_shipped_gate_prompts_hold_ten_negatives():
 
 
 JUDGED = [
-    {"q": "ripro ingestion", "date": "2026-10-01", "grades": {"pages/ripro.md § Pipeline": 2, "raw/x.md § A": 0}},
-    {"q": "thanks for that", "date": "2026-10-01", "grades": {"raw/x.md § A": 0}},
+    {"q": "ripro ingestion", "ts": "2026-10-01T15:00:00Z", "grades": {"pages/ripro.md § Pipeline": 2, "raw/x.md § A": 0}},
+    {"q": "thanks for that", "ts": "2026-10-01T15:00:00Z", "grades": {"raw/x.md § A": 0}},
+    {"q": "what's rekall up to", "ts": "2026-10-01T15:00:00Z", "grades": {}},
 ]
 
 
+@pytest.fixture
+def chicago(monkeypatch):
+    import time
+    monkeypatch.setenv("TZ", "America/Chicago")
+    time.tzset()
+    yield
+    monkeypatch.undo()
+    time.tzset()
+
+
 def test_judged_gate_scores_useful_junk_silence_and_unjudged():
-    shown = {"ripro ingestion": ["pages/ripro.md § Pipeline", "raw/x.md § A", "plans/new.md § B"], "thanks for that": []}
-    got, unjudged = judged_gate.score(JUDGED, search=lambda q, day: shown[q])
-    assert got["useful"] == 1.0 and got["junk_per_prompt"] == 0.5 and got["silent_ok"] == 1.0
-    assert unjudged == [("ripro ingestion", "plans/new.md § B")] and got["unjudged_share"] == round(1 / 3, 3)
+    shown = {"ripro ingestion": (["pages/ripro.md § Pipeline", "raw/x.md § A", "plans/new.md § B"], True),
+             "thanks for that": ([], False),
+             "what's rekall up to": ([], True)}  # graph facts only: injected, so not silent
+    got, unjudged = judged_gate.score(JUDGED, search=lambda q, ts: shown[q])
+    assert got["useful"] == 1.0 and got["junk_per_prompt"] == round(1 / 3, 3) and got["silent_ok"] == 0.5
+    assert [k for _, k in unjudged] == ["plans/new.md § B"] and got["unjudged_share"] == round(1 / 3, 3)
 
 
-def test_judged_gate_drops_digests_dated_after_the_prompt(monkeypatch):
+def test_judged_gate_drops_pages_dated_from_the_prompts_local_day(monkeypatch, chicago):
     labels = ["sessions/2026-10-01.md § What happened", "sessions/2026-09-30.md § Facts",
-              "meetings/2026-10-02-sync.md § Summary", "pages/ripro.md § Pipeline"]
+              "daily-notes-archive/2026-10-01.md § Catch-up", "meetings/2026-10-02-sync.md § Summary",
+              "pages/ripro.md § Pipeline"]
     real = lambda q: [(f"[{l}]", "t") for l in labels]
     monkeypatch.setattr(judged_gate.recall_hook, "hits", real)
     # stand in for main(): show whatever hits() returns now, so the date filter is what's tested
-    monkeypatch.setattr(judged_gate, "emit", lambda q: judged_gate.recall_hook.hits(q))
-    monkeypatch.setattr(judged_gate, "items", lambda out: [("memory", l[1:-1], t, "") for l, t in out])
-    assert judged_gate.as_of("q", "2026-10-01") == ["sessions/2026-09-30.md § Facts", "pages/ripro.md § Pipeline"]
+    monkeypatch.setattr(judged_gate, "emit", lambda q: {"hits": judged_gate.recall_hook.hits(q)})
+    monkeypatch.setattr(judged_gate, "items", lambda out: [("memory", l[1:-1], t, "") for l, t in out["hits"]])
+    # 03:00 UTC on Oct 2 is 22:00 on Oct 1 in Chicago: Oct 1's digest and daily note are that same day
+    assert judged_gate.as_of("q", "2026-10-02T03:00:00Z") == (
+        ["sessions/2026-09-30.md § Facts", "pages/ripro.md § Pipeline"], True)
     assert judged_gate.recall_hook.hits is real  # the wrapper is gone afterwards
 
 
-def test_judged_gate_fails_on_a_useful_drop(monkeypatch, tmp_path, capsys):
+def test_judged_gate_stops_when_the_hook_cannot_search(monkeypatch):
+    monkeypatch.setattr(judged_gate, "emit", lambda q: {"systemMessage": "rekall unavailable: no index"})
+    with pytest.raises(SystemExit) as e:
+        judged_gate.as_of("q", "2026-10-01T15:00:00Z")
+    assert "can't search" in str(e.value)
+
+
+def judged_main(monkeypatch, tmp_path, shown, argv=()):
+    import types
     (tmp_path / "rag.db").write_text("")
     (tmp_path / "c.json").write_text(json.dumps(JUDGED))
     (tmp_path / "b.json").write_text(json.dumps({"useful": 1.0, "junk_per_prompt": 0.0, "silent_ok": 1.0}))
     for name, value in (("DB", tmp_path / "rag.db"), ("CASES", tmp_path / "c.json"), ("BASELINE", tmp_path / "b.json"),
-                        ("as_of", lambda q, day: [])):
-        monkeypatch.setattr(judged_gate, name, value)  # the hook shows nothing: the one useful prompt is lost
-    monkeypatch.setattr(sys, "argv", ["judged_gate.py"])
+                        ("as_of", lambda q, ts: shown)):
+        monkeypatch.setattr(judged_gate, name, value)
+    monkeypatch.setitem(sys.modules, "fastembed", types.ModuleType("fastembed"))  # the venv check passes
+    monkeypatch.setattr(sys, "argv", ["judged_gate.py", *argv])
     with pytest.raises(SystemExit) as e:
         judged_gate.main()
-    assert "useful dropped" in str(e.value)
+    return str(e.value)
+
+
+def test_judged_gate_fails_on_a_useful_drop(monkeypatch, tmp_path):
+    # every prompt gets only the junk section: the one useful prompt is lost
+    assert "useful dropped" in judged_main(monkeypatch, tmp_path, (["raw/x.md § A"], True))
+
+
+def test_judged_gate_stops_when_nothing_is_shown(monkeypatch, tmp_path):
+    assert "showed nothing" in judged_main(monkeypatch, tmp_path, ([], False))
+
+
+def test_judged_gate_wont_baseline_a_mostly_unjudged_run(monkeypatch, tmp_path):
+    msg = judged_main(monkeypatch, tmp_path, (["plans/new.md § B"], True), ["--write-baseline"])
+    assert "not writing a baseline" in msg and json.loads((tmp_path / "b.json").read_text())["useful"] == 1.0
 
 
 def test_judge_prints_per_predicate_table(tmp_path, capsys):
