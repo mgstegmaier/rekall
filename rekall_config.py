@@ -236,16 +236,17 @@ def sweep_slots(start, end, *, hours=None, minute=None):
     return n
 
 
-def sweep_stale(last_success, streak_start, now, *, hours=None, minute=None, slots=STALE_SLOTS):
+def sweep_stale(last_success, streak_start, now, *, hours=None, minute=None, slots=STALE_SLOTS, present=None):
     """True when sweeps are overdue AND you have been present long enough for that to mean
     something. The second half is what keeps a long weekend or an overnight sleep quiet: you may
     have missed 39 slots with the lid shut, but your current stretch of use has missed none, and
-    launchd's catch-up run gets its chance before anything is said."""
+    launchd's catch-up run gets its chance before anything is said. present is how many of the
+    missed slots must fall inside the current stretch; it defaults to slots (the meeting sweep)."""
     if last_success is None:
         return False  # nothing has ever succeeded; a fresh install is not a fault to report
     sched = {"hours": hours, "minute": minute}
     return (sweep_slots(last_success, now, **sched) >= slots
-            and sweep_slots(streak_start, now, **sched) >= slots)
+            and sweep_slots(streak_start, now, **sched) >= (slots if present is None else present))
 
 
 def note_presence(now):
@@ -290,6 +291,9 @@ def sweep_status():
 REPO_HOURS = (7, 13)  # ponytail: mirrors launchd/com.rekall.repo-sync.plist; change both together
 REPO_MINUTE = 0
 REPO_STALE_SLOTS = 2
+# Only one of those inside your current stretch: with two runs a day, a 09:00-17:00 stretch holds
+# just the 13:00 run, so requiring both would never warn (decided 2026-11-03, PR #63 review).
+REPO_PRESENT_SLOTS = 1
 REPO_NAME = re.compile(r"[A-Za-z0-9_-][A-Za-z0-9_.-]*")  # no ".", "..", or hidden folder names
 
 
@@ -342,7 +346,7 @@ def repo_freshness(now=None, streak=None):
             continue
         when = f"last sync {last.astimezone(tz):%b %d %H:%M}"
         sched = {"hours": REPO_HOURS, "minute": REPO_MINUTE}
-        if sweep_stale(last, streak, now, slots=REPO_STALE_SLOTS, **sched):
+        if sweep_stale(last, streak, now, slots=REPO_STALE_SLOTS, present=REPO_PRESENT_SLOTS, **sched):
             lines.append(f"{r['name']}: STALE, {sweep_slots(last, now, **sched)} runs missed, {when}{err}")
         else:
             commit = s.get("indexed") or s.get("head") or "?"

@@ -102,7 +102,7 @@ To turn it on:
 
 Claude finds the mirrors through the `repo-mirrors` skill, which runs `graph-memory/repo_sync.py --list` and then reads with commands such as `git -C <mirror> show origin/main:<path>` and `git -C <mirror> log -p origin/main -- <path>`. When a question is about the last few hours, the skill has Claude fetch the mirror first. Code changes still happen in your clone.
 
-Each run writes `<state>/repo-sync-state.json` with each repo's head commit and last good sync, and logs to `<state>/logs/repo-sync.log`. A repo that fails logs `FAILED repo=<name> step=fetch: <error>` and makes the run exit 1, while the other repos still sync. A time missed while the Mac sleeps runs once when it wakes. If a repo misses two scheduled runs while you're working at the machine, the recall hook adds a `Rekall repo sync:` line naming it with its last error. A weekend with the lid shut raises nothing.
+Each run writes `<state>/repo-sync-state.json` with each repo's head commit and last good sync, and logs to `<state>/logs/repo-sync.log`. A repo that fails logs `FAILED repo=<name> step=fetch: <error>` and makes the run exit 1, while the other repos still sync. A time missed while the Mac sleeps runs once when it wakes. If a repo misses two scheduled runs in a row, and at least one of them fell while you were working at the machine, the recall hook adds a `Rekall repo sync:` line naming it with its last error. A weekend with the lid shut raises nothing until a run fails while you're back.
 
 `scripts/wins-mine.py` reads your commits from these mirrors, on every pushed branch. It no longer reads `[wins].repos_dir`.
 

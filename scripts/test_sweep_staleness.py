@@ -138,3 +138,18 @@ def test_repo_status_is_none_with_repos_off_or_no_state(monkeypatch):
     repo_env(monkeypatch, ok_at(at(-10, 7, 0)))
     monkeypatch.setattr(rc, "REPOS", {"enabled": False})
     assert rc.repo_sync_status() is None
+
+
+def test_repo_named_on_an_ordinary_workday_across_stretches(monkeypatch):
+    # Last good sync Monday 13:01. Tuesday's 07:00 run fell before you sat down at 09:00, and the
+    # 13:00 run failed while you worked: two missed, one of them inside this stretch.
+    repo_env(monkeypatch, ok_at(at(0, 13, 1)))
+    monkeypatch.setattr(rc, "note_presence", lambda now: at(1, 9, 0))
+    assert rc.repo_sync_status(now=at(1, 13, 30)).startswith("svc: STALE, 2 runs missed")
+
+
+def test_repo_quiet_until_a_run_falls_inside_the_stretch(monkeypatch):
+    # Back Monday 09:00 after a weekend: many runs missed, none yet while you've been here.
+    repo_env(monkeypatch, ok_at(at(-3, 13, 1)))
+    monkeypatch.setattr(rc, "note_presence", lambda now: at(0, 9, 0))
+    assert rc.repo_sync_status(now=at(0, 12, 30)) is None
