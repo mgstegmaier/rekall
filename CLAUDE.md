@@ -23,9 +23,14 @@ https://github.com/mgstegmaier/rekall (fresh single-commit history since 2026-09
   Claude Code runs inside the rekall folder). `docs/obsidian-vault-cli.md` —
   vault CLI reference; read before any vault write. Wiki structure rules: vault `wiki/CLAUDE.md`.
 
-## Current state (2026-10-07)
+## Current state (2026-11-02)
 
-Shipped: MCP server for Claude Desktop chat (`graph-memory/mcp_server.py`, `search_wiki` and `read_page`),
+The 2026-11-01 review (`docs/plans/2026-11-01-rekall-review-v2/`, 41 findings) is fully built: its 16 batches and four
+EGM designs merged as PRs #37 to #59. Index rebuilds are one transaction (ADR-002, check due 2026-11-15), the
+recall-use log is v2 (each injection paired with its trigger; `--rebuild` regenerates it), and `install.sh` enforces one
+install per machine and refreshes what it wrote on a re-run.
+
+Also shipped: MCP server for Claude Desktop chat (`graph-memory/mcp_server.py`, `search_wiki` and `read_page`),
 registered by `install.sh` step 6 (`7f55d1b`, `4e4d84f`, `0dea1ca`). README section "Use your wiki from
 Claude Desktop chat" merged in PR #7. Cost audit 2026-09-24 numbers live on wiki `pages/rekall.md`.
 This machine runs the released install (`bash install.sh --with-graph`, `com.rekall.*` labels) since 2026-11-01; the old `com.heckatron.*` plists sit in `~/.config/rekall/backup-plists/`. Re-running `install.sh` is safe.
