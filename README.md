@@ -2,7 +2,9 @@
 
 We remember it for you wholesale.
 
-Rekall is the machinery around a personal knowledge wiki: capture pipelines in, a query layer out. The notes themselves live in your own vault (Obsidian or any folder of markdown). Rekall never owns your content. It ingests into it, indexes it, and answers questions from it.
+Rekall gives Claude Code a memory of your work. Every session you close is written up as a note: what happened, what you decided, what you learned, and what's still open. Your meetings and the documents you drop in become notes too. Before each prompt in your next session, Rekall finds the notes that bear on it and hands them to Claude, so you can ask "what did we decide about the retry logic last week?" and get the answer from your own record without pointing Claude at it.
+
+The notes live in your own vault (Obsidian or any folder of markdown). Rekall never owns your content. It writes into the vault, indexes it, and answers questions from it.
 
 Named after the memory-implant company in *Total Recall*.
 
@@ -36,11 +38,12 @@ If `install.sh` fails partway, fix what its error names and run it again. A re-r
 
 ## What it does
 
-- **Capture** - a Fathom pipeline writes one note per meeting; a `raw/` folder takes any `.md` file you drop in, nested folders included; a session-end hook writes up every Claude Code session you close (sessions shorter than `min_turns` are skipped)
+- **Recall** - a hook that runs before every Claude Code prompt and hands Claude up to five of the best hits plus entity-graph facts, so it answers from your notes without being asked to look
+- **Session memory** - when you close a Claude Code session, a hook writes it up in `wiki/sessions/YYYY-MM-DD.md` under headings such as What happened, Decisions, Lessons, and Open loops. A session you resume and close again gets a continuation entry that records only what changed. The next reindex makes the entry searchable, so recall can bring back last week's decision or a lesson that cost you an afternoon. Sessions shorter than `min_turns` (default 5) are skipped. See "Session digest" in `graph-memory/README.md`.
+- **Meetings and documents** - a Fathom pipeline writes one note per meeting, and a `raw/` folder takes any `.md` file you drop in, nested folders included
 - **Mail and Teams (optional)** - a read-only Microsoft Graph ingest adds new facts and decisions from email threads and the Teams chats you pick to the project pages they name; `scripts/setup-server.py` is its local setup page (see SETUP.md)
 - **Wiki** - a headless Claude call compiles those sources into interlinked pages (people, projects, entities, concepts), every claim cited, in Karpathy's LLM Wiki pattern
 - **Index** - a local SQLite index over the wiki: keyword search, embeddings from a 67 MB model on your CPU, and an entity graph built from the wikilinks
-- **Recall** - a hook that runs before every Claude Code prompt and hands Claude up to five of the best hits plus entity-graph facts, so it answers from your notes without being asked to look
 - **MCP server** - Claude Desktop chat has no prompt hook, so `install.sh` registers a read-only MCP server there with two tools, `search_wiki` and `read_page`, over the same index (see "Use your wiki from Claude Desktop chat" below)
 
 ## What it is not
