@@ -24,7 +24,7 @@ sys.path.insert(0, str(HERE))
 try:
     from harness_prompt import REMINDER, is_harness  # noqa: E402
     from paths import DB  # noqa: E402
-    from rekall_config import claude_auth_status, sweep_status  # noqa: E402
+    from rekall_config import claude_auth_status, repo_sync_status, sweep_status  # noqa: E402
     BROKEN = None
 except (Exception, SystemExit) as e:  # rekall_config sys.exits on a missing rekall.toml
     DB, BROKEN = None, f"config failed to load ({e})"
@@ -258,7 +258,11 @@ def main():
         sweep = None if auth else sweep_status()
     except Exception:
         sweep = None
-    if not found and not facts and not auth and not sweep:
+    try:
+        repo = None if auth else repo_sync_status()  # one small JSON read
+    except Exception:
+        repo = None
+    if not found and not facts and not auth and not sweep and not repo:
         return unavailable(failed) if failed else None
     parts = []
     if auth:
@@ -266,6 +270,8 @@ def main():
                      "it opens the Claude sign-in in their browser.")
     if sweep:
         parts.append(f"Rekall sweeps: {sweep} Tell the user.")
+    if repo:
+        parts.append(f"Rekall repo sync: {repo} Tell the user.")
     # one budget for the whole context: notices, header, labels and graph all count (2 = the "\n\n" joiner)
     left = BUDGET - sum(len(p) + 2 for p in parts)
     kept = block(found, prompt, left - len(HEADER) - 4) if found else []
@@ -279,8 +285,8 @@ def main():
     label = f"memory: {count} hit{'' if count == 1 else 's'}"
     if graph_lines:
         label += f", {len(graph_lines)} graph facts"
-    if auth or sweep:
-        label = f"rekall: {auth or sweep}" + (f" ({label})" if kept or graph_lines else "")
+    if auth or sweep or repo:
+        label = f"rekall: {auth or sweep or repo}" + (f" ({label})" if kept or graph_lines else "")
     print(
         json.dumps(
             {

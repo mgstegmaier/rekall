@@ -4,6 +4,11 @@ The changes that affect an installed Rekall, newest first. Rekall has no version
 
 To upgrade, run `git pull` and then `bash install.sh` in the rekall folder (see "Upgrading" in the README). An entry marked **Re-run install.sh** changes something the installer writes outside the repo, such as the Claude Code hooks, the Claude Desktop MCP entry, or the venv packages, so `git pull` alone doesn't pick it up.
 
+## 2026-11-03
+
+- New, optional: read-only mirrors of your GitHub repos (phase 1 of the repo-search design). List repos under `[repos]` in `rekall.toml` and run **`bash install.sh --with-repos`** to schedule `com.rekall.repo-sync` at 07:00 and 13:00. Each mirror is a bare clone at `<data>/repos/<name>.git` holding every GitHub branch under `origin/*`, and the new `repo-mirrors` skill tells Claude to read current `main` from it with `git show`, `git grep` and `git log`. A failed repo logs `FAILED repo=<name> step=fetch` and the run exits 1; the recall hook adds a `Rekall repo sync:` line once a repo misses two runs in a row and one of them fell while you were working. `--uninstall` removes the schedule and leaves the mirrors. Without `[repos]` nothing changes. See "Read your GitHub repos" in the README.
+- `scripts/wins-mine.py` reads your commits from the `[repos]` mirrors, on every pushed branch, instead of the clones under `[wins].repos_dir`. That key is no longer read, and the script prints a notice while it's still set; remove it from `rekall.toml`. Commits you never pushed, and repos not under `[repos]`, drop out of the evidence.
+
 ## 2026-11-02
 
 - **Re-run install.sh.** Re-runs now refresh the wiki skill and the `fathom-sync` command, unless you changed your copy. `install.sh` keeps a record of what it last wrote in the repo's gitignored `.installed/` folder, and prints `installed`, `updated` or `unchanged` for each copy. A copy you changed, a file it didn't write, or a symlink stays as it is, and the run names it with the `mv` command that installs the new version and the `diff` command that compares them.

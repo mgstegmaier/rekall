@@ -12,7 +12,8 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
-FNS = ("owner_paths", "guard", "subst_args", "render", "render_file", "place", "unplace")
+FNS = ("owner_paths", "guard", "subst_args", "render", "render_file", "place", "unplace",
+       "optional_labels", "repo_data_kept")
 PRE = "set -u\nif sed --version >/dev/null 2>&1; then SEDI=(-i); else SEDI=(-i ''); fi\nKEPT=()\n"
 
 
@@ -81,7 +82,7 @@ def test_a_quote_in_the_vault_path_stops_subst_args(inst):
 
 
 @pytest.mark.parametrize("launcher", ["graph-memory/reindex.sh", "scripts/run-wiki-lint.sh",
-                                      "scripts/run-fathom-pipeline.sh"])
+                                      "scripts/run-fathom-pipeline.sh", "graph-memory/repo-sync.sh"])
 def test_launcher_log_follows_the_state_folder(launcher, tmp_path):
     state = tmp_path / "custom-state"
     toml = tmp_path / "rekall.toml"
@@ -98,6 +99,34 @@ def test_launcher_log_follows_the_state_folder(launcher, tmp_path):
     assert r.returncode == 0, r.stderr
     assert r.stdout.strip() == str(state / "logs" / name)
     assert len((state / "logs" / name).read_text().splitlines()) == 2000, "truncation hit another file"
+
+
+OPTIONAL = ('LABELS=base; GRANOLA=g; GRAPH_INGEST=gi; REPO_SYNC=com.rekall.repo-sync\n'
+            'optional_labels "$@"; echo "LABELS=$LABELS"')
+
+
+@pytest.mark.parametrize("flags,win,labels,says", [
+    ("--with-repos", "", "base com.rekall.repo-sync", ""),
+    ("--with-repos", "1", "base", "--with-repos: the repo sync schedule is macOS-only; skipping it"),
+    ("--with-graph", "", "base gi", ""),
+    ("", "", "base", ""),
+])
+def test_optional_labels(inst, flags, win, labels, says):
+    r = subprocess.run(["bash", "-c", PRE + fn("optional_labels") + OPTIONAL, "_", *flags.split()],
+                       env={**inst, "WIN": win}, capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    assert r.stdout.splitlines()[-1] == f"LABELS={labels}"
+    assert (says in r.stdout) if says else len(r.stdout.splitlines()) == 1
+
+
+def test_uninstall_names_repo_data_and_survives_a_missing_config(inst, tmp_path):
+    shutil.copy(ROOT / "rekall_config.py", Path(inst["REPO"]) / "rekall_config.py")
+    toml = tmp_path / "rekall.toml"
+    toml.write_text(f'[user]\nname="t"\ntimezone="UTC"\n[vault]\npath="{tmp_path}/v"\n[data]\npath="{tmp_path}/d"\n')
+    r = sh(inst, "set -e; repo_data_kept; echo survived", REKALL_CONFIG=str(toml))
+    assert f"{tmp_path}/d/repos (mirrors)" in r.stdout and "survived" in r.stdout
+    r = sh(inst, "set -e; repo_data_kept; echo survived", REKALL_CONFIG=str(tmp_path / "missing.toml"))
+    assert "under your [data].path" in r.stdout and "survived" in r.stdout, r.stderr
 
 
 def place(env, src="skills/wiki", fn="place", **extra):

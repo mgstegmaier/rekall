@@ -83,3 +83,73 @@ if __name__ == "__main__":
             fn()
             print(f"ok  {name}")
     print("all passed")
+
+
+# The repo sync reuses the sweep's rule at 07:00 and 13:00 with two slots. The sweep's own line
+# must not move because of the new keyword arguments, so the cases above run unchanged.
+
+def test_sweep_defaults_are_unchanged_by_the_new_arguments():
+    a, b = at(0, 9, 20), at(0, 12, 30)
+    assert rc.sweep_slots(a, b) == rc.sweep_slots(a, b, hours=rc.SWEEP_HOURS, minute=rc.SWEEP_MINUTE) == 3
+    assert rc.sweep_slots(a, b, hours=(7, 13), minute=0) == 0
+    assert rc.sweep_slots(at(0, 6, 0), at(0, 14, 0), hours=(7, 13), minute=0) == 2
+
+
+def repo_env(monkeypatch, entry):
+    """[repos] on with one repo whose state entry is `entry` (None: no state file at all)."""
+    monkeypatch.setattr(rc, "REPOS", {"enabled": True, "repo": [{"name": "svc", "remote": "o/svc"}]})
+    state = TMP / "repo-state.json"
+    state.unlink(missing_ok=True)
+    if entry is not None:
+        state.write_text(json.dumps({"svc": entry}))
+    monkeypatch.setattr(rc, "REPO_SYNC_STATE", state)
+
+
+def ok_at(t):
+    return {"head": "a" * 40, "indexed": None, "fetched_at": t.isoformat(), "last_ok_at": t.isoformat(),
+            "last_error": None}
+
+
+def test_repo_quiet_after_a_weekend_with_the_lid_shut(monkeypatch):
+    repo_env(monkeypatch, ok_at(at(-3, 13, 1)))
+    lines = rc.repo_freshness(now=at(1, 9, 0), streak=at(1, 8, 55))
+    assert lines == ["svc: main @ aaaaaaa fetched, last sync Oct 23 13:01"]
+
+
+def test_repo_named_after_two_missed_runs_while_working(monkeypatch):
+    entry = {**ok_at(at(0, 13, 1)), "last_error": "fetch: HTTP 403"}
+    repo_env(monkeypatch, entry)
+    # Working since 06:30 Tuesday; the 07:00 and 13:00 runs both failed.
+    monkeypatch.setattr(rc, "note_presence", lambda now: at(1, 6, 30))
+    line = rc.repo_sync_status(now=at(1, 14, 0))
+    assert line and line.startswith("svc: STALE, 2 runs missed, last sync Oct 26 13:01 (fetch: HTTP 403)")
+
+
+def test_repo_with_no_last_ok_is_quiet_in_the_hook(monkeypatch):
+    repo_env(monkeypatch, {"head": None, "indexed": None, "fetched_at": None, "last_ok_at": None,
+                           "last_error": "fetch: HTTP 404"})
+    assert rc.repo_sync_status() is None
+    assert rc.repo_freshness(now=at(1, 14, 0), streak=at(1, 6, 0)) == ["svc: never synced (fetch: HTTP 404)"]
+
+
+def test_repo_status_is_none_with_repos_off_or_no_state(monkeypatch):
+    repo_env(monkeypatch, None)
+    assert rc.repo_sync_status() is None
+    repo_env(monkeypatch, ok_at(at(-10, 7, 0)))
+    monkeypatch.setattr(rc, "REPOS", {"enabled": False})
+    assert rc.repo_sync_status() is None
+
+
+def test_repo_named_on_an_ordinary_workday_across_stretches(monkeypatch):
+    # Last good sync Monday 13:01. Tuesday's 07:00 run fell before you sat down at 09:00, and the
+    # 13:00 run failed while you worked: two missed, one of them inside this stretch.
+    repo_env(monkeypatch, ok_at(at(0, 13, 1)))
+    monkeypatch.setattr(rc, "note_presence", lambda now: at(1, 9, 0))
+    assert rc.repo_sync_status(now=at(1, 13, 30)).startswith("svc: STALE, 2 runs missed")
+
+
+def test_repo_quiet_until_a_run_falls_inside_the_stretch(monkeypatch):
+    # Back Monday 09:00 after a weekend: many runs missed, none yet while you've been here.
+    repo_env(monkeypatch, ok_at(at(-3, 13, 1)))
+    monkeypatch.setattr(rc, "note_presence", lambda now: at(0, 9, 0))
+    assert rc.repo_sync_status(now=at(0, 12, 30)) is None

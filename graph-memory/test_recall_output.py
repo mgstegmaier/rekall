@@ -13,17 +13,22 @@ import recall_hook  # noqa: E402
 from recall_hook import BUDGET, GRAPH_BUDGET, PER_HIT, excerpt  # noqa: E402
 
 
-def emit(monkeypatch, capsys, found, facts, sweep=None):
-    """The hook's additionalContext for stubbed hits, graph facts and sweep notice."""
+def emit(monkeypatch, capsys, found, facts, sweep=None, repo=None, auth=None, full=False):
+    """The hook's additionalContext for stubbed hits, graph facts, sweep and repo notices
+    (the whole JSON output when full is set)."""
     monkeypatch.setattr(recall_hook, "BROKEN", None, raising=False)
     monkeypatch.setattr(recall_hook, "DB", Path(__file__))  # any existing file
     monkeypatch.setattr(recall_hook, "hits", lambda q: found)
     monkeypatch.setattr(recall_hook, "graph_facts", lambda q: facts)
-    monkeypatch.setattr(recall_hook, "claude_auth_status", lambda: None)
+    monkeypatch.setattr(recall_hook, "claude_auth_status", lambda: auth)
     monkeypatch.setattr(recall_hook, "sweep_status", lambda: sweep)
+    monkeypatch.setattr(recall_hook, "repo_sync_status", lambda: repo)
     monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps({"prompt": "what is going on with widget project"})))
     recall_hook.main()
-    return json.loads(capsys.readouterr().out)["hookSpecificOutput"]["additionalContext"]
+    out = capsys.readouterr().out
+    if full:
+        return json.loads(out) if out else None
+    return json.loads(out)["hookSpecificOutput"]["additionalContext"]
 
 
 def graph_section(ctx):
@@ -100,3 +105,32 @@ def test_no_graph_fragment_when_hits_leave_little_room(monkeypatch, capsys):
         assert whole or "Wiki graph:" not in ctx, ctx[-80:]  # a whole fact or no section, never a fragment
         seen.add(whole)
     assert seen == {True, False}  # the sweep covers both sides of the fit
+
+
+STALE = "svc: STALE, 2 runs missed, last sync Nov 01 13:01 (fetch: HTTP 403). Check the log."
+
+
+def test_stale_repo_line_fits_the_budget_and_names_the_message(monkeypatch, capsys):
+    found = [(f"[pages/p{i}.md § S]", "word " * 200) for i in range(4)]
+    out = emit(monkeypatch, capsys, found, [], repo=STALE, full=True)
+    ctx = out["hookSpecificOutput"]["additionalContext"]
+    assert "Rekall repo sync: " + STALE in ctx and "[pages/p0.md" in ctx
+    assert len(ctx) <= BUDGET, len(ctx)
+    assert STALE in out["systemMessage"]
+
+
+def test_stale_repo_line_shows_with_no_wiki_hits(monkeypatch, capsys):
+    ctx = emit(monkeypatch, capsys, [], [], repo=STALE)
+    assert ctx.startswith("Rekall repo sync: ")
+
+
+def test_sign_in_failure_hides_the_repo_line(monkeypatch, capsys):
+    ctx = emit(monkeypatch, capsys, [], [], auth="signed out", repo=STALE)
+    assert "Rekall sign-in" in ctx and "Rekall repo sync" not in ctx
+
+
+def test_repos_off_leaves_the_output_unchanged(monkeypatch, capsys):
+    found = [("[pages/widget-project.md § Status]", "widget status " * 20)]
+    out = emit(monkeypatch, capsys, found, [], repo=None, full=True)
+    assert out["systemMessage"] == "memory: 1 hit" and "Rekall repo sync" not in json.dumps(out)
+    assert emit(monkeypatch, capsys, [], [], repo=None, full=True) is None

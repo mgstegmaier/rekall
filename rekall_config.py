@@ -8,6 +8,7 @@ Set REKALL_CONFIG=/path/to/other.toml to run everything against a different vaul
 
 import json
 import os
+import re
 import sys
 import tomllib
 from pathlib import Path
@@ -37,6 +38,10 @@ GRAPH = _cfg.get("graph", {})
 RESEARCH = _cfg.get("research", {})
 # Annual-review evidence miner (scripts/wins-mine.py): work repos, git author, work markers, page tag.
 WINS = _cfg.get("wins", {})
+# Tracked GitHub repos (graph-memory/repo_sync.py): bare mirrors under [data].path/repos. Off unless enabled = true.
+REPOS = _cfg.get("repos", {})
+MIRRORS = DATA / "repos"
+REPO_SYNC_STATE = STATE_DIR / "repo-sync-state.json"
 # Optional command the launchers put in front of each job, e.g. "doppler run --project p --config c --".
 RUN_PREFIX = _cfg.get("secrets", {}).get("run_prefix", "")
 
@@ -210,8 +215,11 @@ STALE_SLOTS = 3             # three missed runs inside the window before the hoo
 PRESENCE_GAP = 90 * 60      # a quiet stretch longer than this means you were away, not just idle
 
 
-def sweep_slots(start, end):
-    """How many scheduled sweeps fall in (start, end], in local time."""
+def sweep_slots(start, end, *, hours=None, minute=None):
+    """How many scheduled sweeps fall in (start, end], in local time. hours and minute default to
+    the meeting sweep's schedule; the repo sync passes its own."""
+    hours = SWEEP_HOURS if hours is None else hours
+    minute = SWEEP_MINUTE if minute is None else minute
     if start is None or end <= start:
         return 0
     from datetime import datetime, time as dt_time, timedelta
@@ -220,23 +228,25 @@ def sweep_slots(start, end):
     start, end = start.astimezone(tz), end.astimezone(tz)
     n, day = 0, start.date()
     while day <= end.date():
-        for h in SWEEP_HOURS:
-            slot = datetime.combine(day, dt_time(h, SWEEP_MINUTE), tzinfo=tz)
+        for h in hours:
+            slot = datetime.combine(day, dt_time(h, minute), tzinfo=tz)
             if start < slot <= end:
                 n += 1
         day += timedelta(days=1)
     return n
 
 
-def sweep_stale(last_success, streak_start, now):
+def sweep_stale(last_success, streak_start, now, *, hours=None, minute=None, slots=STALE_SLOTS, present=None):
     """True when sweeps are overdue AND you have been present long enough for that to mean
     something. The second half is what keeps a long weekend or an overnight sleep quiet: you may
     have missed 39 slots with the lid shut, but your current stretch of use has missed none, and
-    launchd's catch-up run gets its chance before anything is said."""
+    launchd's catch-up run gets its chance before anything is said. present is how many of the
+    missed slots must fall inside the current stretch; it defaults to slots (the meeting sweep)."""
     if last_success is None:
         return False  # nothing has ever succeeded; a fresh install is not a fault to report
-    return (sweep_slots(last_success, now) >= STALE_SLOTS
-            and sweep_slots(streak_start, now) >= STALE_SLOTS)
+    sched = {"hours": hours, "minute": minute}
+    return (sweep_slots(last_success, now, **sched) >= slots
+            and sweep_slots(streak_start, now, **sched) >= (slots if present is None else present))
 
 
 def note_presence(now):
@@ -276,6 +286,85 @@ def sweep_status():
     return (f"Rekall's meeting sweep hasn't completed since {last.astimezone(ZoneInfo(TIMEZONE)):%b %d %H:%M} "
             f"({sweep_slots(last, now)} scheduled runs missed), so the wiki may be behind. "
             f"Check the job is loaded: launchctl list | grep fathom")
+
+
+REPO_HOURS = (7, 13)  # ponytail: mirrors launchd/com.rekall.repo-sync.plist; change both together
+REPO_MINUTE = 0
+REPO_STALE_SLOTS = 2
+# Only one of those inside your current stretch: with two runs a day, a 09:00-17:00 stretch holds
+# just the 13:00 run, so requiring both would never warn (decided 2026-11-03, PR #63 review).
+REPO_PRESENT_SLOTS = 1
+REPO_NAME = re.compile(r"[A-Za-z0-9_-][A-Za-z0-9_.-]*")  # no ".", "..", or hidden folder names
+
+
+def repos():
+    """The [[repos.repo]] entries with defaults applied: name, url, branch, mirror. Empty when
+    [repos] is off. A remote holding :// is used as-is; anything else is a GitHub owner/name."""
+    if not REPOS.get("enabled"):
+        return []
+    out, seen = [], set()
+    for r in REPOS.get("repo", []):
+        name, remote = str(r.get("name", "")), str(r.get("remote", ""))
+        if not REPO_NAME.fullmatch(name):
+            raise ValueError(f"[repos] name {name!r} must match {REPO_NAME.pattern}")
+        if name.lower() in seen:  # macOS folders ignore case, so "Svc" and "svc" share one mirror
+            raise ValueError(f"[repos] name {name!r} is used twice")
+        if not remote:
+            raise ValueError(f"[repos] {name} has no remote")
+        if re.match(r"[A-Za-z][A-Za-z0-9+.-]*://[^/]*@", remote):
+            # a user or token in the URL would be saved in the mirror's git config; gh's helper supplies it
+            raise ValueError(f"[repos] {name}: the remote must not carry a user or token")
+        seen.add(name.lower())
+        out.append({"name": name, "url": remote if "://" in remote else f"https://github.com/{remote}",
+                    "branch": r.get("branch", "main"), "mirror": MIRRORS / f"{name}.git"})
+    return out
+
+
+def _repo_state():
+    try:
+        return json.loads(REPO_SYNC_STATE.read_text())
+    except (OSError, ValueError):
+        return None
+
+
+def repo_freshness(now=None, streak=None):
+    """One line per configured repo: the commit it holds and when it last synced, STALE once two
+    scheduled runs have passed while you were working, or "never synced". The hook passes the
+    presence streak it already recorded; other callers record their own."""
+    from datetime import datetime, timezone
+    from zoneinfo import ZoneInfo
+    now = now or datetime.now(timezone.utc)
+    if streak is None:
+        streak = note_presence(now)
+    state, tz, lines = _repo_state() or {}, ZoneInfo(TIMEZONE), []
+    for r in repos():
+        s = state.get(r["name"], {})
+        err = f" ({s['last_error']})" if s.get("last_error") else ""
+        last = datetime.fromisoformat(s["last_ok_at"]) if s.get("last_ok_at") else None
+        if last is None:
+            lines.append(f"{r['name']}: never synced{err}")
+            continue
+        when = f"last sync {last.astimezone(tz):%b %d %H:%M}"
+        sched = {"hours": REPO_HOURS, "minute": REPO_MINUTE}
+        if sweep_stale(last, streak, now, slots=REPO_STALE_SLOTS, present=REPO_PRESENT_SLOTS, **sched):
+            lines.append(f"{r['name']}: STALE, {sweep_slots(last, now, **sched)} runs missed, {when}{err}")
+        else:
+            commit = s.get("indexed") or s.get("head") or "?"
+            label = "indexed" if s.get("indexed") else "fetched"
+            lines.append(f"{r['name']}: {r['branch']} @ {commit[:7]} {label}, {when}")
+    return lines
+
+
+def repo_sync_status(now=None):
+    """One line naming every STALE repo, or None when [repos] is off, nothing has synced yet, or
+    nothing is stale. Like sweep_status it latches nothing: the next good sync clears it."""
+    if not REPOS.get("enabled") or _repo_state() is None:
+        return None
+    stale = [l for l in repo_freshness(now) if ": STALE," in l]
+    if not stale:
+        return None
+    return ("; ".join(stale) + ". Claude may be reading old code from these mirrors. "
+            f"Check the log: {STATE_DIR}/logs/repo-sync.log")
 
 
 def set_secret(name, value):
