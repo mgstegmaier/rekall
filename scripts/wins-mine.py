@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Mine a review year's evidence into one markdown dump for drafting the wins page.
 
-Sources, all local: your commits in the work repos, Claude Code prompt history
+Sources, all local: your pushed commits in the repos tracked under [repos] (their mirrors), Claude Code prompt history
 for work projects, wiki project pages tagged with the work tag, meeting-note titles, and any
 `### Wins` bullets the session digest has written into wiki/sessions/.
 
@@ -20,29 +20,31 @@ from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import rekall_config  # noqa: E402
 from rekall_config import USER_NAME, VAULT, WIKI, WINS  # noqa: E402
 
 HOME = Path.home()
 # Personal values live in rekall.toml's [wins] section, not in this public file.
-REPOS_DIR = Path(WINS.get("repos_dir", "~/work-repos")).expanduser()  # a folder of git clones
 HISTORY = HOME / ".claude" / "history.jsonl"
 AUTHOR = WINS.get("author", USER_NAME)  # git log --author pattern
 WORK_PATH_MARKERS = tuple(WINS.get("work_markers", []))  # a prompt's project path containing one counts as work
 WORK_TAG = WINS.get("tag", "work")  # project pages carrying this word in their frontmatter
 
 
-def commits(since):
+def commits(since, repos):
+    """Your commits on every pushed branch of each tracked repo's mirror. Commits never pushed,
+    and repos not under [repos], aren't evidence here (decided 2026-11-03 with the repo mirrors)."""
     by_month = defaultdict(lambda: defaultdict(list))
-    for repo in sorted(REPOS_DIR.iterdir()):
-        if not (repo / ".git").is_dir():
+    for repo in repos:
+        if not repo["mirror"].is_dir():
             continue
         out = subprocess.run(
-            ["git", "-C", str(repo), "log", f"--author={AUTHOR}", f"--since={since}",
-             "--no-merges", "--format=%ad\t%s", "--date=short"],
+            ["git", "-C", str(repo["mirror"]), "log", "--remotes=origin", f"--author={AUTHOR}",
+             f"--since={since}", "--no-merges", "--format=%ad\t%s", "--date=short"],
             capture_output=True, text=True).stdout
         for line in out.splitlines():
             date, _, subject = line.partition("\t")
-            by_month[date[:7]][repo.name].append(f"{date} {subject}")
+            by_month[date[:7]][repo["name"]].append(f"{date} {subject}")
     return by_month
 
 
@@ -126,8 +128,11 @@ def main():
 
     print(f"# Wins evidence since {a.since}\n")
 
-    print(f"## Commits by month (author: {AUTHOR}, {REPOS_DIR.name})\n")
-    for month, repos in sorted(commits(a.since).items()):
+    if "repos_dir" in WINS:
+        print("wins-mine: [wins].repos_dir is no longer read; [repos] in rekall.toml replaced it", file=sys.stderr)
+    tracked = rekall_config.repos()
+    print(f"## Commits by month (author: {AUTHOR}, repos: {', '.join(r['name'] for r in tracked) or 'none tracked'})\n")
+    for month, repos in sorted(commits(a.since, tracked).items()):
         print(f"### {month}")
         for repo, lines in sorted(repos.items()):
             print(f"**{repo}** ({len(lines)})")
