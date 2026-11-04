@@ -9,6 +9,8 @@ https://github.com/mgstegmaier/rekall (fresh single-commit history since 2026-09
   script at another vault. Secrets: `.env` at the repo root (see `.env.example`) or Doppler.
 - `graph-memory/` — the LIVE copy (hooks in `~/.claude/settings.json` and the hourly
   `com.rekall.wiki-reindex` LaunchAgent point here). See `graph-memory/README.md`.
+  `repo_sync.py` (the optional `com.rekall.repo-sync` job, `install.sh --with-repos`) keeps bare
+  mirrors of the `[repos]` list at `<data>/repos/<name>.git`, state in `<state>/repo-sync-state.json`.
 - `scripts/` — ingest pipeline, indexers, wiki lint/cleanup, wins mining.
 - The chief of staff (ledger, prep, status, the plate) moved to its own private repo
   `~/github_repos/cos-desk` on 2026-09-07; wiki page `pages/chief-of-staff.md` is the reference. `launchd/` — plist

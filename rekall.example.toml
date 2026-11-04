@@ -43,11 +43,22 @@ group = "Auto-Capture"
 enabled = true
 
 [wins]
-# Optional. scripts/wins-mine.py gathers a year's evidence for a review from these.
-repos_dir = "~/work-repos"          # folder holding your work git clones
+# Optional. scripts/wins-mine.py gathers a year's evidence for a review from these, and your
+# commits from the repos under [repos] below.
 author = "Your Name"                # git log --author pattern
 work_markers = ["work-repos"]       # a Claude Code project path containing one of these counts as work
 tag = "work"                        # project pages whose frontmatter carries this word
+
+# Optional. Read-only mirrors of your GitHub repos, so Claude reads current main instead of a
+# stale clone. graph-memory/repo_sync.py fetches them at 07:00 and 13:00 once you run
+# `bash install.sh --with-repos`. Uncomment, then add one [[repos.repo]] block per repo.
+# [repos]
+# enabled = true
+#
+# [[repos.repo]]
+# name = "myrepo"                  # short name for the mirror folder: letters, digits, _ - .
+# remote = "<owner>/<repo>"        # GitHub owner/name, or any URL containing ://
+# branch = "main"                  # default "main"
 
 [graph]
 # Optional. Reads your mail and the Teams chats you pick, and writes new project facts and

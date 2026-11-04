@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Template. Replace __REPO__ (this repo's absolute path) and __STATE__ (the state folder),
+     then copy to ~/Library/LaunchAgents/ and `launchctl load` it. install.sh --with-repos does both. -->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.rekall.repo-sync</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>__REPO__/graph-memory/repo-sync.sh</string>
+    </array>
+    <!-- 07:00 and 13:00 local; keep in step with REPO_HOURS in rekall_config.py. A time missed
+         while asleep runs once on wake. A non-zero exit means a repo failed; `grep FAILED` shows which. -->
+    <key>StartCalendarInterval</key>
+    <array>
+        <dict>
+            <key>Hour</key>
+            <integer>7</integer>
+            <key>Minute</key>
+            <integer>0</integer>
+        </dict>
+        <dict>
+            <key>Hour</key>
+            <integer>13</integer>
+            <key>Minute</key>
+            <integer>0</integer>
+        </dict>
+    </array>
+    <key>StandardOutPath</key>
+    <string>__STATE__/logs/repo-sync.log</string>
+    <key>StandardErrorPath</key>
+    <string>__STATE__/logs/repo-sync.log</string>
+</dict>
+</plist>

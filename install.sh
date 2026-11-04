@@ -20,14 +20,23 @@ VENV="$REPO/graph-memory/.venv"
 DOMAIN="gui/$(id -u)"
 LABELS="com.rekall.fathom-pipeline com.rekall.wiki-lint com.rekall.wiki-reindex"
 GRANOLA="com.rekall.granola-sweep"   # optional: --with-granola schedules it; --uninstall always removes it
-case " $* " in *" --with-granola "*) LABELS="$LABELS $GRANOLA" ;; esac
 GRAPH_INGEST="com.rekall.graph-ingest"  # optional, macOS only: --with-graph schedules it; --uninstall always removes it
+REPO_SYNC="com.rekall.repo-sync"        # optional, macOS only: --with-repos schedules it; --uninstall always removes it
 
 case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) WIN=1 ;; *) WIN= ;; esac
-case " $* " in *" --with-graph "*)
-  if [ -n "$WIN" ]; then echo "--with-graph: the Graph ingest schedule is macOS-only; skipping it"
-  else LABELS="$LABELS $GRAPH_INGEST"; fi ;;
-esac
+# Appends the optional schedules the flags in "$@" ask for to LABELS.
+optional_labels() {
+  case " $* " in *" --with-granola "*) LABELS="$LABELS $GRANOLA" ;; esac
+  case " $* " in *" --with-graph "*)
+    if [ -n "$WIN" ]; then echo "--with-graph: the Graph ingest schedule is macOS-only; skipping it"
+    else LABELS="$LABELS $GRAPH_INGEST"; fi ;;
+  esac
+  case " $* " in *" --with-repos "*)
+    if [ -n "$WIN" ]; then echo "--with-repos: the repo sync schedule is macOS-only; skipping it"
+    else LABELS="$LABELS $REPO_SYNC"; fi ;;
+  esac
+}
+optional_labels "$@"
 if [ -n "$WIN" ]; then
   PY="$VENV/Scripts/python.exe"          # Windows venv layout
   LIST_RULE="Bash(schtasks /Query:*)"
@@ -269,7 +278,7 @@ unplace() {  # $1 = as for place
 
 uninstall() {
   LABELS="$LABELS $GRANOLA"
-  [ -z "$WIN" ] && LABELS="$LABELS $GRAPH_INGEST"
+  [ -z "$WIN" ] && LABELS="$LABELS $GRAPH_INGEST $REPO_SYNC"
   if [ -n "$WIN" ]; then
     for l in $LABELS; do
       powershell.exe -NoProfile -Command \
@@ -290,7 +299,19 @@ uninstall() {
   for src in "$REPO"/skills/* "$REPO"/commands/*; do unplace "$src"; done
   echo "Rekall uninstalled: schedules, hooks, skills, commands and the Claude Desktop MCP entry removed."
   echo "Kept: $REPO (with .venv and .env) and your wiki."
+  repo_data_kept
   exit 0
+}
+# Names the repo mirrors and index uninstall leaves in place. A missing or broken rekall.toml
+# must not stop uninstall partway under set -e, so the lookup can fail and print a fallback.
+repo_data_kept() {
+  local data
+  data="$("${PY3:-python3}" "$REPO/rekall_config.py" DATA 2>/dev/null)" || data=""
+  if [ -n "$data" ]; then
+    echo "Kept repo data, if any: $data/repos (mirrors), $data/repos-corpus, $data/repos.db"
+  else
+    echo "Kept repo data, if any, is under your [data].path"
+  fi
 }
 [ "${1:-}" = "--uninstall" ] && uninstall
 
