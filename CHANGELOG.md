@@ -8,6 +8,7 @@ To upgrade, run `git pull` and then `bash install.sh` in the rekall folder (see 
 
 - New, optional: read-only mirrors of your GitHub repos (phase 1 of the repo-search design). List repos under `[repos]` in `rekall.toml` and run **`bash install.sh --with-repos`** to schedule `com.rekall.repo-sync` at 07:00 and 13:00. Each mirror is a bare clone at `<data>/repos/<name>.git` holding every GitHub branch under `origin/*`, and the new `repo-mirrors` skill tells Claude to read current `main` from it with `git show`, `git grep` and `git log`. A failed repo logs `FAILED repo=<name> step=fetch` and the run exits 1; the recall hook adds a `Rekall repo sync:` line once a repo misses two runs in a row and one of them fell while you were working. `--uninstall` removes the schedule and leaves the mirrors. Without `[repos]` nothing changes. See "Read your GitHub repos" in the README.
 - `scripts/wins-mine.py` reads your commits from the `[repos]` mirrors, on every pushed branch, instead of the clones under `[wins].repos_dir`. That key is no longer read, and the script prints a notice while it's still set; remove it from `rekall.toml`. Commits you never pushed, and repos not under `[repos]`, drop out of the evidence.
+- The recall hook skips replies made only of acknowledgements, alone or combined, such as `great thanks` or `ok, go ahead`. It used to skip only a single one, so a combined reply searched the wiki and could inject context. `git pull` is enough.
 
 ## 2026-11-02
 

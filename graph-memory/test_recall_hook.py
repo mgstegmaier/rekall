@@ -172,6 +172,12 @@ with tempfile.TemporaryDirectory() as tmp:
     finally:
         search.meaning_leg = real_meaning_leg
 
+# ACK: a reply made only of acknowledgements skips the search, alone or combined; any real word keeps it
+for ack in ("thanks", "great thanks", "ok, go ahead!", "Yes. Thank you", "lgtm  thx", "cool cool"):
+    assert recall_hook.ACK.fullmatch(ack), ack
+for real in ("thanks for the rekall fix", "great, now merge PR 64", "ok what about eq14", "okay-ish"):
+    assert not recall_hook.ACK.fullmatch(real), real
+
 # main() labels the hits as quoted data, never instructions
 real = (recall_hook.hits, recall_hook.graph_facts, recall_hook.claude_auth_status, recall_hook.sweep_status, recall_hook.DB)
 try:

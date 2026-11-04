@@ -46,11 +46,12 @@ BUTTON_PROMPT = re.compile(
     re.S,
 )
 
-# One-word replies to something Claude just said. They hold nothing to search for, and a search costs the
-# whole model import (~0.4 s), so they return before it. Matched on the whole prompt, after reminder blocks.
-ACK = re.compile(
-    r"(ok|okay|k|yes|yep|yeah|y|no|nope|go|go on|go ahead|continue|proceed|sure|do it|done|"
-    r"thanks|thank you|thx|ty|lgtm|sounds good|looks good|great|nice|cool)\W*", re.I)
+# Replies made only of acknowledgements ("ok", "great thanks", "yes, go ahead"). They hold nothing to search
+# for, and a search costs the whole model import (~0.4 s), so they return before it. Matched on the whole
+# prompt, after reminder blocks.
+_ACK_WORD = (r"(?:ok|okay|k|yes|yep|yeah|y|no|nope|go|go on|go ahead|continue|proceed|sure|do it|done|"
+             r"thanks|thank you|thx|ty|lgtm|sounds good|looks good|great|nice|cool)")
+ACK = re.compile(rf"{_ACK_WORD}(?:\W+{_ACK_WORD})*\W*", re.I)
 
 # ponytail: cosine floor on the meaning leg (BGE-small, unit-normalized vectors).
 # Calibrated 2026-09-24 against 15 real prompts named from vault page titles
