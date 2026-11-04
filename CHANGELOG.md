@@ -4,6 +4,10 @@ The changes that affect an installed Rekall, newest first. Rekall has no version
 
 To upgrade, run `git pull` and then `bash install.sh` in the rekall folder (see "Upgrading" in the README). An entry marked **Re-run install.sh** changes something the installer writes outside the repo, such as the Claude Code hooks, the Claude Desktop MCP entry, or the venv packages, so `git pull` alone doesn't pick it up.
 
+## 2026-11-03
+
+- The recall hook skips replies made only of acknowledgements, alone or combined, such as `great thanks` or `ok, go ahead`. It used to skip only a single one, so a combined reply searched the wiki and could inject context. `git pull` is enough.
+
 ## 2026-11-02
 
 - **Re-run install.sh.** Re-runs now refresh the wiki skill and the `fathom-sync` command, unless you changed your copy. `install.sh` keeps a record of what it last wrote in the repo's gitignored `.installed/` folder, and prints `installed`, `updated` or `unchanged` for each copy. A copy you changed, a file it didn't write, or a symlink stays as it is, and the run names it with the `mv` command that installs the new version and the `diff` command that compares them.
