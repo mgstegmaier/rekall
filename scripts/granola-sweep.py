@@ -14,7 +14,7 @@ Each run:
 5. State in granola-state.json in the state folder (`[data].state`, default `~/.config/rekall`), own lock. No Monday push.
 
 No GRANOLA_API_KEY: one log line, exit 0. The key is the on/off switch.
-Flags: --hours N (default 26) | --since YYYY-MM-DD | --no-wiki | --dry-run
+Flags: --hours N (default 26, counted back from the last clean run) | --since YYYY-MM-DD | --no-wiki | --dry-run
 
 API shape (Granola OpenAPI, docs.granola.ai/api-reference): GET /v1/notes pages with `cursor`
 and `hasMore` and returns summaries only (id, title, created_at, updated_at, owner). GET
@@ -187,9 +187,9 @@ def main():
         return
 
     now = datetime.now(timezone.utc)
-    start = (datetime.strptime(args.since, "%Y-%m-%d").replace(tzinfo=timezone.utc) if args.since
-             else now - timedelta(hours=args.hours))
     state = load_state()
+    start = (datetime.strptime(args.since, "%Y-%m-%d").replace(tzinfo=timezone.utc) if args.since
+             else fp.window_start(now, args.hours, state.get("last_success")))
     try:
         meetings = fetch_notes(start, set(state["notes"]))
     except fp.urllib.error.HTTPError as e:
@@ -240,31 +240,43 @@ def main():
         state["notes"][m["id"]] = entry
         save_state(state)
     fp.append_digest(digest)
+    if not args.since:  # every ready note in the window is recorded, so the next run can look back from here
+        state["last_success"] = now.isoformat()
+        save_state(state)
 
     if args.no_wiki:
         return
     failures = state.setdefault("ingest_failures", {})
     pending = [e["note"] for e in state["notes"].values() if not e["ingested"] and failures.get(e["note"], 0) < 2]
     log(f"wiki ingest: {len(pending)} pending sources")
+    extra = "Some sources are Fathom notes with a newly appended '## Granola notes' section; only that section is new to the wiki."
     for i in range(0, len(pending), fp.INGEST_BATCH):
         batch = pending[i:i + fp.INGEST_BATCH]
-        ok = fp.ingest_to_wiki(batch, extra="Some sources are Fathom notes with a newly appended '## Granola notes' "
-                                           "section; only that section is new to the wiki.")
-        if ok is None:  # not signed in: the sources aren't at fault, so none of them is counted
-            fp.notify("Granola sweep: wiki ingest can't authenticate; run scripts/setup-server.py --reauth. "
-                      "Stopping this run.", title="Granola sweep")
-            break
-        for s in batch:
-            if ok:
+        ok = fp.ingest_to_wiki(batch, extra=extra)
+        results = {} if ok is False else dict.fromkeys(batch, ok)
+        if ok is False:  # retry each source alone, so one poison note can't quarantine the rest of its batch
+            log("  batch failed; retrying sources individually")
+            for s in batch:
+                results[s] = fp.ingest_to_wiki([s], extra=extra)
+                if results[s] is None:
+                    break
+        for s, r in results.items():
+            if r:
                 failures.pop(s, None)
                 for e in state["notes"].values():
                     if e["note"] == s:
                         e["ingested"] = True
-            else:
-                failures[s] = failures.get(s, 0) + 1  # ponytail: quarantined at 2, no per-source retry
+            elif r is False:  # None means not signed in: the source isn't at fault, so it isn't counted
+                failures[s] = failures.get(s, 0) + 1
+                log(f"  source failed ({failures[s]}x): {s}")
         save_state(state)
-        if not ok:
-            fp.notify("Granola sweep: wiki ingest failed for a batch; stopping this run", title="Granola sweep")
+        if None in results.values():
+            fp.notify("Granola sweep: wiki ingest can't authenticate; run scripts/setup-server.py --reauth. "
+                      "Stopping this run.", title="Granola sweep")
+            break
+        if not any(results.values()):
+            fp.notify("Granola sweep: wiki ingest failed for every source in a batch; stopping this run",
+                      title="Granola sweep")
             break
     if any(e["ingested"] for e in state["notes"].values()):
         import subprocess

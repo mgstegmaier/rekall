@@ -46,6 +46,7 @@ LOCK_FILE = STATE_DIR / "fathom-pipeline.lock"
 CT = ZoneInfo(TIMEZONE)
 FATHOM_BASE = "https://api.fathom.ai/external/v1"
 INGEST_BATCH = 5
+MAX_LOOKBACK_DAYS = 7  # how far a missed weekend or a sleeping laptop can widen the window
 # Research memos are analysis, not source material, so they get their own prompt and a write
 # boundary narrow enough that a wrong unattended run can't corrupt what a page says is true.
 RESEARCH_EXTRA = (
@@ -175,6 +176,13 @@ def pending_research(state):
         return []
     return [f for f in sorted(RESEARCH_DIR.glob("*.md"))
             if source_is_pending(f, state.get("research_ingested", []))]
+
+
+def window_start(now, hours, last_success):
+    """Look back `hours` from the last clean run, not from now, so a weekend or a laptop asleep
+    longer than `hours` opens no gap. Capped at MAX_LOOKBACK_DAYS."""
+    base = min(now, datetime.fromisoformat(last_success)) if last_success else now
+    return max(base - timedelta(hours=hours), now - timedelta(days=MAX_LOOKBACK_DAYS))
 
 
 # ── Fathom ──────────────────────────────────────────────────
@@ -427,14 +435,21 @@ def ensure_group(state):
     return state["monday_group_id"]
 
 
+def unsent_items(m):
+    """My open action items not yet on Monday: what a failed push still owes the next run."""
+    return [a for a in m["action_items"]
+            if a["is_mine"] and not a["completed"] and a["text"].strip() and not a.get("pushed")]
+
+
 def push_action_items(m, note_rel, group_id):
     pushed = 0
-    for a in m["action_items"]:
-        if not a["is_mine"] or a["completed"] or not a["text"].strip():
-            continue
+    for a in unsent_items(m):
         item = monday_gql(
             "mutation($board: ID!, $group: String!, $name: String!) { create_item(board_id: $board, group_id: $group, item_name: $name) { id } }",
             {"board": str(MONDAY_BOARD), "group": group_id, "name": a["text"].strip()[:255]})
+        # ponytail: at-least-once. A timeout after Monday commits the item leaves it unmarked and the
+        # next run creates a duplicate; a visible duplicate beats a silently lost to-do.
+        a["pushed"] = True  # the item exists now; a retry must not create it twice
         body = (f"From meeting: {m['title']} ({m['dt'].strftime('%Y-%m-%d')})\n"
                 f"Vault note: {note_rel}\n" + (f"Recording: {m['url']}" if m["url"] else ""))
         monday_gql("mutation($item: ID!, $body: String!) { create_update(item_id: $item, body: $body) { id } }",
@@ -786,13 +801,12 @@ def main():
     if not args.no_monday and not env("MONDAY_API_TOKEN"):
         log("no MONDAY_API_TOKEN set; skipping the Monday push")
         args.no_monday = True
+    state = load_state()
     if args.since:
         start = datetime.strptime(args.since, "%Y-%m-%d").replace(tzinfo=timezone.utc)
         args.no_monday = True  # backfill never pushes to Monday
     else:
-        start = now - timedelta(hours=args.hours)
-
-    state = load_state()
+        start = window_start(now, args.hours, state.get("last_success"))
     try:
         meetings = fetch_meetings(start, now)
     except urllib.error.HTTPError:
@@ -817,9 +831,7 @@ def main():
     rollover_today_note()
 
     # 1. meeting notes + Monday + digest
-    group_id = None
-    monday_broken = False  # a Monday outage must never block wiki ingest
-    digest_entries = []
+    written = []
     for m in new:
         note_rel = write_note(m, state)
         if note_rel is None:
@@ -828,21 +840,33 @@ def main():
         else:
             log(f"  wrote {note_rel}")
         entry = {"note": note_rel, "monday": False, "ingested": False, "title": m["title"]}
-        if not args.no_monday and not monday_broken:
-            try:
-                if group_id is None:
-                    group_id = ensure_group(state)
-                n = push_action_items(m, note_rel, group_id)
-                entry["monday"] = True
-                if n:
-                    log(f"  pushed {n} action items to Monday")
-            except Exception as e:
-                monday_broken = True
-                notify(f"Monday push failed ({type(e).__name__}: {e}); continuing with wiki ingest")
-        digest_entries.append(digest_entry(m, note_rel, entry["monday"]))
+        if not args.no_monday:  # only a push we meant to make is owed; --no-monday and backfill owe nothing
+            entry["monday_pending"] = {"title": m["title"], "dt": m["dt"].isoformat(), "url": m["url"],
+                                       "action_items": unsent_items(m)}
+        written.append((m, note_rel, entry))
         state["meetings"][m["id"]] = entry
         save_state(state)
-    append_digest(digest_entries)
+
+    # Push every owed meeting, this run's and any an earlier failed run left behind.
+    group_id = None
+    for entry in state["meetings"].values():
+        owed = entry.get("monday_pending")
+        if args.no_monday or owed is None:
+            continue
+        try:
+            if group_id is None:
+                group_id = ensure_group(state)
+            n = push_action_items({**owed, "dt": datetime.fromisoformat(owed["dt"])}, entry["note"], group_id)
+            entry["monday"] = True
+            del entry["monday_pending"]
+            if n:
+                log(f"  pushed {n} action items to Monday for {entry['note']}")
+        except Exception as e:  # a Monday outage must never block wiki ingest; the rest wait for the next run
+            notify(f"Monday push failed ({type(e).__name__}: {e}); will retry next run, continuing with wiki ingest")
+            break  # ponytail: one meeting Monday always rejects would hold back newer ones; skip it if that ever happens
+        finally:
+            save_state(state)
+    append_digest([digest_entry(m, note_rel, entry["monday"]) for m, note_rel, entry in written])
 
     # 2. wiki ingest: new notes + previously failed + new raw files
     swept = True  # a run with nothing pending still counts as a healthy sweep
