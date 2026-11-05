@@ -36,6 +36,8 @@ One machine runs one Rekall install. `install.sh` refuses to run from a second c
 
 If `install.sh` fails partway, fix what its error names and run it again. A re-run repeats every step and changes only what differs.
 
+On a Mac with endpoint security software such as SentinelOne, CrowdStrike or Jamf Protect, run `install.sh` from Terminal.app, not from inside Claude Code or the Claude desktop app. The script writes LaunchAgents into `~/Library/LaunchAgents/` and loads them with `launchctl bootstrap`, which is the standard way Mac malware makes itself run at every login. When a process that Claude started does this, the security agent can kill the session and quarantine every file in its process chain, including your Claude Code hooks. If that happens, ask your security team to exclude the rekall folder and `~/.claude/`, then restore the quarantined files from git.
+
 ## What it does
 
 - **Recall** - a hook that runs before every Claude Code prompt and hands Claude up to five of the best hits plus entity-graph facts, so it answers from your notes without being asked to look

@@ -37,7 +37,9 @@ registered by `install.sh` step 6 (`7f55d1b`, `4e4d84f`, `0dea1ca`). README sect
 Claude Desktop chat" merged in PR #7. Cost audit 2026-09-24 numbers live on wiki `pages/rekall.md`.
 Repo mirrors phase 1 merged 2026-11-03 (PR #63, ADR-004): five repos mirrored under `<data>/repos/`, synced by
 `com.rekall.repo-sync`; phase 2 (`repos.db`, `search_repo_docs`) waits for ADR-002's 2026-11-15 check.
-This machine runs the released install (`bash install.sh --with-graph --with-repos`, `com.rekall.*` labels) since 2026-11-01; the old `com.heckatron.*` plists sit in `~/.config/rekall/backup-plists/`. Re-running `install.sh` is safe.
+This machine runs the released install (`bash install.sh --with-graph --with-repos`, `com.rekall.*` labels) since 2026-11-01; the old `com.heckatron.*` plists sit in `~/.config/rekall/backup-plists/`. Re-running `install.sh` is safe from Terminal.app. Don't run it from a Claude session on this Mac: SentinelOne reads
+the LaunchAgent writes and `launchctl bootstrap` as malware persistence, kills the session and quarantines its whole
+process chain (2026-10-21 and 2026-11-04; README "Upgrading").
 Changes go through a PR; never merge into `main` locally.
 
 Open: eval prompt set contaminated and Haiku judge uncalibrated (recheck 0.68 with

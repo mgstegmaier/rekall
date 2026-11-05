@@ -80,6 +80,11 @@ fails. Never skip a failed step and never overwrite a file that already exists.
    expected, tell me to approve it. If the script stops on python, tell me how to install
    a newer one and stop. If it says Rekall is already installed from another folder, show
    me that message and stop (one machine runs one install; see "Upgrading" in README.md).
+   On macOS, ask me first whether this Mac runs endpoint security software such as
+   SentinelOne, CrowdStrike or Jamf Protect. If it does, don't run the script yourself:
+   tell me to run `bash install.sh` in Terminal.app and paste its output back to you,
+   because the security agent can treat a Claude-started script that loads launchd agents
+   as malware and quarantine my hooks.
 6. Test the Fathom key by listing my most recent meeting and show me its title. If the
    call fails with a certificate error, follow the corporate-CA note in SETUP.md and
    retry once.
