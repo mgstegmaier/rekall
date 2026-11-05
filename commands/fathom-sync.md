@@ -8,8 +8,10 @@ Manually trigger the Fathom pipeline: pull new completed meetings into `wiki/mee
 /fathom-sync [hours]
 ```
 
-- `/fathom-sync` — process the last 26 hours (default)
-- `/fathom-sync 72` — process the last 72 hours
+- `/fathom-sync` — process the 26 hours before the last clean run, plus everything since (default)
+- `/fathom-sync 72` — the same, reaching 72 hours back from the last clean run
+
+The window never reaches back more than 7 days.
 
 ## What This Command Does
 

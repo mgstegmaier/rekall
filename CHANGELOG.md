@@ -4,6 +4,12 @@ The changes that affect an installed Rekall, newest first. Rekall has no version
 
 To upgrade, run `git pull` and then `bash install.sh` in the rekall folder (see "Upgrading" in the README). An entry marked **Re-run install.sh** changes something the installer writes outside the repo, such as the Claude Code hooks, the Claude Desktop MCP entry, or the venv packages, so `git pull` alone doesn't pick it up.
 
+## 2026-11-05
+
+- The Fathom pipeline and the Granola sweep look back from their last clean run, not from now. Each run fetches from 26 hours (or `--hours`) before the last clean run, capped at 7 days. Before this, a fixed 26-hour window meant that a Granola note from a Friday meeting that ended after 3:30 PM, too late for Friday's last sweep, fell outside Monday morning's window and was never captured. `git pull` is enough.
+- A failed Monday push is retried on the next run. The pipeline keeps the unsent to-dos in state (`monday_pending`) and marks each one as Monday creates it, so a retry doesn't create it twice. Meetings processed with Monday off, or by a `--since` backfill, are never pushed later.
+- When a Granola sweep ingest batch fails, the sweep retries each note on its own, as the Fathom pipeline does. Before this, one bad note quarantined every note in its batch after two runs.
+
 ## 2026-11-03
 
 - New, optional: read-only mirrors of your GitHub repos (phase 1 of the repo-search design). List repos under `[repos]` in `rekall.toml` and run **`bash install.sh --with-repos`** to schedule `com.rekall.repo-sync` at 07:00 and 13:00. Each mirror is a bare clone at `<data>/repos/<name>.git` holding every GitHub branch under `origin/*`, and the new `repo-mirrors` skill tells Claude to read current `main` from it with `git show`, `git grep` and `git log`. A failed repo logs `FAILED repo=<name> step=fetch` and the run exits 1; the recall hook adds a `Rekall repo sync:` line once a repo misses two runs in a row and one of them fell while you were working. `--uninstall` removes the schedule and leaves the mirrors. Without `[repos]` nothing changes. See "Read your GitHub repos" in the README.
