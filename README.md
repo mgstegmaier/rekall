@@ -28,7 +28,7 @@ git pull
 bash install.sh
 ```
 
-`git pull` brings in the new code. Re-running `install.sh` refreshes everything it writes outside the repo: the Claude Code hooks, the skills and commands in `~/.claude/`, the venv packages (brought to their pinned versions), the Claude Desktop MCP entry, and the schedules. It replaces older copies instead of adding duplicates, and a second run with nothing changed prints `unchanged` for each copy. It never overwrites a skill or command you changed, a file it didn't write, or a symlink. It names each one and prints the `mv` command that installs the new version and the `diff` command that compares them afterwards. Hand edits to the `com.rekall.*` schedules are overwritten. The installer doesn't remember optional flags, so pass the ones you installed with again (`bash install.sh --with-graph`, `--with-granola`, `--with-repos`). Without the flag, that schedule stays in place but isn't refreshed. After you change `[vault].path` or `[data].state` in `rekall.toml`, re-run `install.sh`; the old state folder isn't moved. Then type `/exit` and open Claude Code again so any changed hooks load. [`CHANGELOG.md`](CHANGELOG.md) lists what changed, and which changes need the `install.sh` step.
+`git pull` brings in the new code. Re-running `install.sh` refreshes everything it writes outside the repo: the Claude Code hooks, the skills and commands in `~/.claude/`, the venv packages (brought to their pinned versions), the Claude Desktop MCP entry, and the schedules. It replaces older copies instead of adding duplicates, and a second run with nothing changed prints `unchanged` for each copy. It never overwrites a skill or command you changed, a file it didn't write, or a symlink. It names each one and prints the `mv` command that installs the new version and the `diff` command that compares them afterwards. Hand edits to the `com.rekall.*` schedules are overwritten. The installer doesn't remember optional flags, so pass the ones you installed with again (`bash install.sh --with-graph`, `--with-granola`, `--with-wispr`, `--with-repos`). Without the flag, that schedule stays in place but isn't refreshed. After you change `[vault].path` or `[data].state` in `rekall.toml`, re-run `install.sh`; the old state folder isn't moved. Then type `/exit` and open Claude Code again so any changed hooks load. [`CHANGELOG.md`](CHANGELOG.md) lists what changed, and which changes need the `install.sh` step.
 
 `bash install.sh --standard` also opens the setup page for the keys and the Sign in to Claude button; `python3 scripts/setup-server.py --reauth` signs in again when the expiry dialog appears. At the end, `install.sh` makes one test call to Claude and prints a warning if it doesn't answer.
 
@@ -58,6 +58,7 @@ On a Mac with endpoint security software such as SentinelOne, CrowdStrike or Jam
   - `api.monday.com`: the Fathom pipeline pushes meeting items to Monday. Optional: it needs a Monday token, and `--no-monday` skips it.
   - `graph.microsoft.com` and `login.microsoftonline.com`: the optional mail and Teams ingest, and its sign-in on the settings page.
   - `public-api.granola.ai`: the optional Granola sweep, scheduled only with `install.sh --with-granola`.
+  - Wispr Flow, through the `claude` CLI and its `wispr-flow` MCP server: the optional Wispr Flow sweep, scheduled only with `install.sh --with-wispr` (macOS only). It needs the server added at user scope and signed in; a headless Haiku call with only the two read-only meeting tools lists your meetings and merges them like the Granola sweep does, under `## Wispr Flow notes` in a matching Fathom note or as a new `source: wispr-flow` note.
   - `huggingface.co`: `graph-memory/fetch_model.sh` downloads the embedding model once, at install. `pip` also fetches the Python packages then.
   - `github.com`: the optional repo sync fetches the repos you list under `[repos]`, scheduled only with `install.sh --with-repos`.
 
@@ -120,7 +121,7 @@ rekall/
 ├── .env.example        # secrets: Fathom key, optional Monday and Jira tokens (copy to .env)
 ├── hooks.json          # the two Claude Code hook entries
 ├── vault-template/     # what setup copies into a new vault
-├── launchd/            # macOS schedules: fathom-pipeline, wiki-reindex, wiki-lint, graph-ingest, granola-sweep, repo-sync
+├── launchd/            # macOS schedules: fathom-pipeline, wiki-reindex, wiki-lint, graph-ingest, granola-sweep, wispr-sweep, repo-sync
 ├── windows/            # Task Scheduler tasks: fathom-pipeline, wiki-reindex, wiki-lint, granola-sweep
 ├── scripts/            # Fathom pipeline, wiki index/lint/cleanup
 ├── graph-memory/       # the index, the recall hook, distillation, the session digest
