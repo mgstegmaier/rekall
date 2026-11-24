@@ -20,6 +20,7 @@ VENV="$REPO/graph-memory/.venv"
 DOMAIN="gui/$(id -u)"
 LABELS="com.rekall.fathom-pipeline com.rekall.wiki-lint com.rekall.wiki-reindex"
 GRANOLA="com.rekall.granola-sweep"   # optional: --with-granola schedules it; --uninstall always removes it
+WISPR="com.rekall.wispr-sweep"        # optional, macOS only: --with-wispr schedules it; --uninstall always removes it
 GRAPH_INGEST="com.rekall.graph-ingest"  # optional, macOS only: --with-graph schedules it; --uninstall always removes it
 REPO_SYNC="com.rekall.repo-sync"        # optional, macOS only: --with-repos schedules it; --uninstall always removes it
 
@@ -27,6 +28,10 @@ case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) WIN=1 ;; *) WIN= ;; esac
 # Appends the optional schedules the flags in "$@" ask for to LABELS.
 optional_labels() {
   case " $* " in *" --with-granola "*) LABELS="$LABELS $GRANOLA" ;; esac
+  case " $* " in *" --with-wispr "*)
+    if [ -n "$WIN" ]; then echo "--with-wispr: the Wispr Flow sweep schedule is macOS-only; skipping it"
+    else LABELS="$LABELS $WISPR"; fi ;;
+  esac
   case " $* " in *" --with-graph "*)
     if [ -n "$WIN" ]; then echo "--with-graph: the Graph ingest schedule is macOS-only; skipping it"
     else LABELS="$LABELS $GRAPH_INGEST"; fi ;;
@@ -278,7 +283,7 @@ unplace() {  # $1 = as for place
 
 uninstall() {
   LABELS="$LABELS $GRANOLA"
-  [ -z "$WIN" ] && LABELS="$LABELS $GRAPH_INGEST $REPO_SYNC"
+  [ -z "$WIN" ] && LABELS="$LABELS $GRAPH_INGEST $REPO_SYNC $WISPR"
   if [ -n "$WIN" ]; then
     for l in $LABELS; do
       powershell.exe -NoProfile -Command \

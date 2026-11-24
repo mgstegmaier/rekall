@@ -4,6 +4,10 @@ The changes that affect an installed Rekall, newest first. Rekall has no version
 
 To upgrade, run `git pull` and then `bash install.sh` in the rekall folder (see "Upgrading" in the README). An entry marked **Re-run install.sh** changes something the installer writes outside the repo, such as the Claude Code hooks, the Claude Desktop MCP entry, or the venv packages, so `git pull` alone doesn't pick it up.
 
+## 2026-11-24
+
+- New, optional, macOS only: a Wispr Flow meeting sweep, `scripts/wispr-sweep.py`. Run **`bash install.sh --with-wispr`** to schedule `com.rekall.wispr-sweep` weekdays at :45, 07:45 to 17:45. It reads meetings through the `wispr-flow` MCP server (add it at user scope and sign in first) with a headless Haiku call that has only the `search_meetings` and `get_meeting` tools, then works like the Granola sweep: a matching Fathom note gets one `## Wispr Flow notes` section, anything else becomes a new `source: wispr-flow` note. State is `wispr-state.json`; no Monday push. Flags: `--hours` (default 48), `--since`, `--dry-run`, `--no-wiki`.
+
 ## 2026-11-05
 
 - The Fathom pipeline and the Granola sweep look back from their last clean run, not from now. Each run fetches from 26 hours (or `--hours`) before the last clean run, capped at 7 days. Before this, a fixed 26-hour window meant that a Granola note from a Friday meeting that ended after 3:30 PM, too late for Friday's last sweep, fell outside Monday morning's window and was never captured. `git pull` is enough.
